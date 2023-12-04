@@ -25,9 +25,10 @@ if __name__ == "__main__":
 
     # Specify the S3 bucket name
     bucket_name = 'avg-kitti'
+    prefix = 'raw_data'
 
-    sample_data = "raw_data/2011_09_28_drive_0080/2011_09_28_drive_0080_extract.zip"
-    local_file = "2011_09_28_drive_0080_extract.zip"
+    sample_data = "raw_data/2011_09_28_drive_0080/2011_09_28_drive_0080_sync.zip"
+    local_file = "2011_09_28_drive_0080_sync.zip"
 
     # Downlad S3 sample file
     zip_file_path = os.path.join(current_script_directory, local_file)
@@ -38,10 +39,13 @@ if __name__ == "__main__":
     else:
         s3.download_file(bucket_name, sample_data, zip_file_path)
 
-    # Extract downloaded zip file
-    with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
-        file_list = zip_ref.namelist()
-        zip_ref.extractall(current_script_directory + "/samples/")
+        # Extract downloaded zip file
+        with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
+            file_list = zip_ref.namelist()
+            zip_ref.extractall(current_script_directory + "/samples/")
 
-    # Delete zip file
-    os.remove(zip_file_path)
+        # Delete zip file
+        os.remove(zip_file_path)
+
+    # Navigate the unziped folder
+    

@@ -10,6 +10,7 @@ from botocore import UNSIGNED
 from botocore.client import Config
 
 import zipfile
+import xml.etree.ElementTree as ET
 
 import sys
 import os
@@ -19,22 +20,39 @@ current_script_directory = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(current_script_directory)
 
 
-def print_s3_hierarchy(objects, indent=2):
-    hierarchy = {}
+def list_objects(client, bucket_name, prefix=''):
+    objects = []
+
+    paginator = client.get_paginator('list_objects_v2')
+    for result in paginator.paginate(Bucket=bucket_name, Prefix=prefix):
+        if 'Contents' in result:
+            objects.extend(result['Contents'])
+
+    return objects
+
+
+def build_s3_hierarchy(objects):
+    hierarchy = ET.Element("S3Hierarchy")
 
     for obj in objects:
         key_parts = obj['Key'].split('/')
-        node = hierarchy
+        current_node = hierarchy
 
         for part in key_parts:
-            node = node.setdefault(part, {})
+            existing_node = next((child for child in current_node.findall(part) if child.tag == part), None)
 
-    def print_node(node, level=0):
-        for key, value in node.items():
-            print('    ' * (level * indent) + f'{key}/')
-            print_node(value, level + 1)
+            if existing_node is not None:
+                current_node = existing_node
+            else:
+                new_node = ET.SubElement(current_node, part)
+                current_node = new_node
 
-    print_node(hierarchy)
+    return hierarchy
+
+def write_hierarchy_to_xml(node, file_path):
+    tree = ET.ElementTree(node)
+    tree.write(file_path)
+
 
 
 if __name__ == "__main__":
@@ -46,11 +64,17 @@ if __name__ == "__main__":
 
     # List objects in the specified S3 bucket
     s3 = boto3.client('s3', config=Config(signature_version=UNSIGNED))
-    objects = []
 
-    paginator = s3.get_paginator('list_objects_v2')
-    for result in paginator.paginate(Bucket=bucket_name):
-        if 'Contents' in result:
-            objects.extend(result['Contents'])
-    print_s3_hierarchy(objects)
+    objects = list_objects(s3, bucket_name, 'raw_data')
+    hierarchy = build_s3_hierarchy(objects)
+
+
+    output_file_path = "S3_hierarchy.xml"
+    # Clear the existing content of the file before writing the new hierarchy
+
+    with open(output_file_path, 'w') as file:
+        file.write('')
+
+    write_hierarchy_to_xml(hierarchy, output_file_path)
+    print(f'S3 hierarchy written to {output_file_path}')
         

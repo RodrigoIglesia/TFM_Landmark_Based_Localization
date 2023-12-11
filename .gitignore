@@ -160,3 +160,7 @@ cython_debug/
 #.idea/
 
 .vscode
+/src/data/kitti_samples
+/src/data/waymo_samples
+/dataset
+*.tfrecords

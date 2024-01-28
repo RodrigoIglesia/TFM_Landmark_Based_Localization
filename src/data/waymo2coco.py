@@ -263,10 +263,10 @@ class WaymoCOCOConverter():
 
 
 def main():
-    tfrecord_dir = src_dir + '/dataset/waymo_samples/test'
-    image_dir = src_dir + '/dataset/waymo_coco_format/test'
-    label_dir = src_dir + '/dataset/waymo_coco_format/test/coco_annotations'
-    label_filename = 'instances_test.json'
+    tfrecord_dir = src_dir + '/dataset/waymo_samples/val'
+    image_dir = src_dir + '/dataset/waymo_coco_format/images/val'
+    label_dir = src_dir + '/dataset/waymo_coco_format/labels/val'
+    label_filename = 'instances_train.json'
 
 
     label_path = os.path.join(label_dir, label_filename)

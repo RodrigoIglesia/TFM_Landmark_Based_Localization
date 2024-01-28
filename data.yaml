@@ -1,0 +1,9 @@
+train: waymo_yolo_format/images/train
+val: waymo_yolo_format/images/val
+
+# Classes
+names:
+  0: vehicle
+  1: pedestrian
+  2: cyclist
+  3: sign

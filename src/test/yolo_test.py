@@ -38,7 +38,7 @@ def yolo_detect(image, model):
 
 
 def main():
-    dataset_path = os.path.join(src_dir, "dataset/waymo_samples")
+    dataset_path = os.path.join(src_dir, "dataset/waymo_samples/test")
     file = "individual_files_validation_segment-10203656353524179475_7625_000_7645_000_with_camera_labels.tfrecord"
 
     model = YOLO('models/yolov8s.pt')  # load an official model

@@ -1,6 +1,9 @@
 """
-Aymo Open Dataset - PVPS Datasets
+Waymo Open Dataset - PVPS Datasets
 Parsing and dataset generation for labeling and training
+Este módulo contiene funciones para:
+
+TODO: Crear una clase con métodos para parsear waymo, generar las etiquetas panópticas y documentarlo
 """
 
 import os
@@ -19,10 +22,36 @@ if not tf.executing_eagerly():
 
 from waymo_open_dataset import dataset_pb2 as open_dataset
 # from waymo_open_dataset import v2
-from waymo_open_dataset.protos import camera_segmentation_metrics_pb2 as metrics_pb2
-from waymo_open_dataset.protos import camera_segmentation_submission_pb2 as submission_pb2
-from waymo_open_dataset.wdl_limited.camera_segmentation import camera_segmentation_metrics
-from waymo_open_dataset.utils import camera_segmentation_utils
+# from waymo_open_dataset.protos import camera_segmentation_metrics_pb2 as metrics_pb2
+# from waymo_open_dataset.protos import camera_segmentation_submission_pb2 as submission_pb2
+# from waymo_open_dataset.wdl_limited.camera_segmentation import camera_segmentation_metrics
+# from waymo_open_dataset.utils import camera_segmentation_utils
+
+def load_frame(scene):
+    """
+    Load and yields frame object of a determined scene
+    A frame is composed of imagrs from the 5 cameras
+    A frame also has information of the bounding boxes and labels, related to each image
+    Args: scene (str) - path to the scene which contains the frames
+    Yield: frame_object (dict) - frame object from waymo dataset containing cameras and laser info
+    """
+    dataset = tf.data.TFRecordDataset(scene, compression_type='')
+    for data in dataset:
+        frame_object = open_dataset.Frame()
+        frame_object.ParseFromString(bytearray(data.numpy()))
+
+        yield frame_object
+
+def get_frame_image(frame_image):
+    """
+    Decodes a single image contained in the frame
+    Args: frame_image - image in waymo format
+    Return: decoded_image - Numpy decoded image
+    """
+    decoded_image = tf.image.decode_jpeg(frame_image.image)
+    decoded_image = decoded_image.numpy()
+
+    return decoded_image
 
 
 if __name__ == "__main__":

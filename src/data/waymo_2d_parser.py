@@ -2,6 +2,8 @@
 Este módulo contiene las funciones necesarias para
  - paresear información del Waymo dataset
  - extraer las imágenes de las cámaras
+ - Convertir annotations en formato YOLO Darknet
+ TODO: Seleccionar imágenes por tipo de escena (noche, etc)
 """
 
 import os
@@ -64,7 +66,7 @@ def get_image_bboxes(frame_labels, image_name):
 
     return bboxes
 
-def convert_annot2yolo(annotations):
+def convert_annot2yolo(annotations, image_height, image_width):
     """
     Converts a given list of annotations (dictionary) in a list of annotations in yolo format.
     Each element of the resulting list is another list [class, center_x, center_y, width, height]
@@ -76,8 +78,13 @@ def convert_annot2yolo(annotations):
     for bbox in annotations:
         label = bbox.type
         bbox_coords = bbox.box
+        xc = bbox_coords.center_x / image_width
+        yc = bbox_coords.center_y / image_height
+        width = bbox_coords.length / image_width
+        height = bbox_coords.width / image_height
 
-        yolo_annot = [int(label), int(bbox_coords.center_x), int(bbox_coords.center_y), int(bbox_coords.width), int(bbox_coords.length)]
+
+        yolo_annot = [int(label),xc, yc, width, height]
         yolo_annotations.append(yolo_annot)
 
     return yolo_annotations
@@ -126,8 +133,9 @@ if __name__ == "__main__":
             camearas_images = []
             for i, image in enumerate(frame.images):
                 decoded_image = get_frame_image(image)
+                image_height, image_width, _ = decoded_image.shape
                 camera_bboxes = get_image_bboxes(frame.camera_labels, image.name)
-                camera_yolo_bboxes = convert_annot2yolo(camera_bboxes)
+                camera_yolo_bboxes = convert_annot2yolo(camera_bboxes, image_height, image_width)
 
                 # Save image
                 cv2.imwrite(os.path.join(images_path, f'{frame_idx:05d}_{image_idx:05d}_camera{str(image.name)}.jpg'), cv2.cvtColor(decoded_image, cv2.COLOR_BGR2RGB) )

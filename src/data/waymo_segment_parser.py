@@ -25,7 +25,7 @@ from waymo_open_dataset import dataset_pb2 as open_dataset
 # from waymo_open_dataset.protos import camera_segmentation_metrics_pb2 as metrics_pb2
 # from waymo_open_dataset.protos import camera_segmentation_submission_pb2 as submission_pb2
 # from waymo_open_dataset.wdl_limited.camera_segmentation import camera_segmentation_metrics
-# from waymo_open_dataset.utils import camera_segmentation_utils
+from waymo_open_dataset.utils import camera_segmentation_utils
 
 def load_frame(scene):
     """
@@ -60,14 +60,12 @@ if __name__ == "__main__":
     src_dir = os.path.abspath(os.path.join(current_script_directory, "../.."))
     sys.path.append(src_dir)
 
-    tfrecord_file = os.path.join(src_dir, "dataset/waymo_samples/train/individual_files_training_segment-10023947602400723454_1120_000_1140_000_with_camera_labels.tfrecord")
+    scene_path = os.path.join(src_dir, "dataset/waymo_samples/train/individual_files_training_segment-10023947602400723454_1120_000_1140_000_with_camera_labels.tfrecord")
 
-    dataset = tf.data.TFRecordDataset(tfrecord_file, compression_type='')
     frames_with_seg = []
-    sequence_id = None
-    for data in dataset:
-        frame = open_dataset.Frame()
-        frame.ParseFromString(bytearray(data.numpy()))
+    for frame in load_frame(scene_path):
+        print(frame.timestamp_micros)
+
         # Save frames which contain CameraSegmentationLabel messages. We assume that
         # if the first image has segmentation labels, all images in this frame will.
         if frame.images[0].camera_segmentation_label.panoptic_label:
@@ -89,3 +87,37 @@ if __name__ == "__main__":
     for frame in frames_with_seg:
         segmentation_proto_dict = {image.name : image.camera_segmentation_label for image in frame.images}
         segmentation_protos_ordered.append([segmentation_proto_dict[name] for name in camera_left_to_right_order])
+
+    ###############################################################################
+    ##################### READ SINGLE PANOPTIC LABEL ##############################
+    ###############################################################################
+    # Decode a single panoptic label from the front camera
+    panoptic_label_front = camera_segmentation_utils.decode_single_panoptic_label_from_proto(
+        segmentation_protos_ordered[0][open_dataset.CameraName.FRONT]
+    )
+
+    # Separate the panoptic label into semantic and instance labels.
+    semantic_label_front, instance_label_front = camera_segmentation_utils.decode_semantic_and_instance_labels_from_panoptic_label(
+        panoptic_label_front,
+        segmentation_protos_ordered[0][open_dataset.CameraName.FRONT].panoptic_label_divisor
+    )
+
+    # def _pad_to_common_shape(label):
+    #     return np.pad(label, [[1280 - label.shape[0], 0], [0, 0], [0, 0]])
+
+    # # Pad labels to a common size so that they can be concatenated.
+    # instance_labels = [[_pad_to_common_shape(label) for label in instance_labels] for instance_labels in instance_labels_multiframe]
+    # semantic_labels = [[_pad_to_common_shape(label) for label in semantic_labels] for semantic_labels in semantic_labels_multiframe]
+    # instance_labels = [np.concatenate(label, axis=1) for label in instance_labels]
+    # semantic_labels = [np.concatenate(label, axis=1) for label in semantic_labels]
+
+    instance_label_concat = np.concatenate(instance_label_front, axis=0)
+    semantic_label_concat = np.concatenate(semantic_label_front, axis=0)
+    panoptic_label_rgb = camera_segmentation_utils.panoptic_label_to_rgb(
+        semantic_label_concat, instance_label_concat)
+
+    plt.figure(figsize=(64, 60))
+    plt.imshow(panoptic_label_rgb)
+    plt.grid(False)
+    plt.axis('off')
+    plt.show()

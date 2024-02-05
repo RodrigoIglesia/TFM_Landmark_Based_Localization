@@ -21,10 +21,6 @@ if not tf.executing_eagerly():
 import immutabledict
 
 from waymo_open_dataset import dataset_pb2 as open_dataset
-# from waymo_open_dataset import v2
-# from waymo_open_dataset.protos import camera_segmentation_metrics_pb2 as metrics_pb2
-# from waymo_open_dataset.protos import camera_segmentation_submission_pb2 as submission_pb2
-# from waymo_open_dataset.wdl_limited.camera_segmentation import camera_segmentation_metrics
 from waymo_open_dataset.protos import camera_segmentation_pb2 as cs_pb2
 from waymo_open_dataset.utils import camera_segmentation_utils
 

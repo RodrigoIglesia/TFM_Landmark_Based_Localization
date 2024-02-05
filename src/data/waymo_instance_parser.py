@@ -18,12 +18,47 @@ import numpy as np
 if not tf.executing_eagerly():
   tf.compat.v1.enable_eager_execution()
 
+import immutabledict
+
 from waymo_open_dataset import dataset_pb2 as open_dataset
 # from waymo_open_dataset import v2
 # from waymo_open_dataset.protos import camera_segmentation_metrics_pb2 as metrics_pb2
 # from waymo_open_dataset.protos import camera_segmentation_submission_pb2 as submission_pb2
 # from waymo_open_dataset.wdl_limited.camera_segmentation import camera_segmentation_metrics
+from waymo_open_dataset.protos import camera_segmentation_pb2 as cs_pb2
 from waymo_open_dataset.utils import camera_segmentation_utils
+
+SIGNS_COLOR_MAP = immutabledict.immutabledict({
+    cs_pb2.CameraSegmentation.TYPE_UNDEFINED: [0, 0, 0],
+    cs_pb2.CameraSegmentation.TYPE_EGO_VEHICLE: [102, 102, 102],
+    cs_pb2.CameraSegmentation.TYPE_CAR: [0, 0, 142],
+    cs_pb2.CameraSegmentation.TYPE_TRUCK: [0, 0, 70],
+    cs_pb2.CameraSegmentation.TYPE_BUS: [0, 60, 100],
+    cs_pb2.CameraSegmentation.TYPE_OTHER_LARGE_VEHICLE: [61, 133, 198],
+    cs_pb2.CameraSegmentation.TYPE_BICYCLE: [119, 11, 32],
+    cs_pb2.CameraSegmentation.TYPE_MOTORCYCLE: [0, 0, 230],
+    cs_pb2.CameraSegmentation.TYPE_TRAILER: [111, 168, 220],
+    cs_pb2.CameraSegmentation.TYPE_PEDESTRIAN: [220, 20, 60],
+    cs_pb2.CameraSegmentation.TYPE_CYCLIST: [255, 0, 0],
+    cs_pb2.CameraSegmentation.TYPE_MOTORCYCLIST: [180, 0, 0],
+    cs_pb2.CameraSegmentation.TYPE_BIRD: [127, 96, 0],
+    cs_pb2.CameraSegmentation.TYPE_GROUND_ANIMAL: [91, 15, 0],
+    cs_pb2.CameraSegmentation.TYPE_CONSTRUCTION_CONE_POLE: [235, 12, 12], #15
+    cs_pb2.CameraSegmentation.TYPE_POLE: [110, 245, 69], #16
+    cs_pb2.CameraSegmentation.TYPE_PEDESTRIAN_OBJECT: [69, 122, 245], #17
+    cs_pb2.CameraSegmentation.TYPE_SIGN: [245, 69, 245], #18
+    cs_pb2.CameraSegmentation.TYPE_TRAFFIC_LIGHT: [239, 245, 69], #19
+    cs_pb2.CameraSegmentation.TYPE_BUILDING: [70, 70, 70],
+    cs_pb2.CameraSegmentation.TYPE_ROAD: [128, 64, 128],
+    cs_pb2.CameraSegmentation.TYPE_LANE_MARKER: [234, 209, 220],
+    cs_pb2.CameraSegmentation.TYPE_ROAD_MARKER: [217, 210, 233],
+    cs_pb2.CameraSegmentation.TYPE_SIDEWALK: [244, 35, 232],
+    cs_pb2.CameraSegmentation.TYPE_VEGETATION: [107, 142, 35],
+    cs_pb2.CameraSegmentation.TYPE_SKY: [70, 130, 180],
+    cs_pb2.CameraSegmentation.TYPE_GROUND: [102, 102, 102],
+    cs_pb2.CameraSegmentation.TYPE_DYNAMIC: [102, 102, 102],
+    cs_pb2.CameraSegmentation.TYPE_STATIC: [102, 102, 102],
+})
 
 def load_frame(scene):
     """
@@ -97,27 +132,6 @@ def get_image_bboxes(frame_labels, image_name):
     return bboxes
 
 
-def convert_to_yolo_format(image_name, frame, panoptic_label_divisor):
-    yolo_lines = []
-
-    for i, image in enumerate(frame.images):
-        if image.name == image_name:
-            segmentation_proto = image.camera_segmentation_label
-            panoptic_label = camera_segmentation_utils.decode_single_panoptic_label_from_proto(segmentation_proto)
-
-            # Get semantic and instance labels from panoptic label
-            semantic_label, instance_label = camera_segmentation_utils.decode_semantic_and_instance_labels_from_panoptic_label(
-                panoptic_label, panoptic_label_divisor
-            )
-
-            # Get the image size
-            image_size = (image.image.size[1], image.image.size[0])
-
-            # Convert instance labels to YOLO format
-            yolo_lines.extend(convert_instance_labels_to_yolo(semantic_label, instance_label, image_size))
-
-    return yolo_lines
-
 def convert_instance_labels_to_yolo(semantic_label, instance_label, image_size):
     yolo_lines = []
 
@@ -144,6 +158,38 @@ def convert_instance_labels_to_yolo(semantic_label, instance_label, image_size):
                 yolo_lines.append(f"{class_label} {x_center} {y_center} {width} {height}")
 
     return yolo_lines
+
+def get_class_name(semantic_label, instance_id):
+    # Map instance_id to class name based on your semantic labels
+    # This is just an example, update it based on your actual dataset
+    return "car" if semantic_label[instance_id] == 1 else "pedestrian"
+
+
+def get_signs_color_map(color_map_dict= None):
+    if color_map_dict is None:
+        color_map_dict = SIGNS_COLOR_MAP
+    classes = list(color_map_dict.keys())
+    colors = list(color_map_dict.values())
+    color_map = np.zeros([np.amax(classes) + 1, 3], dtype=np.uint8)
+    color_map[classes] = colors
+    return color_map
+
+
+
+def draw_bboxes(camera_bboxes, result_image):
+    # Print bounding box on top of the panoptic labels
+    for bbox in camera_bboxes:
+        label = bbox.type
+        bbox_coords = bbox.box
+        br_x = int(bbox_coords.center_x + bbox_coords.length/2)
+        br_y = int(bbox_coords.center_y + bbox_coords.width/2)
+        tl_x = int(bbox_coords.center_x - bbox_coords.length/2)
+        tl_y = int(bbox_coords.center_y - bbox_coords.width/2)
+
+        tl = (tl_x, tl_y)
+        br = (br_x, br_y)
+
+        result_image = cv2.rectangle(result_image, tl, br, (255,0,0), 2)
 
 
 if __name__ == "__main__":
@@ -183,29 +229,34 @@ if __name__ == "__main__":
                 panoptic_label, panoptic_label_divisor
             )
 
+            ###########################################################<
+            # Keep only interest classes in semantic classes
+            values_to_keep = [15, 16, 17, 18, 19]
+            # Create a copy of the original semantic labels to keep them
+            semantic_label_signs = np.copy(semantic_label)
+            # Create a mask for the values you want to keep
+            mask = np.isin(semantic_label, values_to_keep)
+            # Apply the mask to set other pixel values to 0
+            semantic_label_signs[mask == False] = 0
+
+            # Get panoptic label and plot on top of the image
             panoptic_label_rgb = camera_segmentation_utils.panoptic_label_to_rgb(
                 semantic_label, instance_label
             )
 
-            # Convert instance label to YOLO format
-            # yolo_format = instance_label_to_yolo_format(instance_label, image_size)
-            # print(f"Frame {frame_index}, Image {i} - YOLO Format: {yolo_format}")
+            semantic_label_original_rgb = camera_segmentation_utils.semantic_label_to_rgb(semantic_label)
 
-            result_image = cv2.addWeighted(decoded_image, 1, panoptic_label_rgb, 0.5, 0)
+            # Only get segmentation labels of desired objects
+            color_map = get_signs_color_map()
+            semantic_label_rgb = camera_segmentation_utils.semantic_label_to_rgb(semantic_label_signs, color_map)
 
-            # Print bounding box on top of the panoptic labels
-            for bbox in camera_bboxes:
-                label = bbox.type
-                bbox_coords = bbox.box
-                br_x = int(bbox_coords.center_x + bbox_coords.length/2)
-                br_y = int(bbox_coords.center_y + bbox_coords.width/2)
-                tl_x = int(bbox_coords.center_x - bbox_coords.length/2)
-                tl_y = int(bbox_coords.center_y - bbox_coords.width/2)
+            result_image_panoptic = cv2.addWeighted(decoded_image, 1, panoptic_label_rgb, 0.5, 0)
+            draw_bboxes(camera_bboxes, result_image_panoptic)
+            result_image_semantic_original = cv2.addWeighted(decoded_image, 1, semantic_label_original_rgb, 0.5, 0)
+            draw_bboxes(camera_bboxes, result_image_semantic_original)
+            result_image_semantic = cv2.addWeighted(decoded_image, 1, semantic_label_rgb, 0.5, 0)
 
-                tl = (tl_x, tl_y)
-                br = (br_x, br_y)
-
-                result_image = cv2.rectangle(result_image, tl, br, (255,0,0), 2)
+            result_image = cv2.hconcat([result_image_panoptic, result_image_semantic_original, result_image_semantic])
 
             cv2.namedWindow('panoptic', cv2.WINDOW_NORMAL)
             cv2.setWindowProperty('panoptic', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)

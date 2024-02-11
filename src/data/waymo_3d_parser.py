@@ -1,8 +1,9 @@
 """
 Waymo Open Dataset - 3D Semantic Segmentation parser (LiDAR)
 Este módulo contiene funciones para:
-Leer cada frame del dataset y extraer 
-
+Leer cada frame del dataset y extraer la nube de puntos
+En algunos frames hay segmentación semántica de las nubes de puntos
+En caso de existir, se muestra en 3D
 """
 
 import os
@@ -11,32 +12,18 @@ import sys
 import matplotlib.pyplot as plt
 import pathlib
 import tensorflow as tf
-import cv2
 import numpy as np
+import open3d as o3d
+
 
 if not tf.executing_eagerly():
   tf.compat.v1.enable_eager_execution()
 
 from waymo_open_dataset.utils import  frame_utils
 from waymo_open_dataset import dataset_pb2 as open_dataset
-from waymo_open_dataset.protos import camera_segmentation_pb2 as cs_pb2
-from waymo_open_dataset.utils import camera_segmentation_utils
 
+from WaymoParser import *
 
-def load_frame(scene):
-    """
-    Load and yields frame object of a determined scene
-    A frame is composed of imagrs from the 5 cameras
-    A frame also has information of the bounding boxes and labels, related to each image
-    Args: scene (str) - path to the scene which contains the frames
-    Yield: frame_object (dict) - frame object from waymo dataset containing cameras and laser info
-    """
-    dataset = tf.data.TFRecordDataset(scene, compression_type='')
-    for data in dataset:
-        frame_object = open_dataset.Frame()
-        frame_object.ParseFromString(bytearray(data.numpy()))
-
-        yield frame_object
 
 def convert_range_image_to_point_cloud_labels(frame,
                                               range_images,
@@ -77,16 +64,6 @@ def convert_range_image_to_point_cloud_labels(frame,
     return point_labels
 
 
-def plot_point_cloud_labels(points, labels):
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    ax.scatter(points[:, 0], points[:, 1], points[:, 2], c=labels[:, 0], cmap='viridis')
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
-    plt.show()
-
-
 def plot_range_image_helper(data, name, layout, vmin = 0, vmax=1, cmap='gray'):
     """Plots range image.
 
@@ -104,10 +81,6 @@ def plot_range_image_helper(data, name, layout, vmin = 0, vmax=1, cmap='gray'):
     plt.grid(False)
     plt.axis('off')
 
-def get_semseg_label_image(laser_name, return_index):
-    """Returns semseg label image given a laser name and its return index."""
-    return segmentation_labels[laser_name][return_index]
-
 def show_semseg_label_image(semseg_label_image, layout_index_start = 1):
     """Shows range image.
 
@@ -124,6 +97,55 @@ def show_semseg_label_image(semseg_label_image, layout_index_start = 1):
                     [8, 1, layout_index_start], vmin=-1, vmax=200, cmap='Paired')
     plot_range_image_helper(semantic_class_image.numpy(), 'semantic class',
                     [8, 1, layout_index_start + 1], vmin=0, vmax=22, cmap='tab20')
+    
+def visualize_pointcloud_return(pcd_return, segmentation_labels):
+    points, points_cp = pcd_return
+    points_all = np.concatenate(points, axis=0)
+    print(f'points_all shape: {points_all.shape}')
+ 
+    # camera projection corresponding to each point
+    points_cp_all = np.concatenate(points_cp, axis=0)
+    print(f'points_cp_all shape: {points_cp_all.shape}')
+    # Convert segmentation labels to a flat NumPy array
+    segmentation_labels = np.concatenate(segmentation_labels, axis=0)
+    print(f'segmentation_labels shape: {segmentation_labels.shape}')
+ 
+    show_point_cloud(points_all, segmentation_labels)
+
+
+def show_point_cloud(points, segmentation_labels):
+    # pylint: disable=no-member (E1101)
+    vis = o3d.visualization.VisualizerWithKeyCallback()
+    vis.create_window()
+
+    opt = vis.get_render_option()
+    opt.background_color = np.asarray([0, 0, 0])
+
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(points)
+
+    mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
+        size=1.6, origin=[0, 0, 0])
+
+    pcd.points = o3d.utility.Vector3dVector(points)
+
+    # Labels
+    # Extract unique class IDs and instance IDs
+    unique_class_ids = np.unique(segmentation_labels[:, 0])
+    unique_instance_ids = np.unique(segmentation_labels[:, 1])
+    # Create a color mapping based on class IDs
+    class_color_mapping = {class_id: plt.cm.tab20(i) for i, class_id in enumerate(unique_class_ids)}
+
+    # Create a color array based on segmentation labels
+    colors = np.array([class_color_mapping[class_id] for class_id in segmentation_labels[:, 0]])
+
+
+    pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])
+
+    vis.add_geometry(pcd)
+    vis.add_geometry(mesh_frame)
+
+    vis.run()
 
 if __name__ == "__main__":
     # Add project root root to python path
@@ -145,36 +167,22 @@ if __name__ == "__main__":
                 continue
 
             # Get points labeled for first and second return
-            points, cp_points = frame_utils.convert_range_image_to_point_cloud(
-                frame, range_images, camera_projections, range_image_top_pose)
-            points_ri2, cp_points_ri2 = frame_utils.convert_range_image_to_point_cloud(
-                frame, range_images, camera_projections, range_image_top_pose, ri_index=1)
+            # Parse range image for lidar 1
+            def _range_image_to_pcd(ri_index = 0):
+                points, points_cp = frame_utils.convert_range_image_to_point_cloud(
+                    frame, range_images, camera_projections, range_image_top_pose,
+                    ri_index=ri_index)
+                return points, points_cp
+            
+            # Return of the first 2 lidar scans
+            pcd_return1 = _range_image_to_pcd()
+            pcd_return2 = _range_image_to_pcd(1)
+
+            # Semantic labels for the first 2 lidar scans
             point_labels = convert_range_image_to_point_cloud_labels(
                 frame, range_images, segmentation_labels)
             point_labels_ri2 = convert_range_image_to_point_cloud_labels(
                 frame, range_images, segmentation_labels, ri_index=1)
+            
+            visualize_pointcloud_return(pcd_return1, point_labels)
 
-            # 3d points in vehicle frame.
-            points_all = np.concatenate(points, axis=0)
-            points_all_ri2 = np.concatenate(points_ri2, axis=0)
-            # point labels.
-            point_labels_all = np.concatenate(point_labels, axis=0)
-            point_labels_all_ri2 = np.concatenate(point_labels_ri2, axis=0)
-            # camera projection corresponding to each point.
-            cp_points_all = np.concatenate(cp_points, axis=0)
-            cp_points_all_ri2 = np.concatenate(cp_points_ri2, axis=0)
-
-            #######################################################
-            ## Plot segmentation labels on range images
-            ######################################################
-            plt.figure(figsize=(64, 20))
-            frame.lasers.sort(key=lambda laser: laser.name)
-            show_semseg_label_image(get_semseg_label_image(open_dataset.LaserName.TOP, 0), 1)
-            plt.show()
-            show_semseg_label_image(get_semseg_label_image(open_dataset.LaserName.TOP, 1), 3)
-            plt.show()
-
-            #########################################################
-            ## Plot 3D segmentation labels on projected image
-            #########################################################
-            plot_point_cloud_labels(points_all, point_labels_all)

@@ -20,6 +20,15 @@ from waymo_open_dataset.utils import  frame_utils
 
 from WaymoParser import *
 
+
+def frame_to_pointcloud(frame, ri_index=0):
+    (range_images, camera_projections, segmentation_labels, range_image_top_pose) = frame_utils.parse_range_image_and_camera_projection(frame)
+    points, points_cp = frame_utils.convert_range_image_to_point_cloud(
+        frame, range_images, camera_projections, range_image_top_pose, ri_index=ri_index
+        )
+
+    return points, points_cp
+
 def visualize_pointcloud_return(frame, pcd_return):
     points, points_cp = pcd_return
     points_all = np.concatenate(points, axis=0)
@@ -78,20 +87,11 @@ if __name__ == "__main__":
     for scene_index, scene_path in enumerate(sorted(tfrecord_list)):
         for frame in load_frame(scene_path):
             print(frame.timestamp_micros)
-
-            # Obtain range images from the frame
-            (range_images, camera_projections, _, range_image_top_pose) = frame_utils.parse_range_image_and_camera_projection(frame)
-            # Parse range image for lidar 1
-            def _range_image_to_pcd(ri_index = 0):
-                points, points_cp = frame_utils.convert_range_image_to_point_cloud(
-                    frame, range_images, camera_projections, range_image_top_pose,
-                    ri_index=ri_index)
-                return points, points_cp
             
             # Return of the first 2 lidar scans
-            pcd_return1 = _range_image_to_pcd()
+            pcd_return1 = frame_to_pointcloud(frame)
             # visualize_pointcloud_return(frame, pcd_return1)
-            pcd_return2 = _range_image_to_pcd(1)
+            pcd_return2 = frame_to_pointcloud(frame, ri_index=1)
             # visualize_pointcloud_return(frame, pcd_return2)
 
             # concatenate 1st and 2nd return

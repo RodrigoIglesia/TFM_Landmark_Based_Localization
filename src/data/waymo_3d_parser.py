@@ -23,6 +23,7 @@ from waymo_open_dataset.utils import  frame_utils
 from waymo_open_dataset import dataset_pb2 as open_dataset
 
 from WaymoParser import *
+from waymo_pointcloud_parser import *
 
 
 def convert_range_image_to_point_cloud_labels(frame,

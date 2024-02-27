@@ -22,6 +22,9 @@ if not tf.executing_eagerly():
 from waymo_open_dataset.utils import  frame_utils
 from waymo_open_dataset import dataset_pb2 as open_dataset
 
+from WaymoParser import *
+from waymo_pointcloud_parser import *
+
 
 def convert_range_image_to_point_cloud_labels(frame,
                                               range_images,
@@ -96,23 +99,22 @@ def show_semseg_label_image(semseg_label_image, layout_index_start = 1):
     plot_range_image_helper(semantic_class_image.numpy(), 'semantic class',
                     [8, 1, layout_index_start + 1], vmin=0, vmax=22, cmap='tab20')
     
-def visualize_pointcloud_return(points, segmentation_labels):
-    # Concatenate only non-empty arrays
-    non_empty_points = [arr for arr in points if arr.size != 0]
-    points_all = np.concatenate(non_empty_points, axis=0)
-    # points_all = np.concatenate(points, axis=0)
+def visualize_pointcloud_return(pcd_return, segmentation_labels):
+    points, points_cp = pcd_return
+    points_all = np.concatenate(points, axis=0)
     print(f'points_all shape: {points_all.shape}')
  
+    # camera projection corresponding to each point
+    points_cp_all = np.concatenate(points_cp, axis=0)
+    print(f'points_cp_all shape: {points_cp_all.shape}')
     # Convert segmentation labels to a flat NumPy array
-    non_empty_labels = [arr for arr in segmentation_labels if arr.size != 0]
-    segmentation_labels = np.concatenate(non_empty_labels, axis=0)
-    # segmentation_labels = np.concatenate(segmentation_labels, axis=0)
+    segmentation_labels = np.concatenate(segmentation_labels, axis=0)
     print(f'segmentation_labels shape: {segmentation_labels.shape}')
  
-    show_point_cloud_with_labels(points_all, segmentation_labels)
+    show_point_cloud(points_all, segmentation_labels)
 
 
-def show_point_cloud_with_labels(points, segmentation_labels):
+def show_point_cloud(points, segmentation_labels):
     # pylint: disable=no-member (E1101)
     vis = o3d.visualization.VisualizerWithKeyCallback()
     vis.create_window()
@@ -139,7 +141,6 @@ def show_point_cloud_with_labels(points, segmentation_labels):
     # Create a color array based on segmentation labels
     colors = np.array([class_color_mapping[class_id] for class_id in segmentation_labels[:, 1]])
 
-
     pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])
 
     vis.add_geometry(pcd)
@@ -147,34 +148,7 @@ def show_point_cloud_with_labels(points, segmentation_labels):
 
     vis.run()
 
-def filter_lidar_data(point_clouds, segmentation_labels):
-    """
-    Function to filter points from  in the no label 
-    """
-    combined_data = list(zip(point_clouds, segmentation_labels))
-
-    # Filter out points with any segmentation label being 0
-    filtered_points = []
-    filtered_labels = []
-    for lidar_data in combined_data:
-        filtered_lidar_point = []
-        filtered_lidar_label = []
-        for point, label in zip(lidar_data[0], lidar_data[1]):
-            if (not np.any(label == 0) and (label[1] == 8 or label[1] == 10)):
-            # if (not np.any(label == 0)):
-                filtered_lidar_point.append(point)
-                filtered_lidar_label.append(label)
-            else: continue
-        filtered_points.append(np.array(filtered_lidar_point))
-        filtered_labels.append(np.array(filtered_lidar_label))
-
-    return filtered_points, filtered_labels
-
-
 if __name__ == "__main__":
-    from WaymoParser import *
-    # from waymo_pointcloud_parser import *
-
     # Add project root root to python path
     current_script_directory = os.path.dirname(os.path.realpath(__file__))
     src_dir = os.path.abspath(os.path.join(current_script_directory, "../.."))
@@ -202,9 +176,8 @@ if __name__ == "__main__":
                 return points, points_cp
             
             # Return of the first 2 lidar scans
- 
-            points_return1, _ = _range_image_to_pcd()
-            points_return2, _ = _range_image_to_pcd(1)
+            pcd_return1 = _range_image_to_pcd()
+            pcd_return2 = _range_image_to_pcd(1)
 
             # Semantic labels for the first 2 lidar scans
             point_labels = convert_range_image_to_point_cloud_labels(
@@ -212,9 +185,4 @@ if __name__ == "__main__":
             point_labels_ri2 = convert_range_image_to_point_cloud_labels(
                 frame, range_images, segmentation_labels, ri_index=1)
             
-            filtered_point_cloud, filtered_point_labels = filter_lidar_data(points_return1, point_labels)
-
-
-            visualize_pointcloud_return(filtered_point_cloud, filtered_point_labels)
-            # visualize_pointcloud_return(points_return1, point_labels)
-
+            visualize_pointcloud_return(pcd_return1, point_labels)

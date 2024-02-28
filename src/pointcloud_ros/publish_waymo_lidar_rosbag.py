@@ -16,8 +16,8 @@ import open3d as o3d
 import numpy as np
 import pathlib
 
-from data import WaymoParser as wp
-from data import waymo_pointcloud_parser as wpc
+from waymo_utils import WaymoParser as wp
+from waymo_utils import waymo_pointcloud_parser as wpc
 
 from waymo_open_dataset import dataset_pb2 as open_dataset_pb2
 from waymo_open_dataset import label_pb2

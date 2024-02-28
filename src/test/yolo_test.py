@@ -14,7 +14,7 @@ current_script_directory = os.path.dirname(os.path.realpath(__file__))
 src_dir = os.path.abspath(os.path.join(current_script_directory, "../.."))
 sys.path.insert(0, src_dir)
 
-from src.data import waymo_2d_parser as w2d
+from src.waymo_utils import waymo_2d_parser as w2d
 
 def yolo_detect(image, model):
     """

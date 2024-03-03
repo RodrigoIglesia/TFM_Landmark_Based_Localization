@@ -12,6 +12,7 @@ nvidia-nccl-cu12==2.18.1
 nvidia-nvjitlink-cu12==12.3.101
 nvidia-nvtx-cu12==12.1.105
 opencv-python==4.8.1.78
+open3d-cpu==0.18.0
 Pillow==9.2.0
 rosbag==1.16.0
 rosboost-cfg==1.15.8

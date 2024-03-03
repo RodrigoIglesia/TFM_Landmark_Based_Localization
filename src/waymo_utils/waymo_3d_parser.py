@@ -147,7 +147,7 @@ def show_point_cloud_with_labels(points, segmentation_labels):
 
     vis.run()
 
-def filter_lidar_data(point_clouds, segmentation_labels):
+def filter_lidar_data(point_clouds, segmentation_labels, labels_to_keep):
     """
     Function to filter points from  in the no label 
     """
@@ -160,7 +160,7 @@ def filter_lidar_data(point_clouds, segmentation_labels):
         filtered_lidar_point = []
         filtered_lidar_label = []
         for point, label in zip(lidar_data[0], lidar_data[1]):
-            if (not np.any(label == 0) and (label[1] == 1 or label[1] == 8 or label[1] == 10)):
+            if (not np.any(label == 0) and (label[1] in labels_to_keep)):
             # if (not np.any(label == 0)):
                 filtered_lidar_point.append(point)
                 filtered_lidar_label.append(label)

@@ -83,7 +83,7 @@ if __name__ == "__main__":
                 point_labels = convert_range_image_to_point_cloud_labels(
                     frame, range_images, segmentation_labels)
                 
-                filtered_point_cloud, filtered_point_labels = filter_lidar_data(points, point_labels)
+                filtered_point_cloud, filtered_point_labels = filter_lidar_data(points, point_labels, [8])
 
                 # Get projection of LiDAR points on the map
                 xyz = project_points_on_map(filtered_point_cloud)

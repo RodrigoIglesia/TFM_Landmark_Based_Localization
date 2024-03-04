@@ -27,8 +27,8 @@ def convert_range_image_to_point_cloud_labels(frame,
                                               range_images,
                                               segmentation_labels,
                                               ri_index=0):
-    """Convert segmentation labels from range images to point clouds.
-
+    """
+    Convert segmentation labels from range images to point clouds.
     Args:
     frame: open dataset frame
     range_images: A dict of {laser_name, [range_image_first_return,
@@ -79,6 +79,7 @@ def plot_range_image_helper(data, name, layout, vmin = 0, vmax=1, cmap='gray'):
     plt.grid(False)
     plt.axis('off')
 
+
 def show_semseg_label_image(semseg_label_image, layout_index_start = 1):
     """Shows range image.
 
@@ -95,21 +96,16 @@ def show_semseg_label_image(semseg_label_image, layout_index_start = 1):
                     [8, 1, layout_index_start], vmin=-1, vmax=200, cmap='Paired')
     plot_range_image_helper(semantic_class_image.numpy(), 'semantic class',
                     [8, 1, layout_index_start + 1], vmin=0, vmax=22, cmap='tab20')
-    
-def visualize_pointcloud_return(points, segmentation_labels):
+
+
+def concatenate_points(points):
     # Concatenate only non-empty arrays
     non_empty_points = [arr for arr in points if arr.size != 0]
     points_all = np.concatenate(non_empty_points, axis=0)
     # points_all = np.concatenate(points, axis=0)
     print(f'points_all shape: {points_all.shape}')
- 
-    # Convert segmentation labels to a flat NumPy array
-    non_empty_labels = [arr for arr in segmentation_labels if arr.size != 0]
-    segmentation_labels = np.concatenate(non_empty_labels, axis=0)
-    # segmentation_labels = np.concatenate(segmentation_labels, axis=0)
-    print(f'segmentation_labels shape: {segmentation_labels.shape}')
- 
-    show_point_cloud_with_labels(points_all, segmentation_labels)
+
+    return points_all
 
 
 def show_point_cloud_with_labels(points, segmentation_labels):
@@ -120,29 +116,43 @@ def show_point_cloud_with_labels(points, segmentation_labels):
     opt = vis.get_render_option()
     opt.background_color = np.asarray([0, 0, 0])
 
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(points)
+    point_cloud = o3d.geometry.PointCloud()
+    point_cloud.points = o3d.utility.Vector3dVector(points)
 
     mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
         size=1.6, origin=[0, 0, 0])
 
-    pcd.points = o3d.utility.Vector3dVector(points)
+    point_cloud.points = o3d.utility.Vector3dVector(points)
 
     # Labels
     # Extract unique class IDs and instance IDs
-    unique_instance_ids = np.unique(segmentation_labels[:, 0])
-    unique_segment_ids = np.unique(segmentation_labels[:, 1])
+    unique_segment_ids = np.unique(segmentation_labels)
 
     # Create a color mapping based on class IDs
     class_color_mapping = {class_id: plt.cm.tab20(i) for i, class_id in enumerate(unique_segment_ids)}
 
     # Create a color array based on segmentation labels
-    colors = np.array([class_color_mapping[class_id] for class_id in segmentation_labels[:, 1]])
+    colors = np.array([class_color_mapping[class_id] for class_id in segmentation_labels])
 
 
-    pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])
+    point_cloud.colors = o3d.utility.Vector3dVector(colors[:, :3])
 
-    vis.add_geometry(pcd)
+    vis.add_geometry(point_cloud)
+    # Plot bounding boxes for each cluster
+    for label in np.unique(segmentation_labels):
+        cluster_points = points[segmentation_labels == label]
+
+        # Compute bounding box
+        min_bound = np.min(cluster_points, axis=0)
+        max_bound = np.max(cluster_points, axis=0)
+
+        # Create bounding box
+        bbox = o3d.geometry.AxisAlignedBoundingBox(min_bound, max_bound)
+        bbox_wireframe = o3d.geometry.LineSet.create_from_axis_aligned_bounding_box(bbox)
+        bbox_wireframe.paint_uniform_color([1, 0, 0])  # Red color
+
+        # Add bounding box to the visualizer
+        vis.add_geometry(bbox_wireframe)
     vis.add_geometry(mesh_frame)
 
     vis.run()
@@ -171,16 +181,46 @@ def filter_lidar_data(point_clouds, segmentation_labels, labels_to_keep):
     return filtered_points, filtered_labels
 
 
+def cluster_pointcloud(points, eps=0.1, min_points=10):
+    """
+    PointCloud segmentation function
+    This function uses Open3D to process the point cloud and segment the objects in it
+    Args: point_cloud
+    """
+    # Convert pointcloud numpy array to pointcloud object
+    point_cloud = o3d.geometry.PointCloud()
+
+    point_cloud.points = o3d.utility.Vector3dVector(points)
+
+    # Cluster point cloud using DBSCAN clustering algorithm
+    labels = np.array(point_cloud.cluster_dbscan(eps=eps, min_points=min_points, print_progress=True))
+    max_label = labels.max()
+    print(f"point cloud has {max_label + 1} clusters")
+
+    return labels
+
+    
+    # colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
+    # colors[labels < 0] = 0
+    # point_cloud.colors = o3d.utility.Vector3dVector(colors[:, :3])
+    # o3d.visualization.draw_geometries([point_cloud],
+    #                                 zoom=0.455,
+    #                                 front=[-0.4999, -0.1659, -0.8499],
+    #                                 lookat=[2.1813, 2.0619, 2.0999],
+    #                                 up=[0.1204, -0.9852, 0.1215])
+
+
 if __name__ == "__main__":
     from WaymoParser import *
-    # from waymo_pointcloud_parser import *
+    from sklearn.cluster import DBSCAN
+
 
     # Add project root root to python path
     current_script_directory = os.path.dirname(os.path.realpath(__file__))
     src_dir = os.path.abspath(os.path.join(current_script_directory, "../.."))
     sys.path.append(src_dir)
 
-    dataset_path = os.path.join(src_dir, "dataset/waymo_samples")
+    dataset_path = os.path.join(src_dir, "dataset/waymo_map_scene")
 
     tfrecord_list = list(
         sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
@@ -212,9 +252,26 @@ if __name__ == "__main__":
             point_labels_ri2 = convert_range_image_to_point_cloud_labels(
                 frame, range_images, segmentation_labels, ri_index=1)
             
-            filtered_point_cloud, filtered_point_labels = filter_lidar_data(points_return1, point_labels)
+            filtered_point_cloud, filtered_point_labels = filter_lidar_data(points_return1, point_labels, [8, 10])
 
+            # Concatenate points of the 5 LiDAR
+            concat_point_cloud = concatenate_points(filtered_point_cloud)
+            # Concatenate labels of points of the 5 LiDA
+            concat_point_labels = concatenate_points(filtered_point_labels)
 
-            visualize_pointcloud_return(filtered_point_cloud, filtered_point_labels)
-            # visualize_pointcloud_return(points_return1, point_labels)
+            # Get semantic and instance segmentation labels
+            concat_semantic_labels = concat_point_labels[:,1]
+            concat_instance_labels = concat_point_labels[:,0]
 
+            # # Cluster filtered pointcloud
+            # cluster_labels = cluster_pointcloud(concat_point_cloud[:,:2])
+            clustering = DBSCAN(eps=2, min_samples=1).fit(concat_point_cloud[:,:2])
+            cluster_labels = clustering.labels_
+
+            print("Clusters detected: ", len(np.unique(cluster_labels)))
+
+            # plt.figure()
+            # plt.scatter(concat_point_cloud[:,0], concat_point_cloud[:,1], c=cluster_labels)
+            # plt.show()
+
+            show_point_cloud_with_labels(concat_point_cloud, cluster_labels)

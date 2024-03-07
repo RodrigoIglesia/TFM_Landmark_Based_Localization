@@ -124,7 +124,7 @@ def plot_pointcloud_on_map(map, point_cloud, point_cloud_labels):
                max_bound[2], max_bound[2], max_bound[2], max_bound[2], max_bound[2],
                min_bound[2], min_bound[2], max_bound[2], max_bound[2], max_bound[2],
                min_bound[2], min_bound[2], min_bound[2], min_bound[2]],
-            opacity=0.2,
+            opacity=0.5,
             color='red',
             name=f'Cluster {label} Bounding Box'
         )

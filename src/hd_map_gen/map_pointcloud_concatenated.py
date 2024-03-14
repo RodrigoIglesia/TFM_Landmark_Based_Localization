@@ -11,7 +11,7 @@ import pathlib
 import matplotlib.pyplot as plt
 from matplotlib import cm
 from matplotlib.colors import Normalize
-from sklearn.cluster import DBSCAN
+from sklearn.cluster import DBSCAN, OPTICS, cluster_optics_dbscan
 
 import tensorflow.compat.v1 as tf
 if not tf.executing_eagerly():
@@ -147,6 +147,7 @@ def get_differentiated_colors(numbers):
 
 
 if __name__ == "__main__":
+    from sklearn.neighbors import NearestNeighbors
     dataset_path = os.path.join(src_dir, "dataset/waymo_map_scene")
 
     tfrecord_list = list(
@@ -219,10 +220,23 @@ if __name__ == "__main__":
             print("No pointclouds in scene")
             continue
 
-        ## Clustering of the PointCloud
-        # cluster_labels = cluster_pointcloud(point_clouds, 0.2, 100)
-        clustering = DBSCAN(eps=2, min_samples=1).fit(point_clouds[:,:2])
-        cluster_labels = clustering.labels_
+        # # Find best epsilon for DBSCAN
+        # neigh = NearestNeighbors(n_neighbors=2)
+        # nbrs = neigh.fit(point_clouds[:,:2])
+        # distances, indices = nbrs.kneighbors(point_clouds[:,:2])
+        # # Plotting K-distance Graph
+        # distances = np.sort(distances, axis=0)
+        # distances = distances[:,1]
+        # plt.figure(figsize=(20,10))
+        # plt.plot(distances)
+        # plt.title('K-distance Graph',fontsize=20)
+        # plt.xlabel('Data Points sorted by distance',fontsize=14)
+        # plt.ylabel('Epsilon',fontsize=14)
+        # plt.show()
+
+        clustering = OPTICS(min_samples=50, xi=0.05, min_cluster_size=0.05).fit(point_clouds[:,:2])
+        cluster_labels = clustering.labels_[clustering.ordering_]
+
         print("Clusters detected: ", len(np.unique(cluster_labels)))
         print("Segmentation labels: ", cluster_labels)
         print("Clustered labels: ", point_cloud_labels)

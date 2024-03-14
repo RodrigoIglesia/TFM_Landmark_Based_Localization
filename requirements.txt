@@ -56,3 +56,4 @@ tf2-py==0.7.7
 tf2-ros==0.7.7
 ultralytics
 waymo-open-dataset-tf-2-11-0==1.6.1
+kneed==0.8.5

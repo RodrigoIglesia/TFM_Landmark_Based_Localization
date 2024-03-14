@@ -1,10 +1,3 @@
-"""
-Script to cluster pointclouds
-Source: https://github.com/kinsuk84/ECR-DBSCAN/blob/main/ecr-dbscan_kinsukgiri.py
-Modified: Rodrigo de la Iglesia
-05/03/2024
-"""
-
 import heapq
 import sys
 import numpy as np
@@ -57,7 +50,7 @@ runar = list(range(2,15))
 #x = load_breast_cancer().data
 x=np.loadtxt(fname = "S1.txt",usecols = coldata)
 target=np.loadtxt(fname = "s1-label.txt",usecols = coltar)
-                     #for your run, give your own path
+
 target = target-1
 #target = load_breast_cancer().target
 #x, y = make_blobs(n_samples = ds, centers = blob, n_features=attr, shuffle=True, random_state=state)

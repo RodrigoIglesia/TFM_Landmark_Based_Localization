@@ -2,11 +2,15 @@ import os
 import sys
 import pathlib
 import json
+import plotly.graph_objs as go
 
 import tensorflow.compat.v1 as tf
 if not tf.executing_eagerly():
   tf.compat.v1.enable_eager_execution()
-from google.protobuf.json_format import MessageToJson
+
+from waymo_open_dataset.protos import map_pb2
+from waymo_open_dataset.utils import plot_maps
+
 
 # Add project root root to python path
 current_script_directory = os.path.dirname(os.path.realpath(__file__))
@@ -15,6 +19,27 @@ sys.path.append(src_dir)
 
 from src.waymo_utils.WaymoParser import *
 from src.waymo_utils.waymo_3d_parser import *
+
+def save_map_json(map_dict, filepath):
+    # Use json.dump to save the dictionary to a JSON file
+    with open(filepath, 'w') as json_file:
+        print('Saving: ', filepath)
+        json.dump(map_dict, json_file)
+
+
+def add_sign_to_map(map_features, sign_coords):
+    # Create a new map features object to insert the sign there
+    new_map_feature = map_pb2.MapFeature()
+
+    # Create a new Driveway message and populate its polygons
+    sign_message = new_map_feature.stop_sign
+    sign_message.position.x = sign_coords[0]
+    sign_message.position.y = sign_coords[1]
+    sign_message.position.z = sign_coords[2]
+
+    # Append the new map feature object in the existing map feature
+    map_features.append(new_map_feature)
+
 
 if __name__ == "__main__":
     dataset_path = os.path.join(src_dir, "dataset/waymo_map_scene")
@@ -25,47 +50,27 @@ if __name__ == "__main__":
     print('-------------------------------------\n')
 
     for scene_index, scene_path in enumerate(sorted(tfrecord_list)):
+        frame_index = 0
         for frame in load_frame(scene_path):
-            # Copy the frame object to modify it
-            frame_mod = frame
             if hasattr(frame, 'map_features') and frame.map_features:
                 # Retrieve map_feature in the firts frame
                 map_features = frame.map_features
-                # print(map_features)
 
-                # Each map feature is a json, decode jsons sepparately and append them to a list, for each scene map
-                map_features_list = []
-                for map_item in map_features:
-                    map_features_list.append(json.loads(MessageToJson(map_item)))
+                add_sign_to_map(map_features, )
+                print(map_features)
 
+                # Plot the point cloud for this frame aligned with the map data.
+                figure = plot_maps.plot_map_features(map_features)
+                figure.show()
 
-                ## Save json file of original map
-                # Load list of jsons in a json
-                file_path = 'hd_map' + str(scene_index) + '.json'
+                # Save new frame to tfrecord serialized file
+                # output_tfrecord_path = f'hd_map_mod_{scene_index}_{frame_index}.tfrecord'
+                # with tf.io.TFRecordWriter(output_path) as writer:
+                #     writer.write(frame.SerializeToString())
+                # print('Saved TFRecord:', output_path)
 
-                with open(file_path, 'w') as json_file:
-                    print('Saving: ', file_path)
-                    json.dump(map_features_list, json_file)
-                    json_file.write(str(map_features_list))
+                # ## Save modified tfrecord
+                # output_tfrecord_path = f'hd_map_mod_{scene_index}_{frame_index}.tfrecord'
+                # # save_tfrecord(frame_mod, map_features_list_mod, output_tfrecord_path)
 
-                # Modify the map adding new features (sign)
-                sign_item_id = str(int(map_features_list[-1]["id"]) + 1)
-                sign_json = {
-                    "id":sign_item_id,
-                             "sign": {
-                                 "position": {
-                                    "x": -1310.4264358044165,
-                                    "y": 10557.175145829448,
-                                    "z": 35.369245673324315
-                                    }
-                             }}
-
-                # Save modified json
-                map_features_list_mod = map_features_list
-                map_features_list_mod.append(sign_json)
-                file_path_mod = 'hd_map_mod' + str(scene_index) + '.json'
-
-                # Use json.dump to save the dictionary to a JSON file
-                with open(file_path_mod, 'w') as json_file:
-                    print('Saving: ', file_path_mod)
-                    json.dump(map_features_list_mod, json_file)
+                frame_index += 1

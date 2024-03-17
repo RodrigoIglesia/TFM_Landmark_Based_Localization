@@ -1,38 +1,21 @@
-from google.protobuf.json_format import Parse
-from your_protobuf_module import YourProtobufMessage
-import json
+import numpy as np
+import open3d as o3d
 
-import tensorflow.compat.v1 as tf
-if not tf.executing_eagerly():
-  tf.compat.v1.enable_eager_execution()
-from google.protobuf.json_format import MessageToJson
+def custom_draw_geometry_with_custom(pcd):
+    vis = o3d.visualization.Visualizer()
+    vis.create_window()
+    vis.add_geometry(pcd)
+    ctr = vis.get_view_control()
+    ctr.set_front([ 0.89452025962235249, -0.18810349064390619, 0.40552506942572236 ])
+    ctr.set_lookat([ -4803.5406166994117, 2578.7673925914692, 1502.733219030637 ])
+    ctr.set_up([ -0.39927129067518657, 0.071776107780855442, 0.91401894225141844 ])
+    ctr.set_zoom(0.16)
 
-# Add project root root to python path
-current_script_directory = os.path.dirname(os.path.realpath(__file__))
-src_dir = os.path.abspath(os.path.join(current_script_directory, "../.."))
-sys.path.append(src_dir)
-
-from src.waymo_utils.WaymoParser import *
-from src.waymo_utils.waymo_3d_parser import *
+    vis.run()
+    # vis.destroy_window()
 
 if __name__ == "__main__":
-    # Specify the file path of the JSON file
-    file_path = 'hd_map.json'
-
-    # Open the JSON file and load the data
-    with open(file_path, 'r') as json_file:
-        data = json.load(json_file)
-
-    # Now 'data' contains the contents of the JSON file
-    print("Data loaded from JSON file:")
-    print(data)
-
-    # Parse the JSON string into a Protobuf message
-    protobuf_message = YourProtobufMessage()
-    Parse(data, protobuf_message)
-
-    # Access the repeated field (assuming it's a RepeatedCompositeCo)
-    repeated_field = protobuf_message.your_protobuf_field
-
-    # Now, repeated_field is an instance of RepeatedCompositeCo containing your data
-    print(repeated_field)
+    depth = np.squeeze(np.load('/home/rodrigo/catkin_ws/src/TFM_Landmark_Based_Localization/src/hd_map_gen/test.npy'))
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(depth)
+    custom_draw_geometry_with_custom(pcd)

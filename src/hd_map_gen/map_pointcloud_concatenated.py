@@ -2,6 +2,10 @@
 This script parses the maps in waymo dataset along with the 3D sem seg labels to generate and enrich the HD maps.
 """
 
+#TODO: Comprobar que el landmark se genera bien como stop sign
+#TODO: Revisar el algoritmo de clustering de la nube de puntos
+#TODO: Si lo anterior funciona bien > investigar cómo meter el feature_map modificado en el frame, luego en la escena y generar el tfrecord
+
 import os
 import sys
 
@@ -17,7 +21,7 @@ import tensorflow.compat.v1 as tf
 if not tf.executing_eagerly():
   tf.compat.v1.enable_eager_execution()
 
-from waymo_open_dataset import dataset_pb2
+from waymo_open_dataset.protos import map_pb2
 from waymo_open_dataset.utils import frame_utils
 from waymo_open_dataset.utils import plot_maps
 
@@ -29,7 +33,14 @@ sys.path.append(src_dir)
 from src.waymo_utils.WaymoParser import *
 from src.waymo_utils.waymo_3d_parser import *
 
-def project_points_on_map(points):
+
+
+def project_points_on_map(points, frame):
+    """
+    Project coordinates of the point cloud (referenced to the sensor system) to the map (referenced to the world system)
+    Args
+    - points: 
+    """
     # Get pointcloud coordinated to project in the map
     xyz = points[0]
     num_points = xyz.shape[0]
@@ -47,47 +58,91 @@ def project_points_on_map(points):
 
     return xyz
 
-# def project_points_on_map(points):
-#     # Get pointcloud coordinated to project in the map
-#     num_points = points.shape[0]
 
-#     # Transform the points from the vehicle frame to the world frame.
-#     points = np.concatenate([points, np.ones([num_points, 1])], axis=-1)
-#     transform = np.reshape(np.array(frame.pose.transform), [4, 4])
-#     points = np.transpose(np.matmul(transform, np.transpose(points)))[:, 0:3]
+def cluster_pointcloud(point_cloud):
+    # clustering = OPTICS(min_samples=50, xi=0.05, min_cluster_size=0.05).fit(point_clouds[:,:2])
+    clustering = DBSCAN(eps=0.2, min_samples=100).fit(point_clouds[:,:1])
+    cluster_labels = clustering.labels_
 
-#     # Correct the pose of the points into the coordinate system of the first
-#     # frame to align with the map data.
-#     offset = frame.map_pose_offset
-#     points_offset = np.array([offset.x, offset.y, offset.z])
-#     points += points_offset
+    print("Clusters detected: ", len(np.unique(cluster_labels)))
+    print("Segmentation labels: ", cluster_labels)
+    print("Clustered labels: ", point_cloud_labels)
 
-#     return points
+    clustered_point_cloud = []
+    for label in np.unique(point_cloud_labels):
+        cluster_points = point_cloud[point_cloud_labels == label]
+        clustered_point_cloud.append(cluster_points)
 
-
-def get_color_palette_from_labels(labels):
-    # Class Colors
-    non_empty_labels = [arr for arr in labels if arr.size != 0]
-    # Get only segmentation labels (not instance)
-    labels = np.concatenate(non_empty_labels, axis=0)
-
-    return labels
+    return clustered_point_cloud, point_cloud_labels
 
 
-def plot_pointcloud_on_map(map, point_cloud, point_cloud_labels):
-    # # Get color palette from labels to plot
-    # if (len(point_cloud_labels) > 0):
-    #     color_palette = get_color_palette_from_labels(point_cloud_labels)
+def project_points_onto_ground(points_3d, ground_normal):
+    """
+    Project 3D points onto the ground plane.
+    Args:
+    - points_3d: numpy array of shape (N, 3) representing 3D points
+    - ground_normal: numpy array of shape (3,) representing the normal vector of the ground plane
+    Returns:
+    - projected_points: numpy array of shape (N, 3) representing projected points
+    """
 
+    # Normalize ground normal vector
+    ground_normal /= np.linalg.norm(ground_normal)
+    
+    # Calculate dot product between each point and ground normal
+    dot_products = np.dot(points_3d, ground_normal)
+    
+    # Calculate projection of each point onto the ground plane
+    projected_points = points_3d - np.outer(dot_products, ground_normal)
+    
+    return projected_points
+
+
+def calculate_centroid(points):
+    """
+    Calculate centroid of points.
+    Args:
+    - points: numpy array of shape (N, 3) representing points
+    Returns:
+    - centroid: numpy array of shape (3,) representing centroid
+    """
+
+    centroid = np.mean(points, axis=0)
+    return centroid
+
+
+def get_cluster_centroid(point_cloud):
+    # Define ground normal (example: [0, 1, 0] for a horizontal ground)
+    min_z = np.min(point_cloud[:,2], axis=0)
+
+    # Calculate centroid of the projected points
+    centroid = calculate_centroid(point_cloud)
+    centroid_projected = np.array([centroid[0], centroid[1], min_z])
+
+    return centroid_projected
+
+
+def add_sign_to_map(map_features, sign_coords):
+    # Create a new map features object to insert the sign there
+    new_map_feature = map_pb2.MapFeature()
+
+    # Create a new Driveway message and populate its polygons
+    sign_message = new_map_feature.stop_sign
+    sign_message.position.x = sign_coords[0]
+    sign_message.position.y = sign_coords[1]
+    sign_message.position.z = sign_coords[2]
+
+    # Append the new map feature object in the existing map feature
+    map_features.append(new_map_feature)
+
+
+def plot_poincloud(figure, point_cloud):
     color_palette = point_cloud_labels
 
-    # Plot the point cloud for this frame aligned with the map data.
-    figure = plot_maps.plot_map_features(map)
-
     scatter_trace = go.Scatter3d(
-        x=point_cloud[:, 0],
-        y=point_cloud[:, 1],
-        z=point_cloud[:, 2],
+        x = point_cloud[:, 0],
+        y = point_cloud[:, 1],
+        z = point_cloud[:, 2],
         mode='markers',
         marker=dict(
             size=1,
@@ -99,7 +154,13 @@ def plot_pointcloud_on_map(map, point_cloud, point_cloud_labels):
 
     figure.add_trace(scatter_trace)
 
-    # Add bounding boxes
+
+def plot_cluster_bbox(figure, point_cloud, point_cloud_labels):
+    """
+    Args:
+        point_cloud: (N, 3) 3D point cloud matrix
+    """
+    # Add bounding boxes to figure
     for label in np.unique(point_cloud_labels):
         cluster_points = point_cloud[point_cloud_labels == label]
 
@@ -131,7 +192,16 @@ def plot_pointcloud_on_map(map, point_cloud, point_cloud_labels):
 
         figure.add_trace(bbox_trace)
 
+
+def plot_pointcloud_on_map(map, point_cloud, point_cloud_labels):
+    # Plot the point cloud for this frame aligned with the map data.
+    figure = plot_maps.plot_map_features(map)
+
+    plot_poincloud(figure, point_cloud)
+    plot_cluster_bbox(figure, point_cloud, point_cloud_labels)
+
     figure.show()
+
 
 def get_differentiated_colors(numbers):
     # Choose a colormap (you can change this to any other colormap available in matplotlib)
@@ -147,12 +217,14 @@ def get_differentiated_colors(numbers):
 
 
 if __name__ == "__main__":
-    from sklearn.neighbors import NearestNeighbors
+    ##############################################################
+    ## Load Dataset to generate landmarks of the signs
+    ##############################################################
     dataset_path = os.path.join(src_dir, "dataset/waymo_map_scene")
-
     tfrecord_list = list(
         sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
 
+    ## Iterate dataset
     for scene_index, scene_path in enumerate(sorted(tfrecord_list)):
         print("Scene {} processing: {}".format(str(scene_index), scene_path))
 
@@ -198,10 +270,8 @@ if __name__ == "__main__":
             
             filtered_point_cloud, filtered_point_labels = filter_lidar_data(points_return1, point_labels, [8, 10])
 
-            projected_point_cloud = project_points_on_map(filtered_point_cloud)
+            projected_point_cloud = project_points_on_map(filtered_point_cloud, frame)
 
-            # # Concatenate points of the 5 LiDAR
-            # concat_point_cloud = concatenate_points(projected_point_cloud)
             # Concatenate labels of points of the 5 LiDAR
             concat_point_labels = concatenate_points(filtered_point_labels)
 
@@ -220,26 +290,16 @@ if __name__ == "__main__":
             print("No pointclouds in scene")
             continue
 
-        # # Find best epsilon for DBSCAN
-        # neigh = NearestNeighbors(n_neighbors=2)
-        # nbrs = neigh.fit(point_clouds[:,:2])
-        # distances, indices = nbrs.kneighbors(point_clouds[:,:2])
-        # # Plotting K-distance Graph
-        # distances = np.sort(distances, axis=0)
-        # distances = distances[:,1]
-        # plt.figure(figsize=(20,10))
-        # plt.plot(distances)
-        # plt.title('K-distance Graph',fontsize=20)
-        # plt.xlabel('Data Points sorted by distance',fontsize=14)
-        # plt.ylabel('Epsilon',fontsize=14)
-        # plt.show()
+        # Get the clustered pointclouds, each cluster corresponding to a traffic sign
+        clustered_point_cloud, cluster_labels = cluster_pointcloud(point_clouds)
 
-        clustering = OPTICS(min_samples=50, xi=0.05, min_cluster_size=0.05).fit(point_clouds[:,:2])
-        cluster_labels = clustering.labels_[clustering.ordering_]
+        # Add signs to map
+        for cluster in clustered_point_cloud:
+            # Get the centroid of each cluster of the pointcloud
+            cluster_centroid = get_cluster_centroid(cluster)
 
-        print("Clusters detected: ", len(np.unique(cluster_labels)))
-        print("Segmentation labels: ", cluster_labels)
-        print("Clustered labels: ", point_cloud_labels)
+            # Add sign centroids to feature map
+            add_sign_to_map(map_features, cluster_centroid)
 
         colors = get_differentiated_colors(cluster_labels)
 

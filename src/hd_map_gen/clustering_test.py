@@ -1,21 +1,24 @@
+import os
+import sys
 import numpy as np
-import open3d as o3d
 
-def custom_draw_geometry_with_custom(pcd):
-    vis = o3d.visualization.Visualizer()
-    vis.create_window()
-    vis.add_geometry(pcd)
-    ctr = vis.get_view_control()
-    ctr.set_front([ 0.89452025962235249, -0.18810349064390619, 0.40552506942572236 ])
-    ctr.set_lookat([ -4803.5406166994117, 2578.7673925914692, 1502.733219030637 ])
-    ctr.set_up([ -0.39927129067518657, 0.071776107780855442, 0.91401894225141844 ])
-    ctr.set_zoom(0.16)
+# Add project root root to python path
+current_script_directory = os.path.dirname(os.path.realpath(__file__))
+src_dir = os.path.abspath(os.path.join(current_script_directory, "../.."))
+sys.path.append(src_dir)
 
-    vis.run()
-    # vis.destroy_window()
+from src.waymo_utils.WaymoParser import *
+from src.waymo_utils.waymo_3d_parser import *
 
 if __name__ == "__main__":
-    depth = np.squeeze(np.load('/home/rodrigo/catkin_ws/src/TFM_Landmark_Based_Localization/src/hd_map_gen/test.npy'))
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(depth)
-    custom_draw_geometry_with_custom(pcd)
+    point_cloud = np.loadtxt('dataset/pointcloud_concatenated.csv', delimiter=',')
+
+    clustered_pointcloud, cluster_labels = cluster_pointcloud(point_cloud)
+
+    show_point_cloud_with_labels(point_cloud, cluster_labels)
+    for cluster in clustered_pointcloud:
+        # Get the centroid of each cluster of the pointcloud
+        cluster_centroid = get_cluster_centroid(cluster)
+
+
+

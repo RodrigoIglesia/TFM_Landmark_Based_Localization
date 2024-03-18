@@ -14,6 +14,7 @@ import pathlib
 import tensorflow as tf
 import numpy as np
 import open3d as o3d
+from sklearn.cluster import DBSCAN, OPTICS, cluster_optics_dbscan
 
 
 if not tf.executing_eagerly():
@@ -181,23 +182,46 @@ def filter_lidar_data(point_clouds, segmentation_labels, labels_to_keep):
     return filtered_points, filtered_labels
 
 
-def cluster_pointcloud(points, eps=0.1, min_points=10):
+def cluster_pointcloud(point_cloud):
+    # clustering = OPTICS(min_samples=50, xi=0.05, min_cluster_size=0.05).fit(point_clouds[:,:2])
+    clustering = DBSCAN(eps=2, min_samples=1).fit(point_cloud[:,:2])
+    cluster_labels = clustering.labels_
+
+    print("Clusters detected: ", len(np.unique(cluster_labels)))
+    print("Segmentation labels: ", cluster_labels)
+    print("Clustered labels: ", cluster_labels)
+
+    clustered_point_cloud = []
+    for label in np.unique(cluster_labels):
+        cluster_points = point_cloud[cluster_labels == label]
+        clustered_point_cloud.append(cluster_points)
+
+    return clustered_point_cloud, cluster_labels
+
+
+
+def calculate_centroid(points):
     """
-    PointCloud segmentation function
-    This function uses Open3D to process the point cloud and segment the objects in it
-    Args: point_cloud
+    Calculate centroid of points.
+    Args:
+    - points: numpy array of shape (N, 3) representing points
+    Returns:
+    - centroid: numpy array of shape (3,) representing centroid
     """
-    # Convert pointcloud numpy array to pointcloud object
-    point_cloud = o3d.geometry.PointCloud()
 
-    point_cloud.points = o3d.utility.Vector3dVector(points)
+    centroid = np.mean(points, axis=0)
+    return centroid
 
-    # Cluster point cloud using DBSCAN clustering algorithm
-    labels = np.array(point_cloud.cluster_dbscan(eps=eps, min_points=min_points, print_progress=True))
-    max_label = labels.max()
-    print(f"point cloud has {max_label + 1} clusters")
 
-    return labels
+def get_cluster_centroid(point_cloud):
+    # Define ground normal (example: [0, 1, 0] for a horizontal ground)
+    min_z = np.min(point_cloud[:,2], axis=0)
+
+    # Calculate centroid of the projected points
+    centroid = calculate_centroid(point_cloud)
+    centroid_projected = np.array([centroid[0], centroid[1], min_z])
+
+    return centroid_projected
 
     
     # colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
@@ -264,11 +288,7 @@ if __name__ == "__main__":
             concat_instance_labels = concat_point_labels[:,0]
 
             # # Cluster filtered pointcloud
-            # cluster_labels = cluster_pointcloud(concat_point_cloud[:,:2])
-            clustering = DBSCAN(eps=2, min_samples=1).fit(concat_point_cloud[:,:2])
-            cluster_labels = clustering.labels_
-
-            print("Clusters detected: ", len(np.unique(cluster_labels)))
+            clustered_point_clouds, cluster_labels = cluster_pointcloud(concat_point_cloud)
 
             # plt.figure()
             # plt.scatter(concat_point_cloud[:,0], concat_point_cloud[:,1], c=cluster_labels)

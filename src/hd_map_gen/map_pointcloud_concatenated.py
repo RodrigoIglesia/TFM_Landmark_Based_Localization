@@ -15,7 +15,6 @@ import pathlib
 import matplotlib.pyplot as plt
 from matplotlib import cm
 from matplotlib.colors import Normalize
-from sklearn.cluster import DBSCAN, OPTICS, cluster_optics_dbscan
 
 import tensorflow.compat.v1 as tf
 if not tf.executing_eagerly():
@@ -59,69 +58,6 @@ def project_points_on_map(points, frame):
     return xyz
 
 
-def cluster_pointcloud(point_cloud):
-    # clustering = OPTICS(min_samples=50, xi=0.05, min_cluster_size=0.05).fit(point_clouds[:,:2])
-    clustering = DBSCAN(eps=0.2, min_samples=100).fit(point_clouds[:,:1])
-    cluster_labels = clustering.labels_
-
-    print("Clusters detected: ", len(np.unique(cluster_labels)))
-    print("Segmentation labels: ", cluster_labels)
-    print("Clustered labels: ", point_cloud_labels)
-
-    clustered_point_cloud = []
-    for label in np.unique(point_cloud_labels):
-        cluster_points = point_cloud[point_cloud_labels == label]
-        clustered_point_cloud.append(cluster_points)
-
-    return clustered_point_cloud, point_cloud_labels
-
-
-def project_points_onto_ground(points_3d, ground_normal):
-    """
-    Project 3D points onto the ground plane.
-    Args:
-    - points_3d: numpy array of shape (N, 3) representing 3D points
-    - ground_normal: numpy array of shape (3,) representing the normal vector of the ground plane
-    Returns:
-    - projected_points: numpy array of shape (N, 3) representing projected points
-    """
-
-    # Normalize ground normal vector
-    ground_normal /= np.linalg.norm(ground_normal)
-    
-    # Calculate dot product between each point and ground normal
-    dot_products = np.dot(points_3d, ground_normal)
-    
-    # Calculate projection of each point onto the ground plane
-    projected_points = points_3d - np.outer(dot_products, ground_normal)
-    
-    return projected_points
-
-
-def calculate_centroid(points):
-    """
-    Calculate centroid of points.
-    Args:
-    - points: numpy array of shape (N, 3) representing points
-    Returns:
-    - centroid: numpy array of shape (3,) representing centroid
-    """
-
-    centroid = np.mean(points, axis=0)
-    return centroid
-
-
-def get_cluster_centroid(point_cloud):
-    # Define ground normal (example: [0, 1, 0] for a horizontal ground)
-    min_z = np.min(point_cloud[:,2], axis=0)
-
-    # Calculate centroid of the projected points
-    centroid = calculate_centroid(point_cloud)
-    centroid_projected = np.array([centroid[0], centroid[1], min_z])
-
-    return centroid_projected
-
-
 def add_sign_to_map(map_features, sign_coords):
     # Create a new map features object to insert the sign there
     new_map_feature = map_pb2.MapFeature()
@@ -134,6 +70,8 @@ def add_sign_to_map(map_features, sign_coords):
 
     # Append the new map feature object in the existing map feature
     map_features.append(new_map_feature)
+
+    return map_features
 
 
 def plot_poincloud(figure, point_cloud):
@@ -290,6 +228,12 @@ if __name__ == "__main__":
             print("No pointclouds in scene")
             continue
 
+        # Save point cloud to csv
+        file_path = 'dataset/pointcloud_concatenated.csv'
+        # Use savetxt to save the array to a CSV file
+        np.savetxt(file_path, point_clouds, delimiter=',')
+        print(f"NumPy array has been successfully saved to {file_path}.")
+
         # Get the clustered pointclouds, each cluster corresponding to a traffic sign
         clustered_point_cloud, cluster_labels = cluster_pointcloud(point_clouds)
 
@@ -299,7 +243,7 @@ if __name__ == "__main__":
             cluster_centroid = get_cluster_centroid(cluster)
 
             # Add sign centroids to feature map
-            add_sign_to_map(map_features, cluster_centroid)
+            signs_map_feature = add_sign_to_map(map_features, cluster_centroid)
 
         colors = get_differentiated_colors(cluster_labels)
 
@@ -307,7 +251,7 @@ if __name__ == "__main__":
         plt.figure()
         plt.scatter(point_clouds[:,0], point_clouds[:,1], color=colors)
         plt.show()
-        plot_pointcloud_on_map(map_features, point_clouds, cluster_labels)
+        plot_pointcloud_on_map(signs_map_feature, point_clouds, cluster_labels)
 
 
 

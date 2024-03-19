@@ -16,9 +16,11 @@ if __name__ == "__main__":
     clustered_pointcloud, cluster_labels = cluster_pointcloud(point_cloud)
 
     show_point_cloud_with_labels(point_cloud, cluster_labels)
+    
     for cluster in clustered_pointcloud:
         # Get the centroid of each cluster of the pointcloud
         cluster_centroid = get_cluster_centroid(cluster)
+
 
 
 

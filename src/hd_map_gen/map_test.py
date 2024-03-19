@@ -10,7 +10,7 @@ if not tf.executing_eagerly():
 
 from waymo_open_dataset.protos import map_pb2
 from waymo_open_dataset.utils import plot_maps
-
+from map_pointcloud_concatenated import *
 
 # Add project root root to python path
 current_script_directory = os.path.dirname(os.path.realpath(__file__))
@@ -25,20 +25,6 @@ def save_map_json(map_dict, filepath):
     with open(filepath, 'w') as json_file:
         print('Saving: ', filepath)
         json.dump(map_dict, json_file)
-
-
-def add_sign_to_map(map_features, sign_coords):
-    # Create a new map features object to insert the sign there
-    new_map_feature = map_pb2.MapFeature()
-
-    # Create a new Driveway message and populate its polygons
-    sign_message = new_map_feature.stop_sign
-    sign_message.position.x = sign_coords[0]
-    sign_message.position.y = sign_coords[1]
-    sign_message.position.z = sign_coords[2]
-
-    # Append the new map feature object in the existing map feature
-    map_features.append(new_map_feature)
 
 
 if __name__ == "__main__":
@@ -56,21 +42,21 @@ if __name__ == "__main__":
                 # Retrieve map_feature in the firts frame
                 map_features = frame.map_features
 
-                add_sign_to_map(map_features, )
-                print(map_features)
+            break
+        point_cloud = np.loadtxt('dataset/pointcloud_concatenated.csv', delimiter=',')
 
-                # Plot the point cloud for this frame aligned with the map data.
-                figure = plot_maps.plot_map_features(map_features)
-                figure.show()
+        clustered_pointcloud, cluster_labels = cluster_pointcloud(point_cloud)
 
-                # Save new frame to tfrecord serialized file
-                # output_tfrecord_path = f'hd_map_mod_{scene_index}_{frame_index}.tfrecord'
-                # with tf.io.TFRecordWriter(output_path) as writer:
-                #     writer.write(frame.SerializeToString())
-                # print('Saved TFRecord:', output_path)
+        # show_point_cloud_with_labels(point_cloud, cluster_labels)
 
-                # ## Save modified tfrecord
-                # output_tfrecord_path = f'hd_map_mod_{scene_index}_{frame_index}.tfrecord'
-                # # save_tfrecord(frame_mod, map_features_list_mod, output_tfrecord_path)
+        sign_id = map_features[-1].id
+        for cluster in clustered_pointcloud:
+            # Get the centroid of each cluster of the pointcloud
+            cluster_centroid = get_cluster_centroid(cluster)
+            signs_map_feature = add_sign_to_map(map_features, cluster_centroid, sign_id)
+            sign_id += 1
 
-                frame_index += 1
+        # figure = plot_maps.plot_map_features(signs_map_feature)
+        # figure.show()
+        plot_pointcloud_on_map(signs_map_feature, point_cloud, cluster_labels)
+

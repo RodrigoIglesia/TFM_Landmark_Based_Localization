@@ -15,6 +15,8 @@ import pathlib
 import matplotlib.pyplot as plt
 from matplotlib import cm
 from matplotlib.colors import Normalize
+import json
+from google.protobuf.json_format import MessageToJson
 
 import tensorflow.compat.v1 as tf
 if not tf.executing_eagerly():
@@ -58,15 +60,26 @@ def project_points_on_map(points, frame):
     return xyz
 
 
-def add_sign_to_map(map_features, sign_coords):
+def add_sign_to_map(map_features, sign_coords, id):
     # Create a new map features object to insert the sign there
     new_map_feature = map_pb2.MapFeature()
 
+    new_map_feature.id = id
+
     # Create a new Driveway message and populate its polygons
     sign_message = new_map_feature.stop_sign
+    # sign_message.lane = 100 # 100 indicates is a vertical sign
+    sign_message.lane.append(100)
     sign_message.position.x = sign_coords[0]
     sign_message.position.y = sign_coords[1]
     sign_message.position.z = sign_coords[2]
+
+    # # Create a new Driveway message and populate its polygons
+    # sign_message = new_map_feature.stop_sign
+    # # sign_message.lane = 100 # 100 indicates is a vertical sign
+    # sign_message.position.x = sign_coords[0]
+    # sign_message.position.y = sign_coords[1]
+    # sign_message.position.z = sign_coords[2]
 
     # Append the new map feature object in the existing map feature
     map_features.append(new_map_feature)
@@ -74,8 +87,8 @@ def add_sign_to_map(map_features, sign_coords):
     return map_features
 
 
-def plot_poincloud(figure, point_cloud):
-    color_palette = point_cloud_labels
+def plot_poincloud(figure, point_cloud, labels):
+    color_palette = labels
 
     scatter_trace = go.Scatter3d(
         x = point_cloud[:, 0],
@@ -85,7 +98,7 @@ def plot_poincloud(figure, point_cloud):
         marker=dict(
             size=1,
             color=color_palette,
-            colorscale='Pinkyl',
+            colorscale='hsv',
             opacity=0.8,
         ),
     )
@@ -93,50 +106,69 @@ def plot_poincloud(figure, point_cloud):
     figure.add_trace(scatter_trace)
 
 
-def plot_cluster_bbox(figure, point_cloud, point_cloud_labels):
+def plot_cluster_bbox(figure, point_cloud, labels):
     """
     Args:
         point_cloud: (N, 3) 3D point cloud matrix
     """
     # Add bounding boxes to figure
-    for label in np.unique(point_cloud_labels):
-        cluster_points = point_cloud[point_cloud_labels == label]
+    for label in np.unique(labels):
+        cluster_points = point_cloud[labels == label]
 
         # Compute bounding box
         min_bound = np.min(cluster_points, axis=0)
         max_bound = np.max(cluster_points, axis=0)
 
-        # Create bounding box trace
-        bbox_trace = go.Mesh3d(
-            x=[min_bound[0], max_bound[0], max_bound[0], min_bound[0], min_bound[0],
-               min_bound[0], max_bound[0], max_bound[0], min_bound[0], min_bound[0],
-               min_bound[0], max_bound[0], max_bound[0], min_bound[0], min_bound[0],
-               min_bound[0], max_bound[0], max_bound[0], min_bound[0], min_bound[0],
-               min_bound[0], max_bound[0], max_bound[0], min_bound[0]],
-            y=[min_bound[1], min_bound[1], max_bound[1], max_bound[1], min_bound[1],
-               min_bound[1], min_bound[1], max_bound[1], max_bound[1], max_bound[1],
-               min_bound[1], min_bound[1], max_bound[1], max_bound[1], min_bound[1],
-               min_bound[1], min_bound[1], min_bound[1], max_bound[1], max_bound[1],
-               min_bound[1], min_bound[1], max_bound[1], max_bound[1]],
-            z=[min_bound[2], min_bound[2], min_bound[2], min_bound[2], min_bound[2],
-               max_bound[2], max_bound[2], max_bound[2], max_bound[2], max_bound[2],
-               max_bound[2], max_bound[2], max_bound[2], max_bound[2], max_bound[2],
-               min_bound[2], min_bound[2], max_bound[2], max_bound[2], max_bound[2],
-               min_bound[2], min_bound[2], min_bound[2], min_bound[2]],
-            opacity=0.5,
-            color='red',
-            name=f'Cluster {label} Bounding Box'
+        # Define vertices for all faces of the bounding box
+        vertices = [
+            [min_bound[0], min_bound[1], min_bound[2]],
+            [max_bound[0], min_bound[1], min_bound[2]],
+            [max_bound[0], max_bound[1], min_bound[2]],
+            [min_bound[0], max_bound[1], min_bound[2]],
+            [min_bound[0], min_bound[1], max_bound[2]],
+            [max_bound[0], min_bound[1], max_bound[2]],
+            [max_bound[0], max_bound[1], max_bound[2]],
+            [min_bound[0], max_bound[1], max_bound[2]]
+        ]
+
+        # Define the indices of vertices for each face of the bounding box
+        # Define cube edges
+        edges = [
+            [0, 1], [1, 2], [2, 3], [3, 0],
+            [4, 5], [5, 6], [6, 7], [7, 4],
+            [0, 4], [1, 5], [2, 6], [3, 7]
+        ]
+
+        # Extract x, y, z coordinates from vertices
+        x_coords, y_coords, z_coords = zip(*vertices)
+
+        # Create trace for cube edges
+        edge_trace = go.Scatter3d(
+            x=[x_coords[i] for i, j in edges] + [None],
+            y=[y_coords[i] for i, j in edges] + [None],
+            z=[z_coords[i] for i, j in edges] + [None],
+            mode='lines',
+            line=dict(color='red', width=2)
+        )
+        figure.add_trace(edge_trace)
+
+        # Create trace for cube vertices
+        vertex_trace = go.Scatter3d(
+            x=x_coords,
+            y=y_coords,
+            z=z_coords,
+            mode='markers',
+            marker=dict(color='red', size=2)
         )
 
-        figure.add_trace(bbox_trace)
+        figure.add_trace(vertex_trace)
 
-
-def plot_pointcloud_on_map(map, point_cloud, point_cloud_labels):
+def plot_pointcloud_on_map(map, point_cloud, labels):
     # Plot the point cloud for this frame aligned with the map data.
     figure = plot_maps.plot_map_features(map)
 
-    plot_poincloud(figure, point_cloud)
-    plot_cluster_bbox(figure, point_cloud, point_cloud_labels)
+    plot_poincloud(figure, point_cloud, labels)
+    plot_cluster_bbox(figure, point_cloud, labels)
 
     figure.show()
 
@@ -152,6 +184,17 @@ def get_differentiated_colors(numbers):
     colors = [colormap(normalize(num)) for num in numbers]
 
     return colors
+
+
+def save_protobuf_features(protobuf_message, output):
+    json_data = []
+    for map_feature in protobuf_message:
+        json_data.append(json.loads(MessageToJson(map_feature)))  # Convert JSON string to dictionary
+
+    with open(output, 'w') as json_file:
+        json.dump(json_data, json_file, separators=(',', ':'))
+
+    print("Protobuf data converted to JSON and saved to 'output.json'.")
 
 
 if __name__ == "__main__":
@@ -178,6 +221,7 @@ if __name__ == "__main__":
             if hasattr(frame, 'map_features') and frame.map_features:
                 # Retrieve map_feature in the firts frame
                 map_features = frame.map_features
+                save_protobuf_features(map_features, "dataset/map_features_" + str(scene_index) + ".json")
                 print("Map feature found in scene")
             
             (range_images, camera_projections, segmentation_labels, range_image_top_pose) = frame_utils.parse_range_image_and_camera_projection(frame)
@@ -228,29 +272,32 @@ if __name__ == "__main__":
             print("No pointclouds in scene")
             continue
 
-        # Save point cloud to csv
-        file_path = 'dataset/pointcloud_concatenated.csv'
-        # Use savetxt to save the array to a CSV file
-        np.savetxt(file_path, point_clouds, delimiter=',')
-        print(f"NumPy array has been successfully saved to {file_path}.")
+        # # Save point cloud to csv
+        # file_path = 'dataset/pointcloud_concatenated.csv'
+        # # Use savetxt to save the array to a CSV file
+        # np.savetxt(file_path, point_clouds, delimiter=',')
+        # print(f"NumPy array has been successfully saved to {file_path}.")
 
         # Get the clustered pointclouds, each cluster corresponding to a traffic sign
         clustered_point_cloud, cluster_labels = cluster_pointcloud(point_clouds)
 
         # Add signs to map
+        sign_id = map_features[-1].id
         for cluster in clustered_point_cloud:
             # Get the centroid of each cluster of the pointcloud
             cluster_centroid = get_cluster_centroid(cluster)
 
             # Add sign centroids to feature map
-            signs_map_feature = add_sign_to_map(map_features, cluster_centroid)
+            signs_map_feature = add_sign_to_map(map_features, cluster_centroid, sign_id)
+            sign_id += 1
+        save_protobuf_features(signs_map_feature, "dataset/map_features_mod_" + str(scene_index) + ".json")
 
-        colors = get_differentiated_colors(cluster_labels)
+        # colors = get_differentiated_colors(cluster_labels)
 
         # Plot Map and PointCloud aligned with the map data.
-        plt.figure()
-        plt.scatter(point_clouds[:,0], point_clouds[:,1], color=colors)
-        plt.show()
+        # plt.figure()
+        # plt.scatter(point_clouds[:,0], point_clouds[:,1], color=colors)
+        # plt.show()
         plot_pointcloud_on_map(signs_map_feature, point_clouds, cluster_labels)
 
 

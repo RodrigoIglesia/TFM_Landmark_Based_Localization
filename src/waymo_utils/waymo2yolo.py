@@ -127,7 +127,7 @@ class WaymoYOLOConverter():
                 f.write(line)
 
 def main():
-    tfrecord_dir = src_dir + '/dataset/waymo_samples/train'
+    tfrecord_dir = src_dir + '/dataset/waymo_map_scene_mod'
     image_dir = src_dir + '/dataset/waymo_yolo_format/images/train'
     label_dir = src_dir + '/dataset/waymo_yolo_format/labels/train'
 

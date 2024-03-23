@@ -104,7 +104,6 @@ def concatenate_points(points):
     non_empty_points = [arr for arr in points if arr.size != 0]
     points_all = np.concatenate(non_empty_points, axis=0)
     # points_all = np.concatenate(points, axis=0)
-    print(f'points_all shape: {points_all.shape}')
 
     return points_all
 
@@ -120,8 +119,11 @@ def show_point_cloud_with_labels(points, segmentation_labels):
     point_cloud = o3d.geometry.PointCloud()
     point_cloud.points = o3d.utility.Vector3dVector(points)
 
+    # Move the origin closer to the point cloud coordinates
+    origin = np.mean(points, axis=0)
+
     mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
-        size=1.6, origin=[0, 0, 0])
+        size=1.6, origin=origin)
 
     point_cloud.points = o3d.utility.Vector3dVector(points)
 
@@ -184,7 +186,7 @@ def filter_lidar_data(point_clouds, segmentation_labels, labels_to_keep):
 
 def cluster_pointcloud(point_cloud):
     # clustering = OPTICS(min_samples=50, xi=0.05, min_cluster_size=0.05).fit(point_clouds[:,:2])
-    clustering = DBSCAN(eps=2, min_samples=1).fit(point_cloud[:,:2])
+    clustering = DBSCAN(eps=0.15, min_samples=1).fit(point_cloud[:,:2])
     cluster_labels = clustering.labels_
 
     print("Clusters detected: ", len(np.unique(cluster_labels)))

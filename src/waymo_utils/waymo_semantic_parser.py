@@ -39,11 +39,11 @@ SIGNS_COLOR_MAP = immutabledict.immutabledict({
     cs_pb2.CameraSegmentation.TYPE_MOTORCYCLIST: [180, 0, 0],
     cs_pb2.CameraSegmentation.TYPE_BIRD: [127, 96, 0],
     cs_pb2.CameraSegmentation.TYPE_GROUND_ANIMAL: [91, 15, 0],
-    cs_pb2.CameraSegmentation.TYPE_CONSTRUCTION_CONE_POLE: [235, 12, 12], #15
-    cs_pb2.CameraSegmentation.TYPE_POLE: [110, 245, 69], #16
-    cs_pb2.CameraSegmentation.TYPE_PEDESTRIAN_OBJECT: [69, 122, 245], #17
-    cs_pb2.CameraSegmentation.TYPE_SIGN: [245, 69, 245], #18
-    cs_pb2.CameraSegmentation.TYPE_TRAFFIC_LIGHT: [239, 245, 69], #19
+    cs_pb2.CameraSegmentation.TYPE_CONSTRUCTION_CONE_POLE: [235, 12, 12], #14
+    cs_pb2.CameraSegmentation.TYPE_POLE: [110, 245, 69], #15
+    cs_pb2.CameraSegmentation.TYPE_PEDESTRIAN_OBJECT: [69, 122, 245], #16
+    cs_pb2.CameraSegmentation.TYPE_SIGN: [245, 69, 245], #17
+    cs_pb2.CameraSegmentation.TYPE_TRAFFIC_LIGHT: [239, 245, 69], #18
     cs_pb2.CameraSegmentation.TYPE_BUILDING: [70, 70, 70],
     cs_pb2.CameraSegmentation.TYPE_ROAD: [128, 64, 128],
     cs_pb2.CameraSegmentation.TYPE_LANE_MARKER: [234, 209, 220],
@@ -56,31 +56,6 @@ SIGNS_COLOR_MAP = immutabledict.immutabledict({
     cs_pb2.CameraSegmentation.TYPE_STATIC: [102, 102, 102],
 })
 
-def load_frame(scene):
-    """
-    Load and yields frame object of a determined scene
-    A frame is composed of imagrs from the 5 cameras
-    A frame also has information of the bounding boxes and labels, related to each image
-    Args: scene (str) - path to the scene which contains the frames
-    Yield: frame_object (dict) - frame object from waymo dataset containing cameras and laser info
-    """
-    dataset = tf.data.TFRecordDataset(scene, compression_type='')
-    for data in dataset:
-        frame_object = open_dataset.Frame()
-        frame_object.ParseFromString(bytearray(data.numpy()))
-
-        yield frame_object
-
-def get_frame_image(frame_image):
-    """
-    Decodes a single image contained in the frame
-    Args: frame_image - image in waymo format
-    Return: decoded_image - Numpy decoded image
-    """
-    decoded_image = tf.image.decode_jpeg(frame_image.image)
-    decoded_image = decoded_image.numpy()
-
-    return decoded_image
 
 def get_frames_with_segment(frames_with_seg, scene):
     """
@@ -97,35 +72,18 @@ def get_frames_with_segment(frames_with_seg, scene):
                 sequence_id = frame.images[0].camera_segmentation_label.sequence_id
 
 
-def get_frame_image(frame_image):
-    """
-    Decodes a single image contained in the frame
-    Args: frame_image - image in waymo format
-    Return: decoded_image - Numpy decoded image
-    """
-    decoded_image = tf.image.decode_jpeg(frame_image.image)
-    decoded_image = decoded_image.numpy()
+def get_semantic_labels(image):
+    segmentation_proto = image.camera_segmentation_label
+    panoptic_label_divisor = image.camera_segmentation_label.panoptic_label_divisor
 
-    return decoded_image
+    panoptic_label = camera_segmentation_utils.decode_single_panoptic_label_from_proto(segmentation_proto)
 
-def get_image_bboxes(frame_labels, image_name):
-    """
-    Parses the frame object and gets the bboxes which corresponds to the desired image
-    Args:
-        frame_labels - list of labels corresponding to all the images in the frame
-        image_name - name of the desired image to label
-    Return: bboxes (list of dictionaries)
-    """
+    # Get semantic and instance label from panoptic label
+    semantic_label, instance_label = camera_segmentation_utils.decode_semantic_and_instance_labels_from_panoptic_label(
+        panoptic_label, panoptic_label_divisor
+    )
 
-    bboxes = []
-    for camera_labels in frame_labels:
-        # Check label name
-        if camera_labels.name != image_name:
-            continue
-        for label in camera_labels.labels:
-            bboxes.append(label)
-
-    return bboxes
+    return semantic_label, instance_label
 
 
 def convert_instance_labels_to_yolo(semantic_label, instance_label, image_size):
@@ -171,30 +129,16 @@ def get_signs_color_map(color_map_dict= None):
     return color_map
 
 
-
-def draw_bboxes(camera_bboxes, result_image):
-    # Print bounding box on top of the panoptic labels
-    for bbox in camera_bboxes:
-        label = bbox.type
-        bbox_coords = bbox.box
-        br_x = int(bbox_coords.center_x + bbox_coords.length/2)
-        br_y = int(bbox_coords.center_y + bbox_coords.width/2)
-        tl_x = int(bbox_coords.center_x - bbox_coords.length/2)
-        tl_y = int(bbox_coords.center_y - bbox_coords.width/2)
-
-        tl = (tl_x, tl_y)
-        br = (br_x, br_y)
-
-        result_image = cv2.rectangle(result_image, tl, br, (255,0,0), 2)
-
-
 if __name__ == "__main__":
+    from WaymoParser import *
+    from bbox_utils import *
+
     # Add project root root to python path
     current_script_directory = os.path.dirname(os.path.realpath(__file__))
     src_dir = os.path.abspath(os.path.join(current_script_directory, "../.."))
     sys.path.append(src_dir)
 
-    dataset_path = os.path.join(src_dir, "dataset/waymo_samples/train")
+    dataset_path = os.path.join(src_dir, "dataset/waymo_map_scene_mod")
 
     tfrecord_list = list(
         sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
@@ -215,15 +159,7 @@ if __name__ == "__main__":
             image_size = (decoded_image.shape[1], decoded_image.shape[0])
             camera_bboxes = get_image_bboxes(frame.camera_labels, image.name)
 
-            segmentation_proto = image.camera_segmentation_label
-            panoptic_label_divisor = image.camera_segmentation_label.panoptic_label_divisor
-
-            panoptic_label = camera_segmentation_utils.decode_single_panoptic_label_from_proto(segmentation_proto)
-
-            # Get semantic and instance label from panoptic label
-            semantic_label, instance_label = camera_segmentation_utils.decode_semantic_and_instance_labels_from_panoptic_label(
-                panoptic_label, panoptic_label_divisor
-            )
+            semantic_label, instance_label = get_semantic_labels(image)
 
             ###########################################################<
             # Keep only interest classes in semantic classes

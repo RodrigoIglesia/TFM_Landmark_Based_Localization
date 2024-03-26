@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
 import tensorflow as tf
+import numpy as np
+import cv2
 
 if not tf.executing_eagerly():
   tf.compat.v1.enable_eager_execution()
@@ -34,6 +36,33 @@ def get_frame_image(frame_image):
     decoded_image = decoded_image.numpy()
 
     return decoded_image
+
+def generate_canvas(images):
+    """
+    Generateas a canvas of concatenated images for visualization porpuses
+    Arg:
+        images - list: list of images to concatenatenate
+    Returns:
+        canvas - numpy ndarray: Generated canvas of concatenated images
+    """
+    max_height = max(image.shape[0] for image in images)
+    width, _ = images[0].shape[1], images[0].shape[2]
+    canvas = np.zeros((max_height, len(images) * width, 3), dtype=np.uint8)
+
+    for i in range(len(images)):
+        image = images[i]
+        height = image.shape[0]
+
+        # Calculate padding values
+        top_pad = (max_height - height) // 2
+        bottom_pad = max_height - height - top_pad
+
+        # Pad image with black pixels
+        padded_image = cv2.copyMakeBorder(image, top_pad, bottom_pad, 0, 0, cv2.BORDER_CONSTANT, value=[0, 0, 0])
+
+        canvas[:, i * width:(i + 1) * width, :] = padded_image
+
+    return canvas
 
 def get_image_bboxes(frame_labels, image_name):
     """

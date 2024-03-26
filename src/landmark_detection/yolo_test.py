@@ -14,7 +14,8 @@ current_script_directory = os.path.dirname(os.path.realpath(__file__))
 src_dir = os.path.abspath(os.path.join(current_script_directory, "../.."))
 sys.path.insert(0, src_dir)
 
-from src.waymo_utils import waymo_2d_parser as w2d
+from src.waymo_utils.WaymoParser import *
+from src.waymo_utils.waymo_2d_parser import *
 
 def yolo_detect(image, model):
     """
@@ -36,28 +37,27 @@ def yolo_detect(image, model):
     return annotated_image
 
 
-
-def main():
-    dataset_path = os.path.join(src_dir, "dataset/waymo_samples/test")
+if __name__ == "__main__":
+    dataset_path = os.path.join(src_dir, "dataset/waymo_samples")
     file = "individual_files_validation_segment-10203656353524179475_7625_000_7645_000_with_camera_labels.tfrecord"
 
     model = YOLO('models/yolov8s.pt')  # load an official model
 
     scene_path = os.path.join(dataset_path, file)
-    for frame in w2d.load_frame(scene_path):
+    for frame in load_frame(scene_path):
         print(frame.timestamp_micros)
 
         # Read the 5 cammera images of the frame
         camearas_images = []
         for i, image in enumerate(frame.images):
-            decoded_image = w2d.get_frame_image(image)
+            decoded_image = get_frame_image(image)
 
             result_image = yolo_detect(decoded_image, model)
             # draw_detections(decoded_image, yolo_detections)
 
             camearas_images.append(result_image[...,::-1])
 
-        canvas = w2d.generate_canvas(camearas_images)
+        canvas = generate_canvas(camearas_images)
 
         # Show cameras images
         cv2.namedWindow('Canvas', cv2.WINDOW_NORMAL)
@@ -65,6 +65,3 @@ def main():
         cv2.imshow("Canvas", canvas)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
-
-if __name__ == "__main__":
-    main()

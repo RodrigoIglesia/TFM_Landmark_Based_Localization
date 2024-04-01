@@ -6,7 +6,7 @@ This script parses the maps in Waymo dataset along with the 3D sem seg labels to
 For each scene:
 1. Retrieve the Feature Map, which is contained in the first frame of the scene.
     1.1. If no pointclous is found in the scene, jump to the next scene
-2. Point cloud read and clustering
+2. Get Scene Labeled Point
     2.1. Read the 3D pointcloud for each frame.
     2.2. If the frame has pointcloud with segmentation labels > Get a pointcloud only containing points labeled as signs.
     2.3. Save each frame pointcloud in a vector.
@@ -205,9 +205,6 @@ def save_protobuf_features(protobuf_message, output):
 
 
 if __name__ == "__main__":
-    ##############################################################
-    ## Load Dataset to generate landmarks of the signs
-    ##############################################################
     dataset_path        = os.path.join(src_dir, "dataset/waymo_samples")
     json_maps_path      = os.path.join(src_dir, "dataset/hd_maps")
     point_clouds_path   = os.path.join(src_dir, "dataset/pointclouds")
@@ -215,17 +212,16 @@ if __name__ == "__main__":
 
     tfrecord_list = list(sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
 
-    ## Iterate dataset
+    ##############################################################
+    ## Iterate through Dataset Scenes
+    ##############################################################
     for scene_index, scene_path in enumerate(sorted(tfrecord_list)):
         logging.info("Scene {} processing: {}".format(str(scene_index), scene_path))
 
-        # Array to store segmented pointclouds
-        point_clouds = []
-        # Array to store pointcloud labels
-        point_cloud_labels = []
-
+        ##############################################################
+        ## Retrieve the Feature Map
+        ##############################################################
         map_features_found = False
-
         for frame in load_frame(scene_path):
             # Get Map Information of the scene
             # For the first frame > Only retreive frame with map information
@@ -240,7 +236,14 @@ if __name__ == "__main__":
             logging.info("No Map Features found in the scene, jumping to the next one...")
             continue
         
+        ##############################################################
+        ## Get Scene Labeled Point
+        ##############################################################
         # If map features were found, parse the 3D point clouds in the frames
+        # Array to store segmented pointclouds
+        point_clouds = []
+        # Array to store pointcloud labels
+        point_cloud_labels = []
         for frame in load_frame(scene_path):
             (range_images, camera_projections, segmentation_labels, range_image_top_pose) = frame_utils.parse_range_image_and_camera_projection(frame)
 
@@ -299,6 +302,9 @@ if __name__ == "__main__":
         # Get the clustered pointclouds, each cluster corresponding to a traffic sign
         clustered_point_cloud, cluster_labels = cluster_pointcloud(point_clouds)
 
+        ##############################################################
+        ## Enrich Feature Map
+        ##############################################################
         # Add signs to map
         sign_id = map_features[-1].id
         for cluster in clustered_point_cloud:
@@ -312,7 +318,9 @@ if __name__ == "__main__":
         save_protobuf_features(map_features, json_maps_path + "/signs_map_features_" + os.path.splitext(os.path.basename(scene_path))[0] + '.json')
         logging.debug("Modified map saved as JSON")
 
-        ## Save scene as tfrecord
+        ##############################################################
+        ## Generate a new tfrecord file
+        ##############################################################
         output_filename = output_dataset_path + '/output' + os.path.basename(scene_path)
         writer = tf.io.TFRecordWriter(output_filename)
         for frame in load_frame(scene_path):

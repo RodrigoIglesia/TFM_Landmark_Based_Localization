@@ -43,7 +43,10 @@ if __name__ == "__main__":
                 
                 # Only semantic segmentation label is used > no instances of signs.
                 # Keep only interest classes in semantic classes
-                values_to_keep = [14, 15, 16, 17, 18]
+                # 15 -> POLE
+                # 17 -> SIGN
+                # 18 -> TRAFFIC LIGHT
+                values_to_keep = [15, 17, 18]
                 # Create a copy of the original semantic labels to keep them
                 semantic_label_signs = np.copy(semantic_label)
                 # Create a mask for the values you want to keep

@@ -162,7 +162,7 @@ def show_point_cloud_with_labels(points, segmentation_labels):
 
 def filter_lidar_data(point_clouds, segmentation_labels, labels_to_keep):
     """
-    Function to filter points from  in the no label 
+    Function to filter points.
     """
     combined_data = list(zip(point_clouds, segmentation_labels))
 
@@ -258,6 +258,9 @@ if __name__ == "__main__":
             (range_images, camera_projections, segmentation_labels, range_image_top_pose) = frame_utils.parse_range_image_and_camera_projection(frame)
             if not(segmentation_labels):
                 continue
+
+            show_semseg_label_image(range_images[1])
+
 
             # Get points labeled for first and second return
             # Parse range image for lidar 1

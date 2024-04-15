@@ -11,11 +11,11 @@ from ultralytics.utils.plotting import Annotator
 # Add project src root to python path
 # Add project root root to python path
 current_script_directory = os.path.dirname(os.path.realpath(__file__))
-src_dir = os.path.abspath(os.path.join(current_script_directory, "../.."))
+src_dir = os.path.abspath(os.path.join(current_script_directory, ".."))
 sys.path.insert(0, src_dir)
 
-from src.waymo_utils.WaymoParser import *
-from src.waymo_utils.waymo_2d_parser import *
+from waymo_utils.WaymoParser import *
+from waymo_utils.waymo_2d_parser import *
 
 def yolo_detect(image, model):
     """

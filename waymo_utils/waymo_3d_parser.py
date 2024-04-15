@@ -108,7 +108,7 @@ def concatenate_points(points):
     return points_all
 
 
-def show_point_cloud_with_labels(points, segmentation_labels):
+def show_point_cloud_with_labels(points, segmentation_labels=None):
     # pylint: disable=no-member (E1101)
     vis = o3d.visualization.VisualizerWithKeyCallback()
     vis.create_window()
@@ -127,35 +127,36 @@ def show_point_cloud_with_labels(points, segmentation_labels):
 
     point_cloud.points = o3d.utility.Vector3dVector(points)
 
-    # Labels
-    # Extract unique class IDs and instance IDs
-    unique_segment_ids = np.unique(segmentation_labels)
+    if segmentation_labels:
+        # Labels
+        # Extract unique class IDs and instance IDs
+        unique_segment_ids = np.unique(segmentation_labels)
 
-    # Create a color mapping based on class IDs
-    class_color_mapping = {class_id: plt.cm.tab20(i) for i, class_id in enumerate(unique_segment_ids)}
+        # Create a color mapping based on class IDs
+        class_color_mapping = {class_id: plt.cm.tab20(i) for i, class_id in enumerate(unique_segment_ids)}
 
-    # Create a color array based on segmentation labels
-    colors = np.array([class_color_mapping[class_id] for class_id in segmentation_labels])
+        # Create a color array based on segmentation labels
+        colors = np.array([class_color_mapping[class_id] for class_id in segmentation_labels])
 
 
-    point_cloud.colors = o3d.utility.Vector3dVector(colors[:, :3])
+        point_cloud.colors = o3d.utility.Vector3dVector(colors[:, :3])
 
-    vis.add_geometry(point_cloud)
-    # Plot bounding boxes for each cluster
-    for label in np.unique(segmentation_labels):
-        cluster_points = points[segmentation_labels == label]
+        vis.add_geometry(point_cloud)
+        # Plot bounding boxes for each cluster
+        for label in np.unique(segmentation_labels):
+            cluster_points = points[segmentation_labels == label]
 
-        # Compute bounding box
-        min_bound = np.min(cluster_points, axis=0)
-        max_bound = np.max(cluster_points, axis=0)
+            # Compute bounding box
+            min_bound = np.min(cluster_points, axis=0)
+            max_bound = np.max(cluster_points, axis=0)
 
-        # Create bounding box
-        bbox = o3d.geometry.AxisAlignedBoundingBox(min_bound, max_bound)
-        bbox_wireframe = o3d.geometry.LineSet.create_from_axis_aligned_bounding_box(bbox)
-        bbox_wireframe.paint_uniform_color([1, 0, 0])  # Red color
+            # Create bounding box
+            bbox = o3d.geometry.AxisAlignedBoundingBox(min_bound, max_bound)
+            bbox_wireframe = o3d.geometry.LineSet.create_from_axis_aligned_bounding_box(bbox)
+            bbox_wireframe.paint_uniform_color([1, 0, 0])  # Red color
 
-        # Add bounding box to the visualizer
-        vis.add_geometry(bbox_wireframe)
+            # Add bounding box to the visualizer
+            vis.add_geometry(bbox_wireframe)
     vis.add_geometry(mesh_frame)
 
     vis.run()

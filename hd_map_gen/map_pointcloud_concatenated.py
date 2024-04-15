@@ -45,23 +45,20 @@ from waymo_open_dataset.utils import plot_maps
 
 # Add project root root to python path
 current_script_directory = os.path.dirname(os.path.realpath(__file__))
-src_dir = os.path.abspath(os.path.join(current_script_directory, "../.."))
+src_dir = os.path.abspath(os.path.join(current_script_directory, ".."))
 sys.path.append(src_dir)
 
 # Configure logging
 logging.basicConfig(filename='logs/waymo_hd_map_gen.log', level=logging.DEBUG, format='%(asctime)s - %(message)s')
 
 
-from src.waymo_utils.WaymoParser import *
-from src.waymo_utils.waymo_3d_parser import *
-
+from waymo_utils.WaymoParser import *
+from waymo_utils.waymo_3d_parser import *
 
 
 def project_points_on_map(points, frame):
     """
     Project coordinates of the point cloud (referenced to the sensor system) to the map (referenced to the world system)
-    Args
-    - points: 
     """
     # Get pointcloud coordinated to project in the map
     xyz = points[0]

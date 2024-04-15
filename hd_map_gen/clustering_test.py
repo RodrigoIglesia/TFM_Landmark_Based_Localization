@@ -6,11 +6,11 @@ from matplotlib.colors import Normalize
 
 # Add project root root to python path
 current_script_directory = os.path.dirname(os.path.realpath(__file__))
-src_dir = os.path.abspath(os.path.join(current_script_directory, "../.."))
+src_dir = os.path.abspath(os.path.join(current_script_directory, ".."))
 sys.path.append(src_dir)
 
-from src.waymo_utils.WaymoParser import *
-from src.waymo_utils.waymo_3d_parser import *
+from waymo_utils.WaymoParser import *
+from waymo_utils.waymo_3d_parser import *
 
 def get_differentiated_colors(numbers):
     # Choose a colormap (you can change this to any other colormap available in matplotlib)

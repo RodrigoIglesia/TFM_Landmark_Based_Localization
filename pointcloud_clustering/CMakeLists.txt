@@ -7,8 +7,10 @@ project(pointcloud_clustering)
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
+find_package(PCL 1.2 REQUIRED)
 find_package(catkin REQUIRED COMPONENTS
   roscpp
+  tf
   rospy
   std_msgs
 )
@@ -204,3 +206,7 @@ include_directories(
 
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
+
+add_executable (euclidean_clustering src/euclidean_clustering.cpp)
+target_link_libraries (euclidean_clustering ${PCL_LIBRARIES} ${catkin_LIBRARIES})
+

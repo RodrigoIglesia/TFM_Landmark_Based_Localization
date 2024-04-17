@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 """
     This node reads an point cloud from Waymo Open Dataset, converts it to PCL and publishd to a determined topic
 """
@@ -9,9 +11,11 @@ import numpy as np
 import pathlib
 
 import rospy
-# ROS libraries to work with mesates
+# ROS libraries to work with messages
 from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Header
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import tensorflow.compat.v1 as tf
 if not tf.executing_eagerly():
@@ -27,8 +31,6 @@ from waymo_utils.WaymoParser import *
 from waymo_utils.waymo_3d_parser import *
 from waymo_utils.waymo_pointcloud_parser import *
 
-# Configure logging
-logging.basicConfig(filename='logs/point_cloud_parser.log', level=logging.DEBUG, format='%(asctime)s - %(message)s')
 
 def pointcloud_to_ros(points, frame_id):
     msg = PointCloud2()
@@ -39,32 +41,35 @@ def pointcloud_to_ros(points, frame_id):
     msg.fields = [
         PointField('x', 0, PointField.FLOAT32, 1),
         PointField('y', 4, PointField.FLOAT32, 1),
-        PointField('z', 8, PointField.FLOAT32, 1)
+        PointField('z', 8, PointField.FLOAT32, 1),
+        PointField('intensity', 12, PointField.FLOAT32, 1),
     ]
     msg.is_bigendian = False
-    msg.point_step = 12
+    msg.point_step = 16  # Adjust point step based on number of fields
     msg.row_step = msg.point_step * msg.width
     msg.is_dense = True
-    msg.data = np.asarray(points, np.float32).tostring()
+    # Concatenate points and intensities if 'intensity' is provided
+    data = np.column_stack((points, np.zeros((points.shape[0], 1), dtype=np.float32)))
+    msg.data = data.tostring()
     return msg
 
 
 if __name__ == "__main__":
     rospy.init_node('waymo_pointcloud_publisher', anonymous=True)
+    rospy.loginfo("Node initialized correctly")
+
     pointcloud_publisher = rospy.Publisher('waymo_pointcloud', PointCloud2, queue_size=10)
     rate = rospy.Rate(10)  # Adjust the publishing rate as needed
 
     dataset_path = os.path.join(src_dir, "dataset/waymo_map_scene")
-
     tfrecord_list = list(sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
 
     ##############################################################
     ## Iterate through Dataset Scenes
     ##############################################################
     for scene_index, scene_path in enumerate(sorted(tfrecord_list)):
-        logging.info("Scene {} processing: {}".format(str(scene_index), scene_path))
+        rospy.loginfo("Scene {} processing: {}".format(str(scene_index), scene_path))
 
-        
         ##############################################################
         ## Get Scene Point Cloud
         ##############################################################
@@ -75,8 +80,6 @@ if __name__ == "__main__":
         point_cloud_labels = []
         frame_idx = 0
         for frame in load_frame(scene_path):
-
-            frame_id = os.path.basename(scene_path) + "_" +f"{frame_idx:03}"
             (range_images, camera_projections, segmentation_labels, range_image_top_pose) = frame_utils.parse_range_image_and_camera_projection(frame)
 
             # Get points labeled for first and second return
@@ -92,8 +95,6 @@ if __name__ == "__main__":
             points_return2 = _range_image_to_pcd(1)
 
             points, _ = concatenate_pcd_returns(points_return1, points_return2)
-
-            # show_point_cloud(points)
 
             # Convert concatenated point cloud to ROS message
             pointcloud_msg = pointcloud_to_ros(points, frame_id)

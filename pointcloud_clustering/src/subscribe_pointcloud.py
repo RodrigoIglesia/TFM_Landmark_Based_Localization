@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 """
     This node reads an point cloud from Waymo Open Dataset, converts it to PCL and publishd to a determined topic
 """

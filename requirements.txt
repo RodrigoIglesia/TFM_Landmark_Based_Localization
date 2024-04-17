@@ -28,6 +28,7 @@ rosmaster==1.16.0
 rosmsg==1.16.0
 rosnode==1.16.0
 rosparam==1.16.0
+rospkg==1.5.0
 rospy==1.16.0
 rosservice==1.16.0
 rostest==1.16.0

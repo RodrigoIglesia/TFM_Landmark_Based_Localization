@@ -1,6 +1,6 @@
 <launch>
   <!-- <node type="rviz" name="rviz" pkg="rviz" args="-d /home/rodrigo/catkin_ws/src/TFM_Landmark_Based_Localization/TFM.rviz" /> -->
-  <rosparam command="load" file="/home/rodrigo/catkin_ws/src/TFM_Landmark_Based_Localization/params.yaml" />
+  <!-- <rosparam command="load" file="/home/rodrigo/catkin_ws/src/TFM_Landmark_Based_Localization/params.yaml" /> -->
   <node pkg="pointcloud_clustering" type="publish_pointcloud.py" name="publish_pointcloud"/>
-  <node pkg="pointcloud_clustering" type="euclidean_clustering" name="euclidean_clustering"/>
+  <node pkg="pointcloud_clustering" type="clustering" name="clustering"/>
 </launch>

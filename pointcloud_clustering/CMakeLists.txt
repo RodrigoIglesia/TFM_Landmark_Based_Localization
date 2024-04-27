@@ -207,6 +207,6 @@ include_directories(
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
 
-add_executable (euclidean_clustering src/euclidean_clustering.cpp)
-target_link_libraries (euclidean_clustering ${PCL_LIBRARIES} ${catkin_LIBRARIES})
+add_executable (clustering src/clustering.cpp)
+target_link_libraries (clustering ${PCL_LIBRARIES} ${catkin_LIBRARIES})
 

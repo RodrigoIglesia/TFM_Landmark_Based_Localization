@@ -32,10 +32,8 @@ from waymo_utils.waymo_3d_parser import *
 from waymo_utils.waymo_pointcloud_parser import *
 
 
-def pointcloud_to_ros(points, frame_id):
+def pointcloud_to_ros(points):
     msg = PointCloud2()
-    msg.header = Header()
-    msg.header.frame_id = frame_id
     msg.height = 1
     msg.width = points.shape[0]
     msg.fields = [
@@ -50,15 +48,15 @@ def pointcloud_to_ros(points, frame_id):
     msg.is_dense = True
     # Concatenate points and intensities if 'intensity' is provided
     data = np.column_stack((points, np.zeros((points.shape[0], 1), dtype=np.float32)))
-    msg.data = data.tostring()
+    msg.data = data.tobytes()
     return msg
 
 
 if __name__ == "__main__":
-    rospy.init_node('waymo_pointcloud_publisher', anonymous=True)
+    rospy.init_node('publish_pointcloud', anonymous=True)
     rospy.loginfo("Node initialized correctly")
 
-    pointcloud_publisher = rospy.Publisher('waymo_pointcloud', PointCloud2, queue_size=10)
+    pointcloud_publisher = rospy.Publisher("Test_PointCloud", PointCloud2, queue_size=10)
     rate = rospy.Rate(10)  # Adjust the publishing rate as needed
 
     dataset_path = os.path.join(src_dir, "dataset/waymo_map_scene")
@@ -97,11 +95,12 @@ if __name__ == "__main__":
             points, _ = concatenate_pcd_returns(points_return1, points_return2)
 
             # Convert concatenated point cloud to ROS message
-            pointcloud_msg = pointcloud_to_ros(points, frame_id)
+            pointcloud_msg = pointcloud_to_ros(points)
 
+            # Publish message
             pointcloud_publisher.publish(pointcloud_msg)
             rospy.loginfo("Concatenated point cloud published")
-            
+
             rate.sleep()
 
             frame_idx += 1

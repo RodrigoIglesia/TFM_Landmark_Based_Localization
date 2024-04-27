@@ -18,11 +18,7 @@ DistanceThresholdLine: 0.15
 nCollect: 5
 
 # Subscription of euclidean_clustering to:
-# pointcloudcollected
-# pointcloudmerged
-# izq/velodyne_points TODO
-# der/velodyne_points TODO
-subscription: waymo_pointcloud
+subscription: Test_PointCloud
 
 # Mahalanobis distance threshold
 mahalanobisDistanceThreshold: 7.7

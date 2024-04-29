@@ -76,8 +76,11 @@ if __name__ == "__main__":
         point_clouds = []
         # Array to store pointcloud labels
         point_cloud_labels = []
-        frame_idx = 0
-        for frame in load_frame(scene_path):
+
+        frame = next(load_frame(scene_path))
+        if frame is not(None):
+        # for frame in load_frame(scene_path):
+            # TODO: Solo publicar pointcloud del primer frame
             (range_images, camera_projections, segmentation_labels, range_image_top_pose) = frame_utils.parse_range_image_and_camera_projection(frame)
 
             # Get points labeled for first and second return
@@ -102,5 +105,3 @@ if __name__ == "__main__":
             rospy.loginfo("Concatenated point cloud published")
 
             rate.sleep()
-
-            frame_idx += 1

@@ -8,7 +8,7 @@ tiltLim: 10.0
 
 
 # Voxelgrid
-leafSize: 0.1
+leafSize: 0.2
 minPointsVoxel: 1
 
 # Fitting max distance
@@ -26,7 +26,7 @@ mahalanobisDistanceThreshold: 7.7
 # Info text in RViz size
 textScale: 0.5
 
-use_sim_time: true
+use_sim_time: false
 
 # Cropping (cube centered in base_link)
 low_lim_x: -0.40
@@ -40,11 +40,11 @@ up_lim_z: 0.30
 do_downsampling: true
 
 # Ground extraction
-KSearchGround: 15
+KSearchGround: 200
 OptimizeCoefficientsGround: true
-NormalDistanceWeightGround: 0.1
-MaxIterationsGround: 50
-DistanceThresholdGround: 0.7
+NormalDistanceWeightGround: 1
+MaxIterationsGround: 100
+DistanceThresholdGround: 1
 
 # Euclidean clustering
 clusterTolerance: 0.3 #0.25

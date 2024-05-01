@@ -1,0 +1,187 @@
+{
+  "context": {
+    "name": "string",
+    "camera_calibrations": [
+      {
+        "name": "UNKNOWN",
+        "intrinsic": ["double"],
+        "extrinsic": {
+          "transform": ["double"]
+        },
+        "width": "int32",
+        "height": "int32",
+        "rolling_shutter_direction": "UNKNOWN"
+      }
+    ],
+    "laser_calibrations": [
+      {
+        "name": "UNKNOWN",
+        "beam_inclinations": ["double"],
+        "beam_inclination_min": "double",
+        "beam_inclination_max": "double",
+        "extrinsic": {
+          "transform": ["double"]
+        }
+      }
+    ],
+    "stats": {
+      "laser_object_counts": [
+        {
+          "type": "UNKNOWN",
+          "count": "int32"
+        }
+      ],
+      "camera_object_counts": [
+        {
+          "type": "UNKNOWN",
+          "count": "int32"
+        }
+      ],
+      "time_of_day": "string",
+      "location": "string",
+      "weather": "string"
+    }
+  },
+  "timestamp_micros": "int64",
+  "pose": {
+    "transform": ["double"]
+  },
+  "images": [
+    {
+      "name": "UNKNOWN",
+      "image": "bytes",
+      "pose": {
+        "transform": ["double"]
+      },
+      "velocity": {
+        "v_x": "float",
+        "v_y": "float",
+        "v_z": "float",
+        "w_x": "double",
+        "w_y": "double",
+        "w_z": "double"
+      },
+      "pose_timestamp": "double",
+      "shutter": "double",
+      "camera_trigger_time": "double",
+      "camera_readout_done_time": "double",
+      "camera_segmentation_label": {
+        "panoptic_label_divisor": "int32",
+        "panoptic_label": "bytes",
+        "instance_id_to_global_id_mapping": [
+          {
+            "local_instance_id": "int32",
+            "global_instance_id": "int32",
+            "is_tracked": "bool"
+          }
+        ],
+        "sequence_id": "string",
+        "num_cameras_covered": "bytes"
+      }
+    }
+  ],
+  "lasers": [
+    {
+      "name": "UNKNOWN",
+      "ri_return1": {
+        "range_image_compressed": "bytes",
+        "camera_projection_compressed": "bytes",
+        "range_image_pose_compressed": "bytes",
+        "range_image_flow_compressed": "bytes",
+        "segmentation_label_compressed": "bytes"
+      },
+      "ri_return2": {
+        "range_image_compressed": "bytes",
+        "camera_projection_compressed": "bytes",
+        "range_image_pose_compressed": "bytes",
+        "range_image_flow_compressed": "bytes",
+        "segmentation_label_compressed": "bytes"
+      }
+    }
+  ],
+  "laser_labels": [
+    {
+      "type": "UNKNOWN",
+      "id": "string",
+      "box": {
+        "center_x": "double",
+        "center_y": "double",
+        "center_z": "double",
+        "length": "double",
+        "width": "double",
+        "height": "double",
+        "heading": "double"
+      },
+      "metadata": {}
+    }
+  ],
+  "projected_lidar_labels": [
+    {
+      "name": "UNKNOWN",
+      "labels": [
+        {
+          "type": "UNKNOWN",
+          "id": "string",
+          "box": {
+            "center_x": "double",
+            "center_y": "double",
+            "center_z": "double",
+            "length": "double",
+            "width": "double",
+            "height": "double",
+            "heading": "double"
+          },
+          "metadata": {}
+        }
+      ]
+    }
+  ],
+  "camera_labels": [
+    {
+      "name": "UNKNOWN",
+      "labels": [
+        {
+          "type": "UNKNOWN",
+          "id": "string",
+          "box": {
+            "center_x": "double",
+            "center_y": "double",
+            "length": "double",
+            "width": "double",
+            "height": "double",
+            "heading": "double"
+          },
+          "metadata": {}
+        }
+      ]
+    }
+  ],
+  "no_label_zones": [
+    {
+      "vertices": [
+        {
+          "x": "double",
+          "y": "double"
+        }
+      ]
+    }
+  ],
+  "map_features": [
+    {
+      "id": "string",
+      "position": {
+        "x": "double",
+        "y": "double",
+        "z": "double"
+      },
+      "heading": "double",
+      "type": "string",
+      "metadata": {}
+    }
+  ],
+  "map_pose_offset": {
+    "x": "double",
+    "y": "double",
+    "z": "double"
+  }
+}

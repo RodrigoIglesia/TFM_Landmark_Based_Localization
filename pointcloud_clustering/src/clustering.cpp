@@ -50,6 +50,9 @@
 #include <iostream>
 #include <fstream>
 
+float leafSize = 0.2;
+//FIXME: El parametro leafsize es usado en varios métodos > tiene que inicializarse en una clase
+// ros::param::get("leafSize", leafSize);
 
 // Flag that determined that a point cloud has been published as input > callback entered
 bool receivedPointCloud = false;
@@ -60,6 +63,8 @@ sensor_msgs::PointCloud2 inCloudMsg; // Input message -> debug
 sensor_msgs::PointCloud2 cropCloudMsg; // Pointcloud cropped -> debug
 sensor_msgs::PointCloud2 dsCloudMsg; // Pointcloud downsampled -> debug
 sensor_msgs::PointCloud2 geCloudMsg; // Pointcloud ground extracted -> debug
+sensor_msgs::PointCloud2 clusteredCloudMsg; // Pointcloud clustered -> FOR IMAGE DETECTOR FUSION
+
 
 pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloudCrop(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud)
 {
@@ -102,14 +107,13 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloudDownsample(pcl::PointCloud<pcl::Po
     */
     // Output cloud after downsampling.
     pcl::PointCloud<pcl::PointXYZ>::Ptr dsCloud(new pcl::PointCloud<pcl::PointXYZ>);
-    float leafSize;
+    
 
     int minPointsVoxel;
     ros::param::get("minPointsVoxel", minPointsVoxel);
 
     pcl::VoxelGrid<pcl::PointXYZ> vg;
     vg.setInputCloud(inputCloud);
-    ros::param::get("leafSize", leafSize);
     vg.setLeafSize(leafSize, leafSize, leafSize);
     vg.setMinimumPointsNumberPerVoxel(minPointsVoxel);
     vg.filter(*dsCloud);
@@ -201,6 +205,61 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloudExtractGround(pcl::PointCloud<pcl:
     return cloudNoGround;
 }
 
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr euclideanClustering(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud)
+{
+    /*
+    Euclidean clustering: given an input pointcloud, the algorithm returns a list of pointclouds.
+    Each pointcloud belongs to a different cluster.
+    */
+    std::vector<pcl::PointIndices> clusterIndices;
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr clusteredCloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+
+    pcl::search::KdTree<pcl::PointXYZ>::Ptr treeClusters(new pcl::search::KdTree<pcl::PointXYZ>);
+    treeClusters->setInputCloud(inputCloud);
+    pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
+    float clusterTolerance;
+    ros::param::get("clusterTolerance", clusterTolerance);
+
+    ec.setClusterTolerance(clusterTolerance); // Be careful setting the right value for setClusterTolerance(). If you take a very small value, it can happen that an actual object can be seen as multiple clusters. On the other hand, if you set the value too high, it could happen, that multiple objects are seen as one cluster.
+
+    float clusterMinSize, clusterMaxSize;
+    clusterMinSize = -25.0 * leafSize + 17.5;   // for leafSize = 0.1 -> clusterMinSize = 15 | for leafSize = 0.5 -> clusterMinSize = 5
+    clusterMaxSize = -500.0 * leafSize + 350.0; // for leafSize = 0.1 -> clusterMaxSize = 300 | for leafSize = 0.5 -> clusterMinSize = 100
+
+    ec.setMinClusterSize(clusterMinSize);
+    ec.setMaxClusterSize(clusterMaxSize);
+    ec.setSearchMethod(treeClusters);
+    ec.setInputCloud(inputCloud);
+    ec.extract(clusterIndices);
+
+    // Unify all the clusters with a colour label
+    for (int i = 0; i < clusterIndices.size(); ++i)
+    {
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cluster_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+        pcl::PointIndices cluster = clusterIndices[i];
+        // Generate a random RGB color for each cluster
+        uint8_t r = rand() % 256;
+        uint8_t g = rand() % 256;
+        uint8_t b = rand() % 256;
+
+        for (int j = 0; j < cluster.indices.size(); ++j)
+        {
+            pcl::PointXYZRGB point;
+            point.x = inputCloud->points[cluster.indices[j]].x;
+            point.y = inputCloud->points[cluster.indices[j]].y;
+            point.z = inputCloud->points[cluster.indices[j]].z;
+            // Assign the same color to each point in the cluster
+            point.r = r;
+            point.g = g;
+            point.b = b;
+            cluster_cloud->points.push_back(point);
+        }
+        *clusteredCloud += *cluster_cloud;
+    }
+
+    return clusteredCloud;
+}
+
 void generatePointcloudMsg(pcl::shared_ptr<pcl::PointCloud<pcl::PointXYZ>> &cloud, sensor_msgs::PointCloud2 &cloudMsg)
 {
     // Generate message for a pointcloud
@@ -218,6 +277,7 @@ void pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg)
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloudCropped(new pcl::PointCloud<pcl::PointXYZ>); // Pointcloud cropped > invalid points extracted
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloudDownsampled(new pcl::PointCloud<pcl::PointXYZ>); // Pointcloud downsampled > density reduce
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloudGroundExtracted(new pcl::PointCloud<pcl::PointXYZ>); // Pointcloud without ground
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloudClustered(new pcl::PointCloud<pcl::PointXYZRGB>); // Pointcloud clustered, each cluster point has a different colour
 
     // Convert ROS PointCloud2 message to PCL point cloud
     pcl::fromROSMsg(*msg, *cloud);
@@ -253,6 +313,20 @@ void pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg)
     // Generate message for the downsampled pointcloud
     generatePointcloudMsg(cloudGroundExtracted, geCloudMsg);
 
+    /*
+    Pointcloud clustering
+    */
+    cloudClustered = euclideanClustering(cloudGroundExtracted);
+    // Generate a message for the clustered pointcloud
+    //FIXME: Intentar cambiar la función generatePointCloudMsg para ser agnóstica del tipo de mensaje. Una propuesta sería trabajar siempre con mensajes RGB en PCL
+    pcl::toROSMsg(*cloudClustered, clusteredCloudMsg);
+    clusteredCloudMsg.header.stamp = ros::Time::now();
+    clusteredCloudMsg.header.frame_id = "base_link";
+
+    /*
+    Fitting > 
+    */
+
     // Callback has been entered
     receivedPointCloud = true;
 }
@@ -264,13 +338,14 @@ int main(int argc, char **argv)
     ROS_INFO("Node clustering initialized correctly");
     ros::NodeHandle nh;
     // Subscribe to the Test_PointCloud topic
-    ros::Subscriber sub = nh.subscribe("Test_PointCloud", 10, pointcloudCallback);
+    ros::Subscriber sub = nh.subscribe("waymo_PointCloud", 10, pointcloudCallback);
 
     // Publishing topics
     ros::Publisher pub = nh.advertise<sensor_msgs::PointCloud2>("input_PointCloud", 10); // input pointcloud
     ros::Publisher pub_crop = nh.advertise<sensor_msgs::PointCloud2>("cropped_PointCloud", 10); // cropped pointcloud
     ros::Publisher pub_ds = nh.advertise<sensor_msgs::PointCloud2>("ds_PointCloud", 10); // cropped pointcloud
     ros::Publisher pub_ge = nh.advertise<sensor_msgs::PointCloud2>("ge_PointCloud", 10); // Ground extracted pointcloud
+    ros::Publisher pub_clustered = nh.advertise<sensor_msgs::PointCloud2>("clustered_PointCloud", 10); // Clustered pointcloud
 
     ros::Rate loop_rate(10);
 
@@ -288,6 +363,8 @@ int main(int argc, char **argv)
             ROS_INFO("Point cloud Downsampled published");
             pub_ge.publish(geCloudMsg);
             ROS_INFO("Point cloud without ground published");
+            pub_clustered.publish(clusteredCloudMsg);
+            ROS_INFO("Point cloud clustered published");
         }
 
         loop_rate.sleep();

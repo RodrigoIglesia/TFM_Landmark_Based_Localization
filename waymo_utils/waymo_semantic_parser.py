@@ -135,10 +135,10 @@ if __name__ == "__main__":
 
     # Add project root root to python path
     current_script_directory = os.path.dirname(os.path.realpath(__file__))
-    src_dir = os.path.abspath(os.path.join(current_script_directory, "../.."))
+    src_dir = os.path.abspath(os.path.join(current_script_directory, ".."))
     sys.path.append(src_dir)
 
-    dataset_path = os.path.join(src_dir, "dataset/waymo_map_scene_mod")
+    dataset_path = os.path.join(src_dir, "dataset/waymo_map_scene")
 
     tfrecord_list = list(
         sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))

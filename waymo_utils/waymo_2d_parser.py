@@ -47,9 +47,9 @@ def convert_annot2yolo(annotations, image_height, image_width):
 def generate_canvas(images):
     max_height = max(image.shape[0] for image in images)
     width, _ = images[0].shape[1], images[0].shape[2]
-    canvas = np.zeros((max_height, 5 * width, 3), dtype=np.uint8)
+    canvas = np.zeros((max_height, len(images) * width, 3), dtype=np.uint8)
 
-    for i in range(5):
+    for i in range(len(images)):
         image = images[i]
         height = image.shape[0]
 

@@ -6,9 +6,8 @@ import os
 import sys
 import numpy as np
 import pathlib
-import rospy
-from sensor_msgs.msg import PointCloud2, PointField, Image
-from waymo_parser.msg import CameraProj
+from matplotlib import cm
+
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
@@ -100,8 +99,6 @@ if __name__ == "__main__":
     ## Iterate through Dataset Scenes
     ##############################################################
     for scene_index, scene_path in enumerate(sorted(tfrecord_list)):
-        rospy.loginfo("Scene {} processing: {}".format(str(scene_index), scene_path))
-
         frame = next(load_frame(scene_path))
 
         # Camera parameters
@@ -134,17 +131,18 @@ if __name__ == "__main__":
         point_cloud, points_cp = get_pointcloud(frame)
         print("PointCloud: ", point_cloud)
 
+        ########################################################################################
         ## Project Velodyne points to Camera
-        # Project 3D points in vehicle reference to 3D points in camera reference
+        ########################################################################################
+        # Project 3D points in vehicle reference to 3D points in camera reference using extrinsic params
         point_cloud_hom = cart2hom(point_cloud)  # nx4
         point_cloud_cam =  np.dot(point_cloud_hom, np.transpose(extrinsic_matrix_inv))
 
-        ## Rotate point cloud 
-        theta_x = np.pi/2  # Rotate 90 degrees around the X-axis to flip it
-        theta_y = -np.pi/2  # Rotate 180 degrees around the Y-axis to point it downward
-        theta_z = -np.pi/2  # No rotation around the Z-axis
+        ## Rotate point cloud to match pinhole model axis (Z pointing to the front of the car, Y pointing down ans X pointing to the right)
+        theta_x = np.pi/2
+        theta_y = -np.pi/2
+        theta_z = 0
         # Define rotation matrices around X, Y, and Z axes
-        # Note: These matrices can be precomputed as they remain constant for fixed rotations
         Rx = np.array([[1, 0, 0],
                     [0, np.cos(theta_x), -np.sin(theta_x)],
                     [0, np.sin(theta_x), np.cos(theta_x)]])
@@ -154,36 +152,46 @@ if __name__ == "__main__":
         Rz = np.array([[np.cos(theta_z), -np.sin(theta_z), 0],
                     [np.sin(theta_z), np.cos(theta_z), 0],
                     [0, 0, 1]])
-        # Combine rotation matrices to get the overall rotation matrix
-        # R = np.dot(Rx, np.dot(Rz, Ry))
-        # Assuming your point cloud is stored in a variable named 'point_cloud_cam'
-        # Rotate the point cloud
+        # Rotate the point cloud 90 degrees in X
         point_cloud_cam = np.dot(Rx, point_cloud_cam.T).T
+        # Rotate the point cloud -90 degrees in Y
         point_cloud_cam = np.dot(Ry, point_cloud_cam.T).T
+        # We only have to project in the image the points that are in front of the car > remove points with z<0
         point_cloud_cam = point_cloud_cam[point_cloud_cam[:, 2] >= 0]
 
-
         # Plot pointcloud referenced to the camera
-        plot_referenced_pointcloud(point_cloud_cam)
+        # plot_referenced_pointcloud(point_cloud_cam)
 
-        # Project 3D points in camera reference in 2D points in image reference
+        # Get a color map based on the Z depth
+        # Normalize Z coordinate values
+        min_depth = np.min(point_cloud_cam[:, 2])
+        max_depth = np.max(point_cloud_cam[:, 2])
+        normalized_depth = (point_cloud_cam[:, 2] - min_depth) / (max_depth - min_depth)
+        cmap = cm.get_cmap('jet')  # You can choose any colormap you prefer
+        colors = cmap(normalized_depth)
+
+        # Project 3D points in camera reference in 2D points in image reference using intrinsic params
         point_cloud_cam_hom = cart2hom(point_cloud_cam)
         # Compute perspective projection matrix
         P = np.hstack((intrinsic_matrix, np.zeros((3, 1))))
-        # Project 3D points to 2D
         point_cloud_image = np.dot(P, point_cloud_cam_hom.T).T
-        # point_cloud_image = np.dot(point_cloud_cam_hom, np.transpose(P))
         point_cloud_image = point_cloud_image[:, :2] / point_cloud_image[:, 2:]
 
-        # Filtered 2D points
-        point_cloud_image = point_cloud_image[
+        # Filtered 2D points > remove points out of the image FOV
+        filtered_indices = (
             (point_cloud_image[:, 0] >= 0) & (point_cloud_image[:, 0] < image_width) &
             (point_cloud_image[:, 1] >= 0) & (point_cloud_image[:, 1] < image_height)
-        ]
-        print("PointCloud projected on image:", point_cloud_image)
+        )
+        # point_cloud_image = point_cloud_image[
+        #     (point_cloud_image[:, 0] >= 0) & (point_cloud_image[:, 0] < image_width) &
+        #     (point_cloud_image[:, 1] >= 0) & (point_cloud_image[:, 1] < image_height)
+        # ]
+        point_cloud_image = point_cloud_image[filtered_indices]
+        colors = colors[filtered_indices]
 
         # Plot image
         plt.imshow(cv2.cvtColor(front_image, cv2.COLOR_BGR2RGB))
-        plt.scatter(point_cloud_image[:, 0], point_cloud_image[:, 1], color='red', s=5)
+        plt.scatter(point_cloud_image[:, 0], point_cloud_image[:, 1], color=colors, s=5)
+        plt.colorbar(label='Depth')
         plt.show()
 

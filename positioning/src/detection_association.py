@@ -17,7 +17,6 @@ import numpy as np
 import open3d as o3d
 import matplotlib.pyplot as plt
 import rospy
-from message_filters import ApproximateTimeSynchronizer, Subscriber
 from sensor_msgs.msg import PointCloud2, Image
 from waymo_parser.msg import CameraProj
 import sensor_msgs.point_cloud2 as pc2
@@ -27,17 +26,15 @@ from collections import deque
 class DataAssociation:
     def __init__(self):
         # Initialize the received pointcloud
-        self.pointcloud = np.array([[0,0,0]])
-        self.cluster_labels = np.array([[0,0,0]])
+        self.pointcloud_queue = deque()
         # Initialize Camera projections
-        self.intrinsic_matrix = np.zeros((3,3))
-        self.extrinsic_matrix = np.zeros((4,4))
-        self.extrinsic_matrix_inv = np.zeros((4,4))
+        self.intrinsic_matrix_queue = deque()
+        self.extrinsic_matrix_queue = deque()
+        self.extrinsic_matrix_inv_queue = deque()
         # Initialize image
-        self.image = np.array([])
+        self.image_queue = deque()
         self.image_height = 0
         self.image_width = 0
-        self.pointcloud_processed = False
 
     def cart2hom(self, pts_3d):
         """ Input: nx3 points in Cartesian
@@ -64,9 +61,8 @@ class DataAssociation:
             r = (pack & 0x00FF0000)>> 16
             g = (pack & 0x0000FF00)>> 8
             b = (pack & 0x000000FF)
-            self.pointcloud = np.append(self.pointcloud,[[x[0],x[1],x[2]]], axis = 0)
-            self.cluster_labels = np.append(self.cluster_labels,[[r,g,b]], axis = 0)
-        self.pointcloud_processed = True
+            pointcloud = np.append(pointcloud,[[x[0],x[1],x[2]]], axis = 0)
+        self.pointcloud_queue.append(pointcloud)
         rospy.loginfo("Pointcloud decoded")
 
         # # Visualize labeled pointcloud
@@ -83,23 +79,26 @@ class DataAssociation:
         extrinsic_params = msg.extrinsic
 
         # Convert params to matrix
-        self.intrinsic_matrix = [[intrinsic_params[0], 0, intrinsic_params[2]],
+        intrinsic_matrix = [[intrinsic_params[0], 0, intrinsic_params[2]],
                             [0, intrinsic_params[1], intrinsic_params[3]],
                             [0, 0, 1]]
-        self.extrinsic_matrix = np.array(extrinsic_params).reshape(4,4)
+        self.intrinsic_matrix_queue.append(intrinsic_matrix)
+        extrinsic_matrix = np.array(extrinsic_params).reshape(4,4)
+        self.extrinsic_matrix_queue.append(extrinsic_matrix)
         # Extract rotation and translation components from the extrinsic matrix
-        rotation = self.extrinsic_matrix[:3, :3]
-        translation = self.extrinsic_matrix[:3, 3]
+        rotation = extrinsic_matrix[:3, :3]
+        translation = extrinsic_matrix[:3, 3]
         # Invert the rotation matrix
         rotation_inv = np.linalg.inv(rotation)
         # Invert the translation
         translation_inv = -np.dot(rotation_inv, translation)
         # Construct the new extrinsic matrix (from camera to vehicle)
-        self.extrinsic_matrix_inv = np.zeros((4, 4), dtype=np.float32)
-        self.extrinsic_matrix_inv[:3, :3] = rotation_inv
-        self.extrinsic_matrix_inv[:3, 3] = translation_inv
-        self.extrinsic_matrix_inv[3, 3] = 1.0
-        self.extrinsic_matrix_inv = self.extrinsic_matrix_inv[:3,:]
+        extrinsic_matrix_inv = np.zeros((4, 4), dtype=np.float32)
+        extrinsic_matrix_inv[:3, :3] = rotation_inv
+        extrinsic_matrix_inv[:3, 3] = translation_inv
+        extrinsic_matrix_inv[3, 3] = 1.0
+        extrinsic_matrix_inv = extrinsic_matrix_inv[:3,:]
+        self.extrinsic_matrix_inv_queue.append(extrinsic_matrix_inv)
 
 
     def image_callback(self, msg):
@@ -108,13 +107,20 @@ class DataAssociation:
             rospy.loginfo("Point cloud has not been processed yet. Skipping image processing.")
             return
         bridge = CvBridge()
-        self.image = bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
+        image = bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
+        self.image_queue.append(image)
         self.image_height, self.image_width, _ = self.image.shape
 
+        self.associate_image_lidar()
+    
+    def associate_image_lidar(self):
+        # Dequeue parameters by oldest
+        pointcloud = self.pointcloud_queue.popleft()
+        extrinsic_matrix_inv = self.extrinsic_matrix_inv_queue.popleft()
         # Project Pointcloud on image
         # Project 3D points in vehicle reference to 3D points in camera reference using extrinsic params
-        point_cloud_hom = self.cart2hom(self.pointcloud)  # nx4
-        point_cloud_cam =  np.dot(point_cloud_hom, np.transpose(self.extrinsic_matrix_inv))
+        point_cloud_hom = self.cart2hom(pointcloud)  # nx4
+        point_cloud_cam =  np.dot(point_cloud_hom, np.transpose(extrinsic_matrix_inv))
 
         ## Rotate point cloud to match pinhole model axis (Z pointing to the front of the car, Y pointing down ans X pointing to the right)
         theta_x = np.pi/2
@@ -186,10 +192,7 @@ if __name__ == "__main__":
     rospy.loginfo("Subscribed to clustered_PointCloud")
     # Subscribe to camera parameters
     rospy.Subscriber("waymo_CameraProjections", CameraProj, da.camera_projections_callback)
-    # Use ApproximateTimeSynchronizer to synchronize image and point cloud messages
-    image_sub = Subscriber("image_detection", Image)
-    pointcloud_sub = Subscriber("clustered_PointCloud", PointCloud2)
-    synchronizer = ApproximateTimeSynchronizer([image_sub, pointcloud_sub], queue_size=100, slop=0.1)
-    synchronizer.registerCallback(da.image_callback)
+    # Subscribe to image callback
+    rospy.Subscriber("image_detection", Image, da.image_callback)
 
     rospy.spin()

@@ -90,10 +90,6 @@ class WaymoPublisher:
             # Publish message
             self.pointcloud_publisher.publish(self.pointcloud_msg)
             rospy.loginfo("Concatenated point cloud published")
-            # Publish camera projections
-            self.cameraproj_msg.rows = points_cp.shape()[0]
-            self.cameraproj_msg.cols = points_cp.shape()[1]
-            self.cameraproj_msg.data = points_cp.flatten().tolist()
         else:
             rospy.loginfo("No poincloud in frame")
 
@@ -174,17 +170,15 @@ if __name__ == "__main__":
             ##################################################
             wp.pointcloud_msg.header.frame_id = "base_link"
             wp.pointcloud_msg.header.stamp = rospy.Time.now()
-            wp.cameraproj_msg.header.frame_id = "base_link"
-            wp.cameraproj_msg.header.stamp = rospy.Time.now()
             wp.publish_pointcloud(frame)
             ##################################################
-            # Publish Camera Image
+            # Publish Camera Parameters
             ##################################################
             wp.camera_params_msg.header.frame_id = "base_link"
             wp.camera_params_msg.header.stamp = rospy.Time.now()
             wp.publish_camera_params(frame)
             ##################################################
-            # Publish Camera Parameters
+            # Publish Camera Image
             ##################################################
             wp.camera_msg.header.frame_id = "base_link"
             wp.camera_msg.header.stamp = rospy.Time.now()

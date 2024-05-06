@@ -58,17 +58,19 @@ def image_callback(msg, model):
 
     # Detect signs
     segment_mask = yolo_detect(image, model)
+    result_image = cv2.addWeighted(image, 1, segment_mask, 0.5, 0)
     rospy.loginfo("detection done")
     # plot_segmentation(segment_mask, image)
     # Image message definition
     detection_msg = Image()
     detection_msg.encoding = "bgr8"  # Set image encoding
     detection_msg.is_bigendian = False
-    detection_msg.height = segment_mask.shape[0]  # Set image height
-    detection_msg.width = segment_mask.shape[1]  # Set image width
-    detection_msg.step = segment_mask.shape[1] * 3
-    detection_msg.data = segment_mask.tobytes()
+    detection_msg.height = result_image.shape[0]  # Set image height
+    detection_msg.width = result_image.shape[1]  # Set image width
+    detection_msg.step = result_image.shape[1] * 3
+    detection_msg.data = result_image.tobytes()
     detection_msg.header.frame_id = "base_link"
+    detection_msg.header.stamp = msg.header.stamp # Maintain image acquisition stamp
 
     # Result publisher
     detection_publisher = rospy.Publisher("image_detection", Image, queue_size=10)

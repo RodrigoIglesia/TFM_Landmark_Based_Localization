@@ -264,7 +264,7 @@ void generatePointcloudMsg(pcl::shared_ptr<pcl::PointCloud<pcl::PointXYZ>> &clou
 {
     // Generate message for a pointcloud
     pcl::toROSMsg(*cloud, cloudMsg);
-    cloudMsg.header.stamp = ros::Time::now();
+    // cloudMsg.header.stamp = ros::Time::now();
     cloudMsg.header.frame_id = "base_link";
 }
 
@@ -283,6 +283,7 @@ void pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg)
     pcl::fromROSMsg(*msg, *cloud);
     // Generate message for the imput pointcloud
     generatePointcloudMsg(cloud, inCloudMsg);
+    inCloudMsg.header.stamp = msg->header.stamp;
 
     /*
     Crop > delete points near to the sensors
@@ -290,6 +291,7 @@ void pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg)
     cloudCropped = pointcloudCrop(cloud);
     // Generate message for the cropped pointcloud
     generatePointcloudMsg(cloudCropped, cropCloudMsg);
+    cropCloudMsg.header.stamp = msg->header.stamp;
 
     /*
     Downsample > Reduce the density of the pointcloud
@@ -305,6 +307,7 @@ void pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg)
         cloudDownsampled = cloudCropped;
     // Generate message for the downsampled pointcloud
     generatePointcloudMsg(cloudDownsampled, dsCloudMsg);
+    dsCloudMsg.header.stamp = msg->header.stamp;
 
     /*
     Extract Ground
@@ -312,6 +315,7 @@ void pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg)
     cloudGroundExtracted = pointcloudExtractGround(cloudDownsampled);
     // Generate message for the downsampled pointcloud
     generatePointcloudMsg(cloudGroundExtracted, geCloudMsg);
+    geCloudMsg.header.stamp = msg->header.stamp;
 
     /*
     Pointcloud clustering
@@ -320,7 +324,7 @@ void pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg)
     // Generate a message for the clustered pointcloud
     //FIXME: Intentar cambiar la función generatePointCloudMsg para ser agnóstica del tipo de mensaje. Una propuesta sería trabajar siempre con mensajes RGB en PCL
     pcl::toROSMsg(*cloudClustered, clusteredCloudMsg);
-    clusteredCloudMsg.header.stamp = ros::Time::now();
+    clusteredCloudMsg.header.stamp = msg->header.stamp;
     clusteredCloudMsg.header.frame_id = "base_link";
 
     /*

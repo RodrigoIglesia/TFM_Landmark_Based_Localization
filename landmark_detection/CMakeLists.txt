@@ -9,6 +9,7 @@ project(landmark_detection)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
   rospy
+  cv_bridge
   std_msgs
 )
 

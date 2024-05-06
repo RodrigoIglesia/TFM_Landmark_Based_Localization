@@ -35,6 +35,8 @@ import pathlib
 import json
 from google.protobuf.json_format import MessageToJson
 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
 import tensorflow.compat.v1 as tf
 if not tf.executing_eagerly():
   tf.compat.v1.enable_eager_execution()

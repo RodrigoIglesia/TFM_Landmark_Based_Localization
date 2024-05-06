@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 """
     This node reads an point cloud from Waymo Open Dataset, converts it to PCL and publishd to a determined topic
 """
@@ -11,9 +10,8 @@ import numpy as np
 import pathlib
 
 import rospy
-from cv_bridge import CvBridge
 from sensor_msgs.msg import PointCloud2, PointField, Image
-from std_msgs.msg import Header
+from waymo_parser.msg import CameraProj
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
@@ -29,7 +27,6 @@ sys.path.append(src_dir)
 
 from waymo_utils.WaymoParser import *
 from waymo_utils.waymo_3d_parser import *
-from waymo_utils.waymo_pointcloud_parser import *
 
 class WaymoPublisher:
     def __init__(self, cams_order):
@@ -37,8 +34,9 @@ class WaymoPublisher:
         # Vector of integers determining the index order of the cameras, this vector also selects the number of cameras to use
         self.cams_order = cams_order
         # ROS publisher objects
-        self.pointcloud_publisher = rospy.Publisher("waymo_PointCloud", PointCloud2, queue_size=10)
-        self.camera_publisher = rospy.Publisher("waymo_Camera", Image, queue_size=10)
+        self.pointcloud_publisher = rospy.Publisher("waymo_PointCloud", PointCloud2, queue_size=10000)
+        self.camera_projections_publisher = rospy.Publisher("waymo_CameraProjections", CameraProj, queue_size=1000)
+        self.camera_publisher = rospy.Publisher("waymo_Camera", Image, queue_size=1000)
         # PointCloud2 message definition
         self.pointcloud_msg = PointCloud2()
         self.pointcloud_msg.fields = [
@@ -51,6 +49,8 @@ class WaymoPublisher:
         self.pointcloud_msg.point_step = 16  # Adjust point step based on number of fields
         self.pointcloud_msg.height = 1
         self.pointcloud_msg.is_dense = True
+        # Camera projection message
+        self.camera_params_msg = CameraProj()
         # Image message definition
         self.camera_msg = Image()
         self.camera_msg.encoding = "bgr8"  # Set image encoding
@@ -70,9 +70,9 @@ class WaymoPublisher:
         points_return1 = _range_image_to_pcd()
         points_return2 = _range_image_to_pcd(1)
 
-        points, _ = concatenate_pcd_returns(points_return1, points_return2)
+        points, points_cp = concatenate_pcd_returns(points_return1, points_return2)
 
-        return points
+        return points, points_cp
     
     def pointcloud_to_ros(self, points):
         self.pointcloud_msg.width = points.shape[0]
@@ -83,13 +83,17 @@ class WaymoPublisher:
         self.pointcloud_msg.data = data.tobytes()
 
     def publish_pointcloud(self, frame):
-        points = self.get_pointcloud(frame)
+        points, points_cp = self.get_pointcloud(frame)
         if points is not(None):
             # Convert concatenated point cloud to ROS message
             self.pointcloud_to_ros(points)
             # Publish message
             self.pointcloud_publisher.publish(self.pointcloud_msg)
             rospy.loginfo("Concatenated point cloud published")
+            # Publish camera projections
+            self.cameraproj_msg.rows = points_cp.shape()[0]
+            self.cameraproj_msg.cols = points_cp.shape()[1]
+            self.cameraproj_msg.data = points_cp.flatten().tolist()
         else:
             rospy.loginfo("No poincloud in frame")
 
@@ -129,6 +133,17 @@ class WaymoPublisher:
         else:
             rospy.loginfo("No image in frame")
 
+    def publish_camera_params(self, frame):
+        camera_intrinsic = np.array(frame.context.camera_calibrations[0].intrinsic)
+        camera_extrinsic = np.array(frame.context.camera_calibrations[0].extrinsic.transform)
+        self.camera_params_msg.intrinsic = camera_intrinsic
+        self.camera_params_msg.extrinsic = camera_extrinsic
+
+        # Publish message
+        self.camera_projections_publisher.publish(self.camera_params_msg)
+        rospy.loginfo("Camera parameters published")
+
+
 
 if __name__ == "__main__":
     rospy.init_node('waymo_publisher', anonymous=True)
@@ -159,9 +174,17 @@ if __name__ == "__main__":
             ##################################################
             wp.pointcloud_msg.header.frame_id = "base_link"
             wp.pointcloud_msg.header.stamp = rospy.Time.now()
+            wp.cameraproj_msg.header.frame_id = "base_link"
+            wp.cameraproj_msg.header.stamp = rospy.Time.now()
             wp.publish_pointcloud(frame)
             ##################################################
             # Publish Camera Image
+            ##################################################
+            wp.camera_params_msg.header.frame_id = "base_link"
+            wp.camera_params_msg.header.stamp = rospy.Time.now()
+            wp.publish_camera_params(frame)
+            ##################################################
+            # Publish Camera Parameters
             ##################################################
             wp.camera_msg.header.frame_id = "base_link"
             wp.camera_msg.header.stamp = rospy.Time.now()

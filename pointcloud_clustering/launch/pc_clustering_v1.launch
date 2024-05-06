@@ -1,6 +1,0 @@
-<launch>
-  <node type="rviz" name="rviz" pkg="rviz" args="-d /home/rodrigo/catkin_ws/src/TFM_Landmark_Based_Localization/clustering_debug.rviz" />
-  <rosparam command="load" file="/home/rodrigo/catkin_ws/src/TFM_Landmark_Based_Localization/params.yaml" />
-  <node pkg="waymo_parser" type="waymo_publisher.py" name="waymo_publisher"/>
-  <node pkg="pointcloud_clustering" type="clustering" name="clustering"/>
-</launch>

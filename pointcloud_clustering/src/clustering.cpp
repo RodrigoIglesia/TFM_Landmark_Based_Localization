@@ -341,11 +341,11 @@ int main(int argc, char **argv)
     ros::Subscriber sub = nh.subscribe("waymo_PointCloud", 10, pointcloudCallback);
 
     // Publishing topics
-    ros::Publisher pub = nh.advertise<sensor_msgs::PointCloud2>("input_PointCloud", 10); // input pointcloud
-    ros::Publisher pub_crop = nh.advertise<sensor_msgs::PointCloud2>("cropped_PointCloud", 10); // cropped pointcloud
-    ros::Publisher pub_ds = nh.advertise<sensor_msgs::PointCloud2>("ds_PointCloud", 10); // cropped pointcloud
-    ros::Publisher pub_ge = nh.advertise<sensor_msgs::PointCloud2>("ge_PointCloud", 10); // Ground extracted pointcloud
-    ros::Publisher pub_clustered = nh.advertise<sensor_msgs::PointCloud2>("clustered_PointCloud", 10); // Clustered pointcloud
+    ros::Publisher pub = nh.advertise<sensor_msgs::PointCloud2>("input_PointCloud", 1000); // input pointcloud
+    ros::Publisher pub_crop = nh.advertise<sensor_msgs::PointCloud2>("cropped_PointCloud", 1000); // cropped pointcloud
+    ros::Publisher pub_ds = nh.advertise<sensor_msgs::PointCloud2>("ds_PointCloud", 1000); // cropped pointcloud
+    ros::Publisher pub_ge = nh.advertise<sensor_msgs::PointCloud2>("ge_PointCloud", 1000); // Ground extracted pointcloud
+    ros::Publisher pub_clustered = nh.advertise<sensor_msgs::PointCloud2>("clustered_PointCloud", 1000); // Clustered pointcloud
 
     ros::Rate loop_rate(10);
 

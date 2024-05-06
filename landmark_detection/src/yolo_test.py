@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Main file
 """
@@ -6,13 +7,15 @@ import os
 import sys
 import cv2
 import random
+import rospy
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge
 from ultralytics import YOLO
-from waymo_open_dataset import dataset_pb2 as open_dataset
 
 # Add project src root to python path
 # Add project root root to python path
 current_script_directory = os.path.dirname(os.path.realpath(__file__))
-src_dir = os.path.abspath(os.path.join(current_script_directory, ".."))
+src_dir = os.path.abspath(os.path.join(current_script_directory, "../.."))
 sys.path.insert(0, src_dir)
 
 from waymo_utils.WaymoParser import *
@@ -29,7 +32,7 @@ def yolo_detect(image, model):
 
     yolo_classes = list(model.names.values())
     classes_ids = [yolo_classes.index(clas) for clas in yolo_classes]
-    results = model.predict(source=canvas, save=False, classes=[0, 2, 9, 10, 11])
+    results = model.predict(source=image, save=False, classes=[0, 2, 9, 10, 11])
     colors = [random.choices(range(256), k=3) for _ in classes_ids]
     for r in results:
         for mask, box in zip(r.masks.xy, r.boxes):
@@ -39,17 +42,45 @@ def yolo_detect(image, model):
             cv2.fillPoly(black_image, points, colors[color_number])
     return black_image
 
-if __name__ == "__main__":
-    model = YOLO('yolov8n-seg.pt')  # load an official model
-    
-
-    cv2.namedWindow('Canvas', cv2.WINDOW_NORMAL)
-    cv2.setWindowProperty('Canvas', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-
-    detection_mask = yolo_detect(canvas, model)
-    result_image = cv2.addWeighted(canvas, 1, detection_mask  , 0.5, 0)
-
-    cv2.imshow('Canvas', result_image)
+def plot_segmentation(segmentation_mask, base_image):
+    cv2.namedWindow('result', cv2.WINDOW_NORMAL)
+    cv2.setWindowProperty('result', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+    result_image = cv2.addWeighted(base_image, 1, segmentation_mask  , 0.5, 0)
+    cv2.imshow('result', result_image)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
+
+def image_callback(msg, model):
+    rospy.loginfo("Image received")
+    # Convert ROS Image message to OpenCV image
+    bridge = CvBridge()
+    image = bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+
+    # Detect signs
+    segment_mask = yolo_detect(image, model)
+    rospy.loginfo("detection done")
+    # plot_segmentation(segment_mask, image)
+    # Image message definition
+    detection_msg = Image()
+    detection_msg.encoding = "bgr8"  # Set image encoding
+    detection_msg.is_bigendian = False
+    detection_msg.height = segment_mask.shape[0]  # Set image height
+    detection_msg.width = segment_mask.shape[1]  # Set image width
+    detection_msg.step = segment_mask.shape[1] * 3
+    detection_msg.data = segment_mask.tobytes()
+    detection_msg.header.frame_id = "base_link"
+
+    # Result publisher
+    detection_publisher = rospy.Publisher("image_detection", Image, queue_size=10)
+    detection_publisher.publish(detection_msg)
+    rospy.loginfo("detection result published")
+
+if __name__ == "__main__":
+    model = YOLO('models/yolov8n-seg.pt')  # load an official model
+
+    # Initialize ROS node
+    rospy.init_node('image_subscriber', anonymous=True)
+    rospy.loginfo("Landmark detection node initialized correctly")
+    rospy.Subscriber("waymo_Camera", Image, image_callback, callback_args=model)
+    rospy.spin()
 

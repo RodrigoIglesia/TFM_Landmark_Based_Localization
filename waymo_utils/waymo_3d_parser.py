@@ -80,6 +80,15 @@ def plot_range_image_helper(data, name, layout, vmin = 0, vmax=1, cmap='gray'):
     plt.grid(False)
     plt.axis('off')
 
+def concatenate_pcd_returns(pcd_return_1, pcd_return_2):
+    points, points_cp = pcd_return_1
+    points_ri2, points_cp_ri2 = pcd_return_2
+    points_concat = np.concatenate(points + points_ri2, axis=0)
+    points_cp_concat = np.concatenate(points_cp + points_cp_ri2, axis=0)
+    print(f'points_concat shape: {points_concat.shape}')
+    print(f'points_cp_concat shape: {points_cp_concat.shape}')
+    return points_concat, points_cp_concat
+
 
 def show_semseg_label_image(semseg_label_image, layout_index_start = 1):
     """Shows range image.

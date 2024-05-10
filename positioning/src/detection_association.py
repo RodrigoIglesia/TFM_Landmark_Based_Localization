@@ -16,6 +16,7 @@ import struct
 import numpy as np
 import open3d as o3d
 import matplotlib.pyplot as plt
+from matplotlib import cm
 import rospy
 from sensor_msgs.msg import PointCloud2, Image
 from waymo_parser.msg import CameraProj
@@ -46,6 +47,7 @@ class DataAssociation:
 
     def pointcloud_callback(self, msg):
         rospy.loginfo("pointcloud received")
+        pointcloud = np.array([[0,0,0]])
 
         # Extract xyz and rgb data and load to numpy array
         gen = pc2.read_points(msg, skip_nans=True)
@@ -103,20 +105,23 @@ class DataAssociation:
 
     def image_callback(self, msg):
         rospy.loginfo("Image processed received")
-        if not self.pointcloud_processed:
-            rospy.loginfo("Point cloud has not been processed yet. Skipping image processing.")
-            return
         bridge = CvBridge()
         image = bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
         self.image_queue.append(image)
-        self.image_height, self.image_width, _ = self.image.shape
+        self.image_height, self.image_width, _ = image.shape
 
         self.associate_image_lidar()
     
     def associate_image_lidar(self):
         # Dequeue parameters by oldest
+        if bool(self.pointcloud_queue) == False:
+            rospy.loginfo("Pointcloud queue is empty. Passing...")
+            return
+        rospy.loginfo("Get queues values")
         pointcloud = self.pointcloud_queue.popleft()
         extrinsic_matrix_inv = self.extrinsic_matrix_inv_queue.popleft()
+        intrinsic_matrix = self.intrinsic_matrix_queue.popleft()
+        image = self.image_queue.popleft()
         # Project Pointcloud on image
         # Project 3D points in vehicle reference to 3D points in camera reference using extrinsic params
         point_cloud_hom = self.cart2hom(pointcloud)  # nx4
@@ -145,7 +150,7 @@ class DataAssociation:
         # Project 3D points in camera reference in 2D points in image reference using intrinsic params
         point_cloud_cam_hom = self.cart2hom(point_cloud_cam)
         # Compute perspective projection matrix
-        P = np.hstack((self.intrinsic_matrix, np.zeros((3, 1))))
+        P = np.hstack((intrinsic_matrix, np.zeros((3, 1))))
         point_cloud_image = np.dot(P, point_cloud_cam_hom.T).T
         point_cloud_image = point_cloud_image[:, :2] / point_cloud_image[:, 2:]
         rospy.loginfo("Pointcloud projected from 3D vehicle frame to 3D camera frame")
@@ -155,29 +160,40 @@ class DataAssociation:
             (point_cloud_image[:, 0] >= 0) & (point_cloud_image[:, 0] < self.image_width) &
             (point_cloud_image[:, 1] >= 0) & (point_cloud_image[:, 1] < self.image_height)
         )
+        min_depth = np.min(point_cloud_cam[:, 2])
+        max_depth = np.max(point_cloud_cam[:, 2])
+        normalized_depth = (point_cloud_cam[:, 2] - min_depth) / (max_depth - min_depth)
+        cmap = cm.get_cmap('jet')  # You can choose any colormap you prefer
+        colors = cmap(normalized_depth)
         point_cloud_image = point_cloud_image[filtered_indices]
+        colors = colors[filtered_indices]
         rospy.loginfo("Pointcloud projected from 3D camera frame to 2D image frame")
 
         # Publish results for RVIZ visualization
-        detection_association_image = cv2.cvtColor(self.image, cv2.COLOR_BGR2RGB)
-        circle_color = (255, 0, 0)
-        circle_radius = 3
-        for point in point_cloud_image:
-            x, y = int(point[0]), int(point[1])
-            cv2.circle(detection_association_image, (x, y), circle_radius, circle_color, -1)
+        # detection_association_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        # circle_color = (255, 0, 0)
+        # circle_radius = 3
+        # for point in point_cloud_image:
+        #     x, y = int(point[0]), int(point[1])
+        #     cv2.circle(detection_association_image, (x, y), circle_radius, circle_color, -1)
 
-        detection_association_msg = Image()
-        detection_association_msg.encoding = "bgr8"  # Set image encoding
-        detection_association_msg.is_bigendian = False
-        detection_association_msg.height    = detection_association_image.shape[0]  # Set image height
-        detection_association_msg.width     = detection_association_image.shape[1]  # Set image width
-        detection_association_msg.step      = detection_association_image.shape[1] * 3
-        detection_association_msg.data      = detection_association_image.tobytes()
-        detection_association_msg.header.frame_id = "base_link"
-        detection_association_msg.header.stamp = msg.header.stamp # Maintain image acquisition stamp
+        plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+        plt.scatter(point_cloud_image[:, 0], point_cloud_image[:, 1], color=colors, s=5)
+        plt.colorbar(label='Depth')
+        plt.show()
 
-        detection_association_publisher = rospy.Publisher("detection_association", Image, queue_size=10)
-        detection_association_publisher.publish(detection_association_msg)
+        # detection_association_msg = Image()
+        # detection_association_msg.encoding = "bgr8"  # Set image encoding
+        # detection_association_msg.is_bigendian = False
+        # detection_association_msg.height    = detection_association_image.shape[0]  # Set image height
+        # detection_association_msg.width     = detection_association_image.shape[1]  # Set image width
+        # detection_association_msg.step      = detection_association_image.shape[1] * 3
+        # detection_association_msg.data      = detection_association_image.tobytes()
+        # detection_association_msg.header.frame_id = "base_link"
+        # detection_association_msg.header.stamp = rospy.Time.now() # Maintain image acquisition stamp
+
+        # detection_association_publisher = rospy.Publisher("detection_association", Image, queue_size=10)
+        # detection_association_publisher.publish(detection_association_msg)
 
 
 if __name__ == "__main__":
@@ -189,7 +205,6 @@ if __name__ == "__main__":
 
     # Subscribe to clustered pointcloud
     rospy.Subscriber("clustered_PointCloud", PointCloud2, da.pointcloud_callback)
-    rospy.loginfo("Subscribed to clustered_PointCloud")
     # Subscribe to camera parameters
     rospy.Subscriber("waymo_CameraProjections", CameraProj, da.camera_projections_callback)
     # Subscribe to image callback

@@ -4,5 +4,5 @@
   <node pkg="waymo_parser" type="waymo_publisher.py" name="waymo_publisher"/>
   <node pkg="pointcloud_clustering" type="clustering" name="clustering"/>
   <node pkg="landmark_detection" type="yolo_test.py" name="detection"/>
-  <node pkg="positioning" type="data_association.py" name="data_association"/>
+  <node pkg="positioning" type="detection_association.py" name="data_association"/>
 </launch>

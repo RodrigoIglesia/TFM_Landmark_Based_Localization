@@ -104,9 +104,6 @@ class DataAssociation:
 
     def image_callback(self, msg):
         rospy.loginfo("Image processed received")
-        if not self.pointcloud_processed:
-            rospy.loginfo("Point cloud has not been processed yet. Skipping image processing.")
-            return
         bridge = CvBridge()
         self.image = bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
         self.image_height, self.image_width, _ = self.image.shape
@@ -155,23 +152,30 @@ class DataAssociation:
         # Publish results for RVIZ visualization
         detection_association_image = cv2.cvtColor(self.image, cv2.COLOR_BGR2RGB)
         circle_color = (255, 0, 0)
-        circle_radius = 3
+        circle_radius = 1
         for point in point_cloud_image:
             x, y = int(point[0]), int(point[1])
             cv2.circle(detection_association_image, (x, y), circle_radius, circle_color, -1)
 
-        detection_association_msg = Image()
-        detection_association_msg.encoding = "bgr8"  # Set image encoding
-        detection_association_msg.is_bigendian = False
-        detection_association_msg.height    = detection_association_image.shape[0]  # Set image height
-        detection_association_msg.width     = detection_association_image.shape[1]  # Set image width
-        detection_association_msg.step      = detection_association_image.shape[1] * 3
-        detection_association_msg.data      = detection_association_image.tobytes()
-        detection_association_msg.header.frame_id = "base_link"
-        detection_association_msg.header.stamp = msg.header.stamp # Maintain image acquisition stamp
+        cv2.namedWindow('result', cv2.WINDOW_NORMAL)
+        cv2.setWindowProperty('result', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+        cv2.imshow('result', detection_association_image)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
-        detection_association_publisher = rospy.Publisher("detection_association", Image, queue_size=10)
-        detection_association_publisher.publish(detection_association_msg)
+        # detection_association_msg = Image()
+        # detection_association_msg.encoding = "bgr8"  # Set image encoding
+        # detection_association_msg.is_bigendian = False
+        # detection_association_msg.height    = detection_association_image.shape[0]  # Set image height
+        # detection_association_msg.width     = detection_association_image.shape[1]  # Set image width
+        # detection_association_msg.step      = detection_association_image.shape[1] * 3
+        # detection_association_msg.data      = detection_association_image.tobytes()
+        # detection_association_msg.header.frame_id = "base_link"
+        # detection_association_msg.header.stamp = msg.header.stamp # Maintain image acquisition stamp
+
+        # detection_association_publisher = rospy.Publisher("detection_association", Image, queue_size=10)
+        # detection_association_publisher.publish(detection_association_msg)
+        # rospy.loginfo("Projection result published")
 
 
 if __name__ == "__main__":
@@ -183,13 +187,9 @@ if __name__ == "__main__":
 
     # Subscribe to clustered pointcloud
     rospy.Subscriber("clustered_PointCloud", PointCloud2, da.pointcloud_callback)
-    rospy.loginfo("Subscribed to clustered_PointCloud")
     # Subscribe to camera parameters
     rospy.Subscriber("waymo_CameraProjections", CameraProj, da.camera_projections_callback)
     # Use ApproximateTimeSynchronizer to synchronize image and point cloud messages
-    image_sub = Subscriber("image_detection", Image)
-    pointcloud_sub = Subscriber("clustered_PointCloud", PointCloud2)
-    synchronizer = ApproximateTimeSynchronizer([image_sub, pointcloud_sub], queue_size=100, slop=0.1)
-    synchronizer.registerCallback(da.image_callback)
+    rospy.Subscriber("image_detection", Image, da.image_callback)
 
     rospy.spin()

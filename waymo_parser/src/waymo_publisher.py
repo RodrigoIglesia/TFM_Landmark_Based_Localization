@@ -10,6 +10,8 @@ import numpy as np
 import pathlib
 
 import rospy
+import rosbag
+
 from sensor_msgs.msg import PointCloud2, PointField, Image
 from waymo_parser.msg import CameraProj
 
@@ -129,7 +131,7 @@ class WaymoPublisher:
         else:
             rospy.loginfo("No image in frame")
 
-    def publish_camera_params(self, frame):
+    def publish_camera_params(self, frame, rosbag_file):
         camera_intrinsic = np.array(frame.context.camera_calibrations[0].intrinsic)
         camera_extrinsic = np.array(frame.context.camera_calibrations[0].extrinsic.transform)
         self.camera_params_msg.intrinsic = camera_intrinsic
@@ -139,6 +141,10 @@ class WaymoPublisher:
         self.camera_projections_publisher.publish(self.camera_params_msg)
         rospy.loginfo("Camera parameters published")
 
+        # Save to rosbag
+        rosbag_file.write('waymo_CameraProjections', self.camera_params_msg, self.camera_params_msg.header.stamp)
+        rospy.loginfo("Camera parameters saves to ROS bag")
+
 
 
 if __name__ == "__main__":
@@ -146,7 +152,7 @@ if __name__ == "__main__":
     rospy.loginfo("Node initialized correctly")
 
     #TODO: Topic configurable
-    rate = rospy.Rate(10)  # Adjust the publishing rate as needed
+    rate = rospy.Rate(1/30)  # Adjust the publishing rate as needed
     # TODO: ruta al dataset tiene que ser configurable y única para todos los scripts
     dataset_path = os.path.join(src_dir, "dataset/waymo_map_scene")
     tfrecord_list = list(sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
@@ -158,31 +164,35 @@ if __name__ == "__main__":
     ## Iterate through Dataset Scenes
     ##############################################################
     for scene_index, scene_path in enumerate(sorted(tfrecord_list)):
-        rospy.loginfo("Scene {} processing: {}".format(str(scene_index), scene_path))
+        scene_name = scene_path.stem
+        rospy.loginfo("Scene {}: {} processing: {}".format(str(scene_index), scene_name, scene_path))
 
         frame = next(load_frame(scene_path))
         if frame is not(None):
         # for frame in load_frame(scene_path):
             # TODO: Paralelizar procesos de publicación
 
-            ##################################################
-            # Publish LiDAR pointcloud
-            ##################################################
-            wp.pointcloud_msg.header.frame_id = "base_link"
-            wp.pointcloud_msg.header.stamp = rospy.Time.now()
-            wp.publish_pointcloud(frame)
-            ##################################################
-            # Publish Camera Parameters
-            ##################################################
-            wp.camera_params_msg.header.frame_id = "base_link"
-            wp.camera_params_msg.header.stamp = rospy.Time.now()
-            wp.publish_camera_params(frame)
-            ##################################################
-            # Publish Camera Image
-            ##################################################
-            wp.camera_msg.header.frame_id = "base_link"
-            wp.camera_msg.header.stamp = rospy.Time.now()
-            wp.publish_camera(frame)
+            rosbag_path = os.path.join(src_dir, f"dataset/camera_params_bags/camera_params_{scene_name}.bag")
+            with rosbag.Bag(rosbag_path, 'w', allow_unindexed=False) as bag:
+
+                ##################################################
+                # Publish LiDAR pointcloud
+                ##################################################
+                wp.pointcloud_msg.header.frame_id = f"base_link_{scene_name}"
+                wp.pointcloud_msg.header.stamp = rospy.Time.now()
+                wp.publish_pointcloud(frame)
+                ##################################################
+                # Publish Camera Parameters
+                ##################################################
+                wp.camera_params_msg.header.frame_id = f"base_link_{scene_name}"
+                wp.camera_params_msg.header.stamp = rospy.Time.now()
+                wp.publish_camera_params(frame, bag)
+                ##################################################
+                # Publish Camera Image
+                ##################################################
+                wp.camera_msg.header.frame_id = f"base_link_{scene_name}"
+                wp.camera_msg.header.stamp = rospy.Time.now()
+                wp.publish_camera(frame)
             
 
             rate.sleep()

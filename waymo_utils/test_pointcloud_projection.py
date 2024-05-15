@@ -99,6 +99,9 @@ if __name__ == "__main__":
     ## Iterate through Dataset Scenes
     ##############################################################
     for scene_index, scene_path in enumerate(sorted(tfrecord_list)):
+        scene_name = scene_path.stem
+        print(scene_name)
+        
         frame = next(load_frame(scene_path))
 
         # Camera parameters
@@ -130,6 +133,7 @@ if __name__ == "__main__":
         # Frame pointcloud
         point_cloud, points_cp = get_pointcloud(frame)
         print("PointCloud: ", point_cloud)
+        plot_referenced_pointcloud(point_cloud)
 
         ########################################################################################
         ## Project Velodyne points to Camera
@@ -137,7 +141,11 @@ if __name__ == "__main__":
         # Project 3D points in vehicle reference to 3D points in camera reference using extrinsic params
         point_cloud_hom = cart2hom(point_cloud)  # nx4
         point_cloud_cam =  np.dot(point_cloud_hom, np.transpose(extrinsic_matrix_inv))
+        plot_referenced_pointcloud(point_cloud_cam)
 
+        ########################################################################################
+        ## Rotate pointcloud to match pin hole axis
+        ########################################################################################
         ## Rotate point cloud to match pinhole model axis (Z pointing to the front of the car, Y pointing down ans X pointing to the right)
         theta_x = np.pi/2
         theta_y = -np.pi/2
@@ -156,11 +164,17 @@ if __name__ == "__main__":
         point_cloud_cam = np.dot(Rx, point_cloud_cam.T).T
         # Rotate the point cloud -90 degrees in Y
         point_cloud_cam = np.dot(Ry, point_cloud_cam.T).T
+
+        plot_referenced_pointcloud(point_cloud_cam)
+
+        ########################################################################################
+        ## Remove points with z<0
+        ########################################################################################
         # We only have to project in the image the points that are in front of the car > remove points with z<0
         point_cloud_cam = point_cloud_cam[point_cloud_cam[:, 2] >= 0]
 
         # Plot pointcloud referenced to the camera
-        # plot_referenced_pointcloud(point_cloud_cam)
+        plot_referenced_pointcloud(point_cloud_cam)
 
         # Get a color map based on the Z depth
         # Normalize Z coordinate values
@@ -170,7 +184,9 @@ if __name__ == "__main__":
         cmap = cm.get_cmap('jet')  # You can choose any colormap you prefer
         colors = cmap(normalized_depth)
 
-        # Project 3D points in camera reference in 2D points in image reference using intrinsic params
+        ########################################################################################
+        ## Project 3D points in camera reference in 2D points in image reference using intrinsic params
+        ########################################################################################
         point_cloud_cam_hom = cart2hom(point_cloud_cam)
         # Compute perspective projection matrix
         P = np.hstack((intrinsic_matrix, np.zeros((3, 1))))

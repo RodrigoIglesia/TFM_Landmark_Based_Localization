@@ -13,6 +13,7 @@
 
 
 #include <ros/ros.h>
+#include <rosbag/bag.h>
 #include <time.h>
 #include <math.h>
 #include <tf/tf.h>
@@ -49,8 +50,13 @@
 
 #include <iostream>
 #include <fstream>
+#include <mutex>
+
+// Declare a mutex for thread-safe operations
+std::mutex mtx;
 
 float leafSize = 0.2;
+std::string frame_id;
 //FIXME: El parametro leafsize es usado en varios métodos > tiene que inicializarse en una clase
 // ros::param::get("leafSize", leafSize);
 
@@ -72,7 +78,8 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloudCrop(pcl::PointCloud<pcl::PointXYZ
     Given an input pointcloud apply cropping to extract the invalid points
     Invalid points are those that belongs inside a minimum dimensions cube
     */
-   // Output cloud after cropping.
+    ROS_INFO("Cropping received pointcloud");
+    // Output cloud after cropping.
     pcl::PointCloud<pcl::PointXYZ>::Ptr cropCloud(new pcl::PointCloud<pcl::PointXYZ>);
     float low_lim_x, low_lim_y, low_lim_z, up_lim_x, up_lim_y, up_lim_z; // So it will be done manually
     ros::param::get("low_lim_x", low_lim_x);
@@ -105,6 +112,7 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloudDownsample(pcl::PointCloud<pcl::Po
     /*
     Given an input pointcloud apply downsampling to reduce its density
     */
+    ROS_INFO("Downsampling received pointcloud");
     // Output cloud after downsampling.
     pcl::PointCloud<pcl::PointXYZ>::Ptr dsCloud(new pcl::PointCloud<pcl::PointXYZ>);
     
@@ -126,6 +134,7 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloudExtractGround(pcl::PointCloud<pcl:
     /*
     Given an input pointcloud apply downsampling to reduce its density
     */
+    ROS_INFO("Extracting ground from received pointcloud");
     // Output cloud after extracting the ground.
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloudNoGround(new pcl::PointCloud<pcl::PointXYZ>());
 
@@ -211,6 +220,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr euclideanClustering(pcl::PointCloud<pcl::
     Euclidean clustering: given an input pointcloud, the algorithm returns a list of pointclouds.
     Each pointcloud belongs to a different cluster.
     */
+    ROS_INFO("Clustering received pointcloud");
     std::vector<pcl::PointIndices> clusterIndices;
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr clusteredCloud(new pcl::PointCloud<pcl::PointXYZRGB>);
 
@@ -270,7 +280,11 @@ void generatePointcloudMsg(pcl::shared_ptr<pcl::PointCloud<pcl::PointXYZ>> &clou
 
 void pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg)
 {
-    ROS_INFO("Subscibed to Test PointCloud topic correctle");
+    std::lock_guard<std::mutex> lock(mtx);
+    receivedPointCloud = true;
+    ROS_INFO("Subscibed to Test PointCloud topic correctly");
+    frame_id = msg->header.frame_id;
+    ROS_INFO("PointCloud received: %s", frame_id.c_str());
 
     // Poin Cloud variables
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>); // Received pointcloud
@@ -351,27 +365,56 @@ int main(int argc, char **argv)
     ros::Publisher pub_ge = nh.advertise<sensor_msgs::PointCloud2>("ge_PointCloud", 1000); // Ground extracted pointcloud
     ros::Publisher pub_clustered = nh.advertise<sensor_msgs::PointCloud2>("clustered_PointCloud", 1000); // Clustered pointcloud
 
-    ros::Rate loop_rate(10);
+    // Initialize the bag
+    // TODO: Ruta configurable
+    std::string base_dir ="/home/rodrigo/catkin_ws/src/TFM_Landmark_Based_Localization/dataset/pointcloud_bags/";
+    rosbag::Bag bag;
+
+    ros::Rate rate(10);
 
     while (ros::ok())
     {
-        ros::spinOnce();
+        ros::spinOnce(); // Handle callbacks
+        // Use mutex to safely access shared variables
+        mtx.lock();
 
         if (receivedPointCloud)
         {
-            pub.publish(inCloudMsg);
-            ROS_INFO("Point cloud published");
-            pub_crop.publish(cropCloudMsg);
-            ROS_INFO("Point cloud Cropped published");
-            pub_ds.publish(dsCloudMsg);
-            ROS_INFO("Point cloud Downsampled published");
-            pub_ge.publish(geCloudMsg);
-            ROS_INFO("Point cloud without ground published");
-            pub_clustered.publish(clusteredCloudMsg);
-            ROS_INFO("Point cloud clustered published");
-        }
+            receivedPointCloud = false; // Reset the flag
+            // Copy global messages to local
+            sensor_msgs::PointCloud2 inCloudMsg_local = inCloudMsg;
+            sensor_msgs::PointCloud2 cropCloudMsg_local = cropCloudMsg;
+            sensor_msgs::PointCloud2 dsCloudMsg_local = dsCloudMsg;
+            sensor_msgs::PointCloud2 geCloudMsg_local = geCloudMsg;
+            sensor_msgs::PointCloud2 clusteredCloudMsg_local = clusteredCloudMsg;
+            mtx.unlock();
 
-        loop_rate.sleep();
+            pub.publish(inCloudMsg_local);
+            ROS_INFO("Point cloud published");
+            pub_crop.publish(cropCloudMsg_local);
+            ROS_INFO("Point cloud Cropped published");
+            pub_ds.publish(dsCloudMsg_local);
+            ROS_INFO("Point cloud Downsampled published");
+            pub_ge.publish(geCloudMsg_local);
+            ROS_INFO("Point cloud without ground published");
+
+            pub_clustered.publish(clusteredCloudMsg_local);
+            ROS_INFO("Point cloud clustered published");
+
+            // Write to 
+            ROS_INFO("Saving bag: %s", frame_id.c_str());
+            std::string bag_path = base_dir + "clustered_pointcloud_" + frame_id.c_str() + ".bag";
+            bag.open(bag_path, rosbag::bagmode::Write);  // Open a bag file in write mode
+
+            bag.write("clustered_PointCloud", inCloudMsg_local.header.stamp, clusteredCloudMsg_local);
+            ROS_INFO("Point cloud clustered saved to ROS bag");
+            bag.close();
+        } else {
+            mtx.unlock();
+        }
+        
+
+        rate.sleep();
     }
 
     return (0);

@@ -8,6 +8,7 @@ import sys
 import cv2
 import random
 import rospy
+import rosbag
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 from ultralytics import YOLO
@@ -77,6 +78,12 @@ def image_callback(msg, model):
     detection_publisher.publish(detection_msg)
     rospy.loginfo("detection result published")
 
+    # Save result to rosbag
+    rosbag_path = os.path.join(src_dir, f"dataset/camera_images_bags/camera_params_{msg.header.frame_id}.bag")
+    with rosbag.Bag(rosbag_path, 'w') as bag:
+        bag.write('waymo_CameraProjections', detection_msg, detection_msg.header.stamp)
+        rospy.loginfo("detection result saved in ROS bag")
+
 if __name__ == "__main__":
     model = YOLO('models/yolov8n-seg.pt')  # load an official model
 
@@ -84,5 +91,7 @@ if __name__ == "__main__":
     rospy.init_node('image_subscriber', anonymous=True)
     rospy.loginfo("Landmark detection node initialized correctly")
     rospy.Subscriber("waymo_Camera", Image, image_callback, callback_args=model)
+
+    
     rospy.spin()
 

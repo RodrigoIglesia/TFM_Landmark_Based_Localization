@@ -13,6 +13,7 @@ find_package(catkin REQUIRED COMPONENTS
   tf
   rospy
   std_msgs
+  rosbag
 )
 
 ## System dependencies are found with CMake's conventions
@@ -208,5 +209,5 @@ include_directories(
 # catkin_add_nosetests(test)
 
 add_executable (clustering src/clustering.cpp)
-target_link_libraries (clustering ${PCL_LIBRARIES} ${catkin_LIBRARIES})
+target_link_libraries (clustering ${PCL_LIBRARIES} ${catkin_LIBRARIES} ${rosbag_LIBRARIES})
 

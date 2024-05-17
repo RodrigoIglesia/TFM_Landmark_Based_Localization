@@ -61,6 +61,7 @@ add_message_files(
 add_service_files(
   FILES
   clustering_srv.srv
+  landmark_detection_srv.srv
   # Service1.srv
   # Service2.srv
 )

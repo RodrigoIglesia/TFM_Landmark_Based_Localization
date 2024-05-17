@@ -157,7 +157,7 @@ class DataAssociation:
             x, y = int(point[0]), int(point[1])
             cv2.circle(detection_association_image, (x, y), circle_radius, circle_color, -1)
 
-        cv2.namedWindow('result', cv2.WINDOW_NORMAL)
+        # cv2.namedWindow('result', cv2.WINDOW_NORMAL)
         cv2.setWindowProperty('result', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
         cv2.imshow('result', detection_association_image)
         cv2.waitKey(0)

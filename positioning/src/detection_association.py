@@ -157,6 +157,8 @@ def associate_data(pointcloud, pointcloud_label, intrinsic_matrix, extrinsic_mat
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
+    cv2.imwrite("results/associated_image.jpg", detection_association_image)
+
 def plot_referenced_pointcloud(point_cloud):
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(point_cloud)

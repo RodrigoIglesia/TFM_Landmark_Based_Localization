@@ -15,6 +15,7 @@ import dask.dataframe as dd
 import cv2
 import numpy as np
 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 if not tf.executing_eagerly():
   tf.compat.v1.enable_eager_execution()
 
@@ -187,7 +188,7 @@ if __name__ == "__main__":
             result_image_semantic_original = cv2.addWeighted(decoded_image, 1, semantic_label_original_rgb, 0.5, 0)
             draw_bboxes(camera_bboxes, result_image_semantic_original)
             result_image_semantic = cv2.addWeighted(decoded_image, 1, semantic_label_rgb, 0.5, 0)
-
+ 
             result_image = cv2.hconcat([result_image_panoptic, result_image_semantic_original, result_image_semantic])
 
             cv2.namedWindow('panoptic', cv2.WINDOW_NORMAL)

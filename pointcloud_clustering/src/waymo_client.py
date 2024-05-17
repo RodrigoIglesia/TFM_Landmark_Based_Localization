@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-    This node reads an point cloud from Waymo Open Dataset, converts it to PCL and publishd to a determined topic
+    This node reads a point cloud from Waymo Open Dataset, converts it to PCL, and sends it to various service servers for processing.
 """
 import os
 import sys
@@ -14,15 +14,16 @@ import rosbag
 
 from sensor_msgs.msg import PointCloud2, PointField, Image
 from waymo_parser.msg import CameraProj
+from pointcloud_clustering.srv import clustering_srv, clustering_srvRequest, clustering_srvResponse
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import tensorflow.compat.v1 as tf
 if not tf.executing_eagerly():
-  tf.compat.v1.enable_eager_execution()
+    tf.compat.v1.enable_eager_execution()
 
 
-# Add project root root to python path
+# Add project root to python path
 current_script_directory = os.path.dirname(os.path.realpath(__file__))
 src_dir = os.path.abspath(os.path.join(current_script_directory, "../.."))
 sys.path.append(src_dir)
@@ -30,15 +31,17 @@ sys.path.append(src_dir)
 from waymo_utils.WaymoParser import *
 from waymo_utils.waymo_3d_parser import *
 
-class WaymoPublisher:
+class WaymoClient:
     def __init__(self, cams_order):
-        rospy.loginfo("Initializing publisher parameters")
+        rospy.loginfo("Initializing client parameters")
         # Vector of integers determining the index order of the cameras, this vector also selects the number of cameras to use
         self.cams_order = cams_order
-        # ROS publisher objects
-        self.pointcloud_publisher = rospy.Publisher("waymo_PointCloud", PointCloud2, queue_size=10000)
-        self.camera_projections_publisher = rospy.Publisher("waymo_CameraProjections", CameraProj, queue_size=1000)
-        self.camera_publisher = rospy.Publisher("waymo_Camera", Image, queue_size=1000)
+
+        # Service clients
+        rospy.wait_for_service('process_pointcloud')
+        self.pointcloud_clustering_client = rospy.ServiceProxy('process_pointcloud', clustering_srv)
+        rospy.loginfo("Clustering service is running")
+
         # PointCloud2 message definition
         self.pointcloud_msg = PointCloud2()
         self.pointcloud_msg.fields = [
@@ -84,16 +87,26 @@ class WaymoPublisher:
         data = np.column_stack((points, np.zeros((points.shape[0], 1), dtype=np.float32)))
         self.pointcloud_msg.data = data.tobytes()
 
-    def publish_pointcloud(self, frame):
+    def process_pointcloud(self, frame):
         points, points_cp = self.get_pointcloud(frame)
-        if points is not(None):
+        if points is not None:
             # Convert concatenated point cloud to ROS message
             self.pointcloud_to_ros(points)
-            # Publish message
-            self.pointcloud_publisher.publish(self.pointcloud_msg)
-            rospy.loginfo("Concatenated point cloud published")
+
+            # Create a request object
+            request = clustering_srvRequest()
+            request.pointcloud = self.pointcloud_msg
+
+
+            # Call the clustering service
+            rospy.loginfo("Calling pointcloud clustering service...")
+            response = self.pointcloud_clustering_client(request)
+            clustered_pointcloud = response.clustered_pointcloud
+
+            return clustered_pointcloud
         else:
-            rospy.loginfo("No poincloud in frame")
+            rospy.loginfo("No pointcloud in frame")
+            return None
 
     def get_camera_image(self, frame):
         # Gets and orders camera images from left to right
@@ -101,20 +114,14 @@ class WaymoPublisher:
         for i, image in enumerate(frame.images):
             decoded_image = get_frame_image(image)
             cameras_images[image.name] = decoded_image[...,::-1]
-        # # Create a list of tuples (key, image_data)
-        # key_image_tuples = [(key, cameras_images[key]) for key in cameras_images]
-        # # Sort the list of tuples based on the custom order
-        # sorted_tuples = sorted(key_image_tuples, key=lambda x: self.cams_order.index(x[0]))
-        # # Extract image data from sorted tuples
-        # ordered_images = [item[1] for item in sorted_tuples]
         ordered_images = [cameras_images[1]]
 
         return ordered_images
 
-    def publish_camera(self, frame):
+    def process_camera(self, frame):
         camera_images = self.get_camera_image(frame)
-        rospy.loginfo("images loaded from dataset")
-        # Check wether 1 or more images has been selected
+        rospy.loginfo("Images loaded from dataset")
+        # Check whether 1 or more images have been selected
         if len(camera_images) == 1:
             image = camera_images[0]
             self.camera_msg.height = image.shape[0]  # Set image height
@@ -122,43 +129,33 @@ class WaymoPublisher:
             self.camera_msg.step = image.shape[1] * 3
             self.camera_msg.data = image.tobytes()
 
-            # Publish message
-            self.camera_publisher.publish(self.camera_msg)
-            rospy.loginfo("Camera image published")
+            return self.camera_msg
         elif len(camera_images) > 1:
-            # TODO: Implementar stitching de imágenes o publicar una a una.
+            # TODO: Implement image stitching or process one by one.
             pass
         else:
             rospy.loginfo("No image in frame")
+            return None
 
-    def publish_camera_params(self, frame, rosbag_file):
+    def get_camera_params(self, frame):
         camera_intrinsic = np.array(frame.context.camera_calibrations[0].intrinsic)
         camera_extrinsic = np.array(frame.context.camera_calibrations[0].extrinsic.transform)
         self.camera_params_msg.intrinsic = camera_intrinsic
         self.camera_params_msg.extrinsic = camera_extrinsic
 
-        # Publish message
-        self.camera_projections_publisher.publish(self.camera_params_msg)
-        rospy.loginfo("Camera parameters published")
-
-        # Save to rosbag
-        rosbag_file.write('waymo_CameraProjections', self.camera_params_msg, self.camera_params_msg.header.stamp)
-        rospy.loginfo("Camera parameters saves to ROS bag")
-
-
+        return self.camera_params_msg
 
 if __name__ == "__main__":
-    rospy.init_node('waymo_publisher', anonymous=True)
+    rospy.init_node('waymo_client', anonymous=True)
     rospy.loginfo("Node initialized correctly")
 
-    #TODO: Topic configurable
-    rate = rospy.Rate(1/30)  # Adjust the publishing rate as needed
-    # TODO: ruta al dataset tiene que ser configurable y única para todos los scripts
+    rate = rospy.Rate(1/30)  # Adjust the rate as needed
+
+    # TODO: Set dataset path as a configurable parameter
     dataset_path = os.path.join(src_dir, "dataset/waymo_map_scene")
     tfrecord_list = list(sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
 
-    # TODO: Cambiar [2] `por una variable configurable que indique la configuración de las cámaras`
-    wp = WaymoPublisher([2, 1, 3])
+    wp = WaymoClient([2, 1, 3])
 
     ##############################################################
     ## Iterate through Dataset Scenes
@@ -168,31 +165,25 @@ if __name__ == "__main__":
         rospy.loginfo("Scene {}: {} processing: {}".format(str(scene_index), scene_name, scene_path))
 
         frame = next(load_frame(scene_path))
-        if frame is not(None):
-        # for frame in load_frame(scene_path):
-            # TODO: Paralelizar procesos de publicación
+        if frame is not None:
+            rospy.loginfo("Calling processing services")
+            # Process point cloud
+            wp.pointcloud_msg.header.frame_id = f"base_link_{scene_name}"
+            wp.pointcloud_msg.header.stamp = rospy.Time.now()
+            clustered_pointcloud = wp.process_pointcloud(frame)
+            rospy.loginfo("Processed Pointcloud received")
 
-            rosbag_path = os.path.join(src_dir, f"dataset/camera_params_bags/camera_params_{scene_name}.bag")
-            with rosbag.Bag(rosbag_path, 'w', allow_unindexed=False) as bag:
 
-                ##################################################
-                # Publish LiDAR pointcloud
-                ##################################################
-                wp.pointcloud_msg.header.frame_id = f"base_link_{scene_name}"
-                wp.pointcloud_msg.header.stamp = rospy.Time.now()
-                wp.publish_pointcloud(frame)
-                ##################################################
-                # Publish Camera Parameters
-                ##################################################
-                wp.camera_params_msg.header.frame_id = f"base_link_{scene_name}"
-                wp.camera_params_msg.header.stamp = rospy.Time.now()
-                wp.publish_camera_params(frame, bag)
-                ##################################################
-                # Publish Camera Image
-                ##################################################
-                wp.camera_msg.header.frame_id = f"base_link_{scene_name}"
-                wp.camera_msg.header.stamp = rospy.Time.now()
-                wp.publish_camera(frame)
-            
+            # # Process camera parameters
+            # wp.camera_params_msg.header.frame_id = f"base_link_{scene_name}"
+            # wp.camera_params_msg.header.stamp = rospy.Time.now()
+            # camera_params = wp.get_camera_params(frame)
+
+
+            # # Process camera image
+            # wp.camera_msg.header.frame_id = f"base_link_{scene_name}"
+            # wp.camera_msg.header.stamp = rospy.Time.now()
+            # camera_image = wp.process_camera(frame)
+  
 
             rate.sleep()

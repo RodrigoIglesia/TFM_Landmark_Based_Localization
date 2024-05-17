@@ -3,48 +3,78 @@ import sys
 import cv2
 from ultralytics.utils.plotting import Annotator
 
-# Add project src root to python path
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
+import tensorflow.compat.v1 as tf
+if not tf.executing_eagerly():
+  tf.compat.v1.enable_eager_execution()
+
+
+# Add project root root to python path
 current_script_directory = os.path.dirname(os.path.realpath(__file__))
 src_dir = os.path.abspath(os.path.join(current_script_directory, "../.."))
-sys.path.insert(0, src_dir)
+sys.path.append(src_dir)
 
-img = cv2.imread('dataset/waymo_yolo_format/images/train/00000_00000_camera1.jpg')
+from waymo_utils.WaymoParser import *
+from waymo_utils.waymo_semantic_parser import *
 
 
-# Showing image shape
-print('Image shape:', img.shape)  # tuple of (800, 1360, 3)
 
-# Getting spatial dimension of input image
-dh, dw, _ = img.shape
+if __name__ == "__main__":
+    # Add project root root to python path
+    current_script_directory = os.path.dirname(os.path.realpath(__file__))
+    src_dir = os.path.abspath(os.path.join(current_script_directory, ".."))
+    sys.path.append(src_dir)
 
-# Showing height an width of image
-print('Image height={0} and width={1}'.format(dh, dw))  # 800 1360
+    dataset_path = os.path.join(src_dir, "dataset/waymo_map_scene")
 
-fl = open('dataset/waymo_yolo_format/labels/train/00000_00000_camera1.txt', 'r')
-data = fl.readlines()
-fl.close()
-
-for dt in data:
-    print(dt)
-    # Split string to float
-    _, x, y, w, h = map(float, dt.split(' '))
-
-    l = int((x - w / 2) * dw)
-    r = int((x + w / 2) * dw)
-    t = int((y - h / 2) * dh)
-    b = int((y + h / 2) * dh)
+    tfrecord_list = list(
+        sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
     
-    if l < 0:
-        l = 0
-    if r > dw - 1:
-        r = dw - 1
-    if t < 0:
-        t = 0
-    if b > dh - 1:
-        b = dh - 1
+    # Get only frames with segmentation labels and append to a list of frames
+    frames_with_seg = []
+    for scene_index, scene_path in enumerate(sorted(tfrecord_list)):
+        get_frames_with_segment(frames_with_seg, scene_path)
 
-    cv2.rectangle(img, (l, t), (r, b), (0, 0, 255), 1)
+    # Read panoptic labels from selected frames
+    panoptic_labels = []
+    frame_index = 0
+    for frame in frames_with_seg:
+        # Read the 5 cammera images of the frame
+        camearas_images = []
+        for i, image in enumerate(frame.images):
+            decoded_image = get_frame_image(image)
+            image_size = (decoded_image.shape[1], decoded_image.shape[0])
+            camera_bboxes = get_image_bboxes(frame.camera_labels, image.name)
 
-cv2.imshow("image", img)
-cv2.waitKey(0)
+            semantic_label, instance_label = get_semantic_labels(image)
+
+            ###########################################################<
+            # Keep only interest classes in semantic classes
+            values_to_keep = [15, 16, 17, 18, 19]
+            # Create a copy of the original semantic labels to keep them
+            semantic_label_signs = np.copy(semantic_label)
+            # Create a mask for the values you want to keep
+            mask = np.isin(semantic_label, values_to_keep)
+            # Apply the mask to set other pixel values to 0
+            semantic_label_signs[mask == False] = 0
+
+            # Get panoptic label and plot on top of the image
+            panoptic_label_rgb = camera_segmentation_utils.panoptic_label_to_rgb(
+                semantic_label, instance_label
+            )
+
+            semantic_label_original_rgb = camera_segmentation_utils.semantic_label_to_rgb(semantic_label)
+
+            # Only get segmentation labels of desired objects
+            color_map = get_signs_color_map()
+            semantic_label_rgb = camera_segmentation_utils.semantic_label_to_rgb(semantic_label_signs, color_map)
+
+            result_image_panoptic = cv2.addWeighted(decoded_image, 1, panoptic_label_rgb, 0.5, 0)
+            draw_bboxes(camera_bboxes, result_image_panoptic)
+            result_image_semantic_original = cv2.addWeighted(decoded_image, 1, semantic_label_original_rgb, 0.5, 0)
+            draw_bboxes(camera_bboxes, result_image_semantic_original)
+            result_image_semantic = cv2.addWeighted(decoded_image, 1, semantic_label_rgb, 0.5, 0)
+
+            frame_index += 1
 

@@ -14,6 +14,7 @@ import sensor_msgs.point_cloud2 as pc2
 from sensor_msgs.msg import PointCloud2, PointField, Image
 from waymo_parser.msg import CameraProj
 from pointcloud_clustering.srv import clustering_srv, clustering_srvRequest, landmark_detection_srv, landmark_detection_srvRequest
+from cv_bridge import CvBridge
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorflow.compat.v1 as tf
@@ -29,16 +30,20 @@ from waymo_utils.WaymoParser import *
 from waymo_utils.waymo_3d_parser import *
 
 class WaymoClient:
+    """
+    This class manages the comunication with the server processes
+    as well as the parsing of the data from the source (DataBase or sensors).
+    """
     def __init__(self, cams_order):
         self.cams_order = cams_order
         self.pointcloud = np.zeros((0, 3))
         self.cluster_labels = np.zeros((0, 3))
-        self.image = np.array([])
-        self.image_height = 0
-        self.image_width = 0
         self.intrinsic_matrix = np.zeros((3, 3))
         self.extrinsic_matrix = np.zeros((4, 4))
         self.extrinsic_matrix_inv = np.zeros((4, 4))
+        self.processed_image = None
+        self.image_height = None
+        self.image_width = None
         self.pointcloud_processor = PointCloudProcessor()
         self.camera_processor = CameraProcessor()
 
@@ -50,7 +55,7 @@ class WaymoClient:
 
         # Initialize landmark process
         rospy.wait_for_service('landmark_detection')
-        self.pointcloud_clustering_client = rospy.ServiceProxy('landmark_detection', clustering_srv)
+        self.landmark_detection_client = rospy.ServiceProxy('landmark_detection', landmark_detection_srv)
         rospy.loginfo("Landmark service is running")
 
     def cart2hom(self, pts_3d):
@@ -62,6 +67,9 @@ class WaymoClient:
         return pts_3d_hom
 
     def process_pointcloud(self, frame):
+        """
+        Gets the pointcloud from the source and manages the processing with the server service.
+        """
         points, points_cp = self.pointcloud_processor.get_pointcloud(frame)
         if points is not None:
             self.pointcloud_processor.pointcloud_to_ros(points)
@@ -81,6 +89,23 @@ class WaymoClient:
             rospy.loginfo("No pointcloud in frame")
 
     def process_image(self, frame):
+        image = CameraProcessor.get_camera_image[0]
+        if image is not None:
+            self.camera_processor.camera_to_ros(image)
+            request = landmark_detection_srvRequest()
+            request.image = self.camera_processor.camera_msg
+
+            try:
+                rospy.loginfo("Calling landmark detection service...")
+                response = self.landmark_detection_client(request)
+                image_detection = response.processed_image
+                rospy.loginfo("Detection received")
+                self.camera_processor.respmsg_to_image(image_detection)
+                rospy.loginfo("Pointcloud message decoded")
+            except rospy.ServiceException as e:
+                rospy.logerr(f"Service call failed: {e}")
+        else:
+            rospy.loginfo("No pointcloud in frame")
 
 
 
@@ -121,8 +146,6 @@ class PointCloudProcessor(WaymoClient):
         self.pointcloud_msg.data = data.tobytes()
 
     def respmsg_to_pointcloud(self, msg):
-        self.pointcloud = np.zeros((0, 3))
-        self.cluster_labels = np.zeros((0, 3))
         gen = pc2.read_points(msg, skip_nans=True)
         for x in gen:
             test = x[3]
@@ -173,22 +196,18 @@ class CameraProcessor(WaymoClient):
         ordered_images = [cameras_images[1]]
         return ordered_images
 
-    def process_camera(self, frame):
-        camera_images = self.get_camera_image(frame)
-        rospy.loginfo("Images loaded from dataset")
-        if len(camera_images) == 1:
-            image = camera_images[0]
-            self.camera_msg.height = image.shape[0]
-            self.camera_msg.width = image.shape[1]
-            self.camera_msg.step = image.shape[1] * 3
-            self.camera_msg.data = image.tobytes()
-            return self.camera_msg
-        elif len(camera_images) > 1:
-            # TODO: Implement image stitching or process one by one.
-            pass
-        else:
-            rospy.loginfo("No image in frame")
-            return None
+    def camera_to_ros(self, image):
+        self.camera_msg.height = image.shape[0]
+        self.camera_msg.width = image.shape[1]
+        self.camera_msg.step = image.shape[1] * 3
+        self.camera_msg.data = image.tobytes()
+
+    def respmsg_to_image(self, msg):
+        bridge = CvBridge()
+        self.processed_image = bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
+        self.image_height, self.image_width, _ = self.processed_image.shape
+
+    
 
 
 
@@ -217,11 +236,20 @@ if __name__ == "__main__":
             frame = next(load_frame(scene_path))
             if frame is not None:
                 rospy.loginfo("Calling processing services")
+
+                # Pointcloud processing
+                rospy.loginfo("Pointcloud processing service")
                 wc.pointcloud_processor.pointcloud_msg.header.frame_id = f"base_link_{scene_name}"
                 wc.pointcloud_processor.pointcloud_msg.header.stamp = rospy.Time.now()
                 wc.process_pointcloud(frame)
                 if wc.pointcloud_processor.pointcloud.size > 0:
                     rospy.loginfo("Processed Pointcloud received")
-                    plot_referenced_pointcloud(wc.pointcloud_processor.pointcloud)
+                    plot_referenced_pointcloud(wc.pointcloud)
+
+                # Camera processing
+                rospy.loginfo("Landmark detection processing service")
+                wc.camera_processor.camera_msg.header.frame_id = f"base_link_{scene_name}"
+                wc.camera_processor.camera_msg.header.stamp = rospy.Time.now()
+                wc.process_image(frame)
 
                 rate.sleep()

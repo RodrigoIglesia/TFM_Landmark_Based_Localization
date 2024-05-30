@@ -3,4 +3,5 @@
   <rosparam command="load" file="/home/rodrigo/catkin_ws/src/TFM_Landmark_Based_Localization/params.yaml" />
   <node pkg="pointcloud_clustering" type="clustering" name="clustering"/>
   <node pkg="pointcloud_clustering" type="waymo_client.py" name="waymo_client"/>
+  <node pkg="pointcloud_clustering" type="landmark_detection.py" name="landmark_detection"/>
 </launch>

@@ -13,14 +13,15 @@ import rosbag
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 from ultralytics import YOLO
-from waymo_utils.WaymoParser import *
-from waymo_utils.waymo_2d_parser import *
-from your_package.srv import ImageProcessing, ImageProcessingResponse  # Import the service
+from pointcloud_clustering.srv import landmark_detection_srv, landmark_detection_srvResponse
 
 # Add project src root to python path
 current_script_directory = os.path.dirname(os.path.realpath(__file__))
 src_dir = os.path.abspath(os.path.join(current_script_directory, "../.."))
 sys.path.insert(0, src_dir)
+
+from waymo_utils.WaymoParser import *
+from waymo_utils.waymo_2d_parser import *
 
 
 def yolo_detect(image, model):
@@ -59,18 +60,18 @@ def process_image_service(req):
     detection_msg.header = req.image.header  # Maintain image header
 
 
-    return ImageProcessingResponse(processed_image=detection_msg)
+    return landmark_detection_srvResponse(processed_image=detection_msg)
 
 
 if __name__ == "__main__":
     model = YOLO('models/yolov8n-seg.pt')  # load an official model
 
     # Initialize ROS node
-    rospy.init_node('landmark_detection_server', anonymous=True)
+    rospy.init_node('landmark_detection', anonymous=True)
     rospy.loginfo("Landmark detection server initialized correctly")
 
     # Create service
-    service = rospy.Service('landmark_detection', ImageProcessing, process_image_service)
+    service = rospy.Service('landmark_detection', landmark_detection_srv, process_image_service)
     rospy.loginfo("Service 'landmark_detection' is ready")
 
     rospy.spin()

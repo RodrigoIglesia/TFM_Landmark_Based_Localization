@@ -18,8 +18,8 @@ from cv_bridge import CvBridge
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorflow.compat.v1 as tf
-if not tf.executing_eagerly():
-    tf.compat.v1.enable_eager_execution()
+# if not tf.executing_eager_execution():
+#     tf.compat.v1.enable_eager_execution()
 
 # Add project root to python path
 current_script_directory = os.path.dirname(os.path.realpath(__file__))
@@ -31,10 +31,11 @@ from waymo_utils.waymo_3d_parser import *
 
 class WaymoClient:
     """
-    This class manages the comunication with the server processes
+    This class manages the communication with the server processes
     as well as the parsing of the data from the source (DataBase or sensors).
     """
-    def __init__(self, cams_order):
+    def __init__(self, frame, cams_order):
+        self.frame = frame
         self.cams_order = cams_order
         self.pointcloud = np.zeros((0, 3))
         self.cluster_labels = np.zeros((0, 3))
@@ -44,8 +45,6 @@ class WaymoClient:
         self.processed_image = None
         self.image_height = None
         self.image_width = None
-        self.pointcloud_processor = PointCloudProcessor()
-        self.camera_processor = CameraProcessor()
 
         rospy.loginfo("Waiting for server processes...")
         # Initialize pointcloud process
@@ -60,17 +59,17 @@ class WaymoClient:
 
     def cart2hom(self, pts_3d):
         """ Input: nx3 points in Cartesian
-            Oupput: nx4 points in Homogeneous by pending 1
+            Output: nx4 points in Homogeneous by appending 1
         """
         n = pts_3d.shape[0]
         pts_3d_hom = np.hstack((pts_3d, np.ones((n, 1))))
         return pts_3d_hom
 
-    def process_pointcloud(self, frame):
+    def process_pointcloud(self):
         """
         Gets the pointcloud from the source and manages the processing with the server service.
         """
-        points, points_cp = self.pointcloud_processor.get_pointcloud(frame)
+        points, points_cp = self.pointcloud_processor.get_pointcloud()
         if points is not None:
             self.pointcloud_processor.pointcloud_to_ros(points)
             request = clustering_srvRequest()
@@ -81,15 +80,15 @@ class WaymoClient:
                 response = self.pointcloud_clustering_client(request)
                 clustered_pointcloud = response.clustered_pointcloud
                 rospy.loginfo("Pointcloud received")
-                self.pointcloud_processor.respmsg_to_pointcloud(clustered_pointcloud)
+                self.pointcloud, self.cluster_labels = self.pointcloud_processor.respmsg_to_pointcloud(clustered_pointcloud)
                 rospy.loginfo("Pointcloud message decoded")
             except rospy.ServiceException as e:
                 rospy.logerr(f"Service call failed: {e}")
         else:
             rospy.loginfo("No pointcloud in frame")
 
-    def process_image(self, frame):
-        image = CameraProcessor.get_camera_image[0]
+    def process_image(self):
+        image = self.camera_processor.get_camera_image()[0]
         if image is not None:
             self.camera_processor.camera_to_ros(image)
             request = landmark_detection_srvRequest()
@@ -100,17 +99,17 @@ class WaymoClient:
                 response = self.landmark_detection_client(request)
                 image_detection = response.processed_image
                 rospy.loginfo("Detection received")
-                self.camera_processor.respmsg_to_image(image_detection)
-                rospy.loginfo("Pointcloud message decoded")
+                self.processed_image = self.camera_processor.respmsg_to_image(image_detection)
+                self.image_height, self.image_width, _ = self.processed_image.shape
+                rospy.loginfo("Image message decoded")
             except rospy.ServiceException as e:
                 rospy.logerr(f"Service call failed: {e}")
         else:
-            rospy.loginfo("No pointcloud in frame")
-
-
+            rospy.loginfo("No image in frame")
 
 class PointCloudProcessor(WaymoClient):
-    def __init__(self):
+    def __init__(self, frame):
+        super().__init__(frame, None)
         self.pointcloud_msg = self.init_pointcloud_msg()
 
     def init_pointcloud_msg(self):
@@ -127,10 +126,10 @@ class PointCloudProcessor(WaymoClient):
         pointcloud_msg.is_dense = True
         return pointcloud_msg
 
-    def get_pointcloud(self, frame):
-        range_images, camera_projections, segmentation_labels, range_image_top_pose = frame_utils.parse_range_image_and_camera_projection(frame)
-        points_return1 = self._range_image_to_pcd(frame, range_images, camera_projections, range_image_top_pose)
-        points_return2 = self._range_image_to_pcd(frame, range_images, camera_projections, range_image_top_pose, ri_index=1)
+    def get_pointcloud(self):
+        range_images, camera_projections, segmentation_labels, range_image_top_pose = frame_utils.parse_range_image_and_camera_projection(self.frame)
+        points_return1 = self._range_image_to_pcd(self.frame, range_images, camera_projections, range_image_top_pose)
+        points_return2 = self._range_image_to_pcd(self.frame, range_images, camera_projections, range_image_top_pose, ri_index=1)
         points, points_cp = concatenate_pcd_returns(points_return1, points_return2)
         return points, points_cp
     
@@ -146,6 +145,8 @@ class PointCloudProcessor(WaymoClient):
         self.pointcloud_msg.data = data.tobytes()
 
     def respmsg_to_pointcloud(self, msg):
+        pointcloud = np.zeros((0, 3))
+        cluster_labels = np.zeros((0, 3))
         gen = pc2.read_points(msg, skip_nans=True)
         for x in gen:
             test = x[3]
@@ -155,11 +156,14 @@ class PointCloudProcessor(WaymoClient):
             r = (pack & 0x00FF0000) >> 16
             g = (pack & 0x0000FF00) >> 8
             b = (pack & 0x000000FF)
-            self.pointcloud = np.append(self.pointcloud, [[x[0], x[1], x[2]]], axis=0)
-            self.cluster_labels = np.append(self.cluster_labels, [[r, g, b]], axis=0)
+            pointcloud = np.append(pointcloud, [[x[0], x[1], x[2]]], axis=0)
+            cluster_labels = np.append(cluster_labels, [[r, g, b]], axis=0)
+
+        return pointcloud, cluster_labels
 
 class CameraProcessor(WaymoClient):
-    def __init__(self):
+    def __init__(self, frame):
+        super().__init__(frame, None)
         self.camera_msg = self.init_camera_msg()
         self.init_camera_params()
 
@@ -169,14 +173,14 @@ class CameraProcessor(WaymoClient):
         camera_msg.is_bigendian = False
         return camera_msg
 
-    def init_camera_params(self, frame):
-        camera_intrinsic = np.array(frame.context.camera_calibrations[0].intrinsic)
+    def init_camera_params(self):
+        camera_intrinsic = np.array(self.frame.context.camera_calibrations[0].intrinsic)
         self.intrinsic_matrix = [[camera_intrinsic[0], 0, camera_intrinsic[2]],
                             [0, camera_intrinsic[1], camera_intrinsic[3]],
                             [0, 0, 1]]
         distortion = np.array([camera_intrinsic[4], camera_intrinsic[5], camera_intrinsic[6], camera_intrinsic[7], camera_intrinsic[8]])
 
-        self.extrinsic_matrix = np.array((frame.context.camera_calibrations[0].extrinsic.transform), dtype=np.float32).reshape(4, 4)
+        self.extrinsic_matrix = np.array((self.frame.context.camera_calibrations[0].extrinsic.transform), dtype=np.float32).reshape(4, 4)
         # Extract rotation and translation components from the extrinsic matrix
         rotation = self.extrinsic_matrix[:3, :3]
         translation = self.extrinsic_matrix[:3, 3]
@@ -191,8 +195,8 @@ class CameraProcessor(WaymoClient):
         self.extrinsic_matrix_inv[3, 3] = 1.0
         self.extrinsic_matrix_inv = self.extrinsic_matrix_inv[:3,:]
 
-    def get_camera_image(self, frame):
-        cameras_images = {image.name: get_frame_image(image)[..., ::-1] for image in frame.images}
+    def get_camera_image(self):
+        cameras_images = {image.name: get_frame_image(image)[..., ::-1] for image in self.frame.images}
         ordered_images = [cameras_images[1]]
         return ordered_images
 
@@ -204,11 +208,9 @@ class CameraProcessor(WaymoClient):
 
     def respmsg_to_image(self, msg):
         bridge = CvBridge()
-        self.processed_image = bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
-        self.image_height, self.image_width, _ = self.processed_image.shape
+        processed_image = bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
 
-    
-
+        return processed_image
 
 
 def plot_referenced_pointcloud(point_cloud):
@@ -227,7 +229,6 @@ if __name__ == "__main__":
     dataset_path = os.path.join(src_dir, "dataset/waymo_map_scene")
     tfrecord_list = list(sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
 
-    wc = WaymoClient([2, 1, 3])
 
     while not rospy.is_shutdown():
         for scene_index, scene_path in enumerate(tfrecord_list):
@@ -235,21 +236,38 @@ if __name__ == "__main__":
             rospy.loginfo(f"Scene {scene_index}: {scene_name} processing: {scene_path}")
             frame = next(load_frame(scene_path))
             if frame is not None:
+                wc = WaymoClient(frame, [2, 1, 3])
+                wc.pointcloud_processor = PointCloudProcessor(frame)
+                wc.camera_processor = CameraProcessor(frame)
+
                 rospy.loginfo("Calling processing services")
 
                 # Pointcloud processing
                 rospy.loginfo("Pointcloud processing service")
                 wc.pointcloud_processor.pointcloud_msg.header.frame_id = f"base_link_{scene_name}"
                 wc.pointcloud_processor.pointcloud_msg.header.stamp = rospy.Time.now()
-                wc.process_pointcloud(frame)
-                if wc.pointcloud_processor.pointcloud.size > 0:
-                    rospy.loginfo("Processed Pointcloud received")
-                    plot_referenced_pointcloud(wc.pointcloud)
+                wc.process_pointcloud()
+                if wc.pointcloud.size < 0:
+                    rospy.logerror("Pointcloud received is empty")
+                    continue
+                rospy.loginfo("Processed Pointcloud received")
+                plot_referenced_pointcloud(wc.pointcloud)
 
                 # Camera processing
                 rospy.loginfo("Landmark detection processing service")
                 wc.camera_processor.camera_msg.header.frame_id = f"base_link_{scene_name}"
                 wc.camera_processor.camera_msg.header.stamp = rospy.Time.now()
-                wc.process_image(frame)
+                wc.process_image()
+                if wc.processed_image is None:
+                    rospy.logerror("Image received is empty")
+                    continue
+                cv2.namedWindow('result', cv2.WINDOW_NORMAL)
+                cv2.setWindowProperty('result', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+                cv2.imshow('result', wc.processed_image)
+                cv2.waitKey(0)
+                cv2.destroyAllWindows()
+
+                # Project camera on image
+                
 
                 rate.sleep()

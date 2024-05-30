@@ -9,17 +9,14 @@ import pathlib
 import struct
 import ctypes
 import rospy
-
 import sensor_msgs.point_cloud2 as pc2
 from sensor_msgs.msg import PointCloud2, PointField, Image
 from waymo_parser.msg import CameraProj
 from pointcloud_clustering.srv import clustering_srv, clustering_srvRequest, landmark_detection_srv, landmark_detection_srvRequest
 from cv_bridge import CvBridge
+import cv2
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-import tensorflow.compat.v1 as tf
-# if not tf.executing_eager_execution():
-#     tf.compat.v1.enable_eager_execution()
 
 # Add project root to python path
 current_script_directory = os.path.dirname(os.path.realpath(__file__))
@@ -39,12 +36,11 @@ class WaymoClient:
         self.cams_order = cams_order
         self.pointcloud = np.zeros((0, 3))
         self.cluster_labels = np.zeros((0, 3))
-        self.intrinsic_matrix = np.zeros((3, 3))
-        self.extrinsic_matrix = np.zeros((4, 4))
-        self.extrinsic_matrix_inv = np.zeros((4, 4))
+        self.init_camera_params()
         self.processed_image = None
         self.image_height = None
         self.image_width = None
+        self.detection_association_image = None
 
         rospy.loginfo("Waiting for server processes...")
         # Initialize pointcloud process
@@ -56,6 +52,28 @@ class WaymoClient:
         rospy.wait_for_service('landmark_detection')
         self.landmark_detection_client = rospy.ServiceProxy('landmark_detection', landmark_detection_srv)
         rospy.loginfo("Landmark service is running")
+    
+    def init_camera_params(self):
+        camera_intrinsic = np.array(self.frame.context.camera_calibrations[0].intrinsic)
+        self.intrinsic_matrix = [[camera_intrinsic[0], 0, camera_intrinsic[2]],
+                            [0, camera_intrinsic[1], camera_intrinsic[3]],
+                            [0, 0, 1]]
+        distortion = np.array([camera_intrinsic[4], camera_intrinsic[5], camera_intrinsic[6], camera_intrinsic[7], camera_intrinsic[8]])
+
+        self.extrinsic_matrix = np.array((self.frame.context.camera_calibrations[0].extrinsic.transform), dtype=np.float32).reshape(4, 4)
+        # Extract rotation and translation components from the extrinsic matrix
+        rotation = self.extrinsic_matrix[:3, :3]
+        translation = self.extrinsic_matrix[:3, 3]
+        # Invert the rotation matrix
+        rotation_inv = np.linalg.inv(rotation)
+        # Invert the translation
+        translation_inv = -np.dot(rotation_inv, translation)
+        # Construct the new extrinsic matrix (from camera to vehicle)
+        self.extrinsic_matrix_inv = np.zeros((4, 4), dtype=np.float32)
+        self.extrinsic_matrix_inv[:3, :3] = rotation_inv
+        self.extrinsic_matrix_inv[:3, 3] = translation_inv
+        self.extrinsic_matrix_inv[3, 3] = 1.0
+        self.extrinsic_matrix_inv = self.extrinsic_matrix_inv[:3,:]
 
     def cart2hom(self, pts_3d):
         """ Input: nx3 points in Cartesian
@@ -106,6 +124,63 @@ class WaymoClient:
                 rospy.logerr(f"Service call failed: {e}")
         else:
             rospy.loginfo("No image in frame")
+
+    def project_pointcloud_on_image(self):
+        if self.pointcloud.size == 0 or self.processed_image is None:
+            rospy.logwarn("No pointcloud or processed image available for projection")
+            return
+
+        # Project Pointcloud on image
+        point_cloud_hom = self.cart2hom(self.pointcloud)  # nx4
+        point_cloud_cam = np.dot(point_cloud_hom, np.transpose(self.extrinsic_matrix_inv))
+
+        # Rotate point cloud to match pinhole model axis
+        theta_x = np.pi / 2
+        theta_y = -np.pi / 2
+        theta_z = 0
+        # Define rotation matrices around X, Y, and Z axes
+        Rx = np.array([[1, 0, 0],
+                       [0, np.cos(theta_x), -np.sin(theta_x)],
+                       [0, np.sin(theta_x), np.cos(theta_x)]])
+        Ry = np.array([[np.cos(theta_y), 0, np.sin(theta_y)],
+                       [0, 1, 0],
+                       [-np.sin(theta_y), 0, np.cos(theta_y)]])
+        Rz = np.array([[np.cos(theta_z), -np.sin(theta_z), 0],
+                       [np.sin(theta_z), np.cos(theta_z), 0],
+                       [0, 0, 1]])
+        # Rotate the point cloud 90 degrees in X
+        point_cloud_cam = np.dot(Rx, point_cloud_cam.T).T
+        # Rotate the point cloud -90 degrees in Y
+        point_cloud_cam = np.dot(Ry, point_cloud_cam.T).T
+        # We only have to project in the image the points that are in front of the car > remove points with z<0
+        positive_indices = (point_cloud_cam[:, 2] >= 0)
+        point_cloud_cam = point_cloud_cam[positive_indices]
+        positive_labels = self.cluster_labels[positive_indices]
+        # Project 3D points in camera reference in 2D points in image reference using intrinsic params
+        point_cloud_cam_hom = self.cart2hom(point_cloud_cam)
+        # Compute perspective projection matrix
+        P = np.hstack((self.intrinsic_matrix, np.zeros((3, 1))))
+        point_cloud_image = np.dot(P, point_cloud_cam_hom.T).T
+        point_cloud_image = point_cloud_image[:, :2] / point_cloud_image[:, 2:]
+        rospy.loginfo("Pointcloud projected from 3D vehicle frame to 3D camera frame")
+
+        # Filtered 2D points > remove points out of the image FOV
+        filtered_indices = (
+            (point_cloud_image[:, 0] >= 0) & (point_cloud_image[:, 0] < self.image_width) &
+            (point_cloud_image[:, 1] >= 0) & (point_cloud_image[:, 1] < self.image_height)
+        )
+        point_cloud_image = point_cloud_image[filtered_indices]
+        filtered_labels = positive_labels[filtered_indices]
+        rospy.loginfo("Pointcloud projected from 3D camera frame to 2D image frame")
+
+        # Publish results for RVIZ visualization
+        self.detection_association_image = cv2.cvtColor(self.processed_image, cv2.COLOR_BGR2RGB)
+        circle_radius = 2
+        for point, color in zip(point_cloud_image, filtered_labels):
+            x, y = int(point[0]), int(point[1])
+            circle_color = (int(color[0]), int(color[1]), int(color[2]))
+            cv2.circle(self.detection_association_image, (x, y), circle_radius, circle_color, -1)
+
 
 class PointCloudProcessor(WaymoClient):
     def __init__(self, frame):
@@ -165,35 +240,12 @@ class CameraProcessor(WaymoClient):
     def __init__(self, frame):
         super().__init__(frame, None)
         self.camera_msg = self.init_camera_msg()
-        self.init_camera_params()
 
     def init_camera_msg(self):
         camera_msg = Image()
         camera_msg.encoding = "bgr8"
         camera_msg.is_bigendian = False
         return camera_msg
-
-    def init_camera_params(self):
-        camera_intrinsic = np.array(self.frame.context.camera_calibrations[0].intrinsic)
-        self.intrinsic_matrix = [[camera_intrinsic[0], 0, camera_intrinsic[2]],
-                            [0, camera_intrinsic[1], camera_intrinsic[3]],
-                            [0, 0, 1]]
-        distortion = np.array([camera_intrinsic[4], camera_intrinsic[5], camera_intrinsic[6], camera_intrinsic[7], camera_intrinsic[8]])
-
-        self.extrinsic_matrix = np.array((self.frame.context.camera_calibrations[0].extrinsic.transform), dtype=np.float32).reshape(4, 4)
-        # Extract rotation and translation components from the extrinsic matrix
-        rotation = self.extrinsic_matrix[:3, :3]
-        translation = self.extrinsic_matrix[:3, 3]
-        # Invert the rotation matrix
-        rotation_inv = np.linalg.inv(rotation)
-        # Invert the translation
-        translation_inv = -np.dot(rotation_inv, translation)
-        # Construct the new extrinsic matrix (from camera to vehicle)
-        self.extrinsic_matrix_inv = np.zeros((4, 4), dtype=np.float32)
-        self.extrinsic_matrix_inv[:3, :3] = rotation_inv
-        self.extrinsic_matrix_inv[:3, 3] = translation_inv
-        self.extrinsic_matrix_inv[3, 3] = 1.0
-        self.extrinsic_matrix_inv = self.extrinsic_matrix_inv[:3,:]
 
     def get_camera_image(self):
         cameras_images = {image.name: get_frame_image(image)[..., ::-1] for image in self.frame.images}
@@ -261,13 +313,18 @@ if __name__ == "__main__":
                 if wc.processed_image is None:
                     rospy.logerror("Image received is empty")
                     continue
-                cv2.namedWindow('result', cv2.WINDOW_NORMAL)
-                cv2.setWindowProperty('result', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-                cv2.imshow('result', wc.processed_image)
+                cv2.namedWindow('detection result', cv2.WINDOW_NORMAL)
+                cv2.setWindowProperty('detection result', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+                cv2.imshow('detection result', wc.processed_image)
                 cv2.waitKey(0)
                 cv2.destroyAllWindows()
 
                 # Project camera on image
-                
+                wc.project_pointcloud_on_image()
+                cv2.namedWindow('result', cv2.WINDOW_NORMAL)
+                cv2.setWindowProperty('result', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+                cv2.imshow('result', wc.detection_association_image)
+                cv2.waitKey(0)
+                cv2.destroyAllWindows()
 
                 rate.sleep()

@@ -2,23 +2,32 @@
 Este módulo contiene las funciones necesarias para
  - paresear información del Waymo dataset
  - extraer las imágenes de las cámaras
- - Convertir annotations en formato YOLO Darknet
- TODO: Seleccionar imágenes por tipo de escena (noche, etc)
 """
 
 import os
 import sys
 import pathlib
-import tensorflow.compat.v1 as tf
 import numpy as np
 import cv2
 
-tf.enable_eager_execution()
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
+import tensorflow.compat.v1 as tf
+if not tf.executing_eagerly():
+  tf.compat.v1.enable_eager_execution()
 
 from waymo_open_dataset.utils import range_image_utils
 from waymo_open_dataset.utils import transform_utils
 from waymo_open_dataset.utils import  frame_utils
 from waymo_open_dataset import dataset_pb2 as open_dataset
+
+# Add project root root to python path
+current_script_directory = os.path.dirname(os.path.realpath(__file__))
+src_dir = os.path.abspath(os.path.join(current_script_directory, ".."))
+sys.path.append(src_dir)
+print(src_dir)
+
+from waymo_utils.WaymoParser import *
 
 
 def convert_annot2yolo(annotations, image_height, image_width):
@@ -44,37 +53,10 @@ def convert_annot2yolo(annotations, image_height, image_width):
 
     return yolo_annotations
 
-def generate_canvas(images):
-    max_height = max(image.shape[0] for image in images)
-    width, _ = images[0].shape[1], images[0].shape[2]
-    canvas = np.zeros((max_height, len(images) * width, 3), dtype=np.uint8)
 
-    for i in range(len(images)):
-        image = images[i]
-        height = image.shape[0]
-
-        # Calculate padding values
-        top_pad = (max_height - height) // 2
-        bottom_pad = max_height - height - top_pad
-
-        # Pad image with black pixels
-        padded_image = cv2.copyMakeBorder(image, top_pad, bottom_pad, 0, 0, cv2.BORDER_CONSTANT, value=[0, 0, 0])
-
-        canvas[:, i * width:(i + 1) * width, :] = padded_image
-
-    return canvas
 
 if __name__ == "__main__":
-    from WaymoParser import *
-
-    # Add project root root to python path
-    current_script_directory = os.path.dirname(os.path.realpath(__file__))
-    src_dir = os.path.abspath(os.path.join(current_script_directory, "../.."))
-    sys.path.append(src_dir)
-
-    dataset_path = os.path.join(src_dir, "dataset/waymo_samples/val")
-    images_path = os.path.join(src_dir, "dataset/waymo_yolo_format/images")
-    labels_path = os.path.join(src_dir, "dataset/waymo_yolo_format/labels")
+    dataset_path = os.path.join(src_dir, "dataset/waymo_test_scene")
 
     tfrecord_list = list(
         sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
@@ -87,51 +69,20 @@ if __name__ == "__main__":
             print(frame.timestamp_micros)
 
             # Read the 5 cammera images of the frame
-            camearas_images = []
+            cameras_images = {}
+            cameras_bboxes = {}
             for i, image in enumerate(frame.images):
                 decoded_image = get_frame_image(image)
-                image_height, image_width, _ = decoded_image.shape
-                camera_bboxes = get_image_bboxes(frame.camera_labels, image.name)
-                camera_yolo_bboxes = convert_annot2yolo(camera_bboxes, image_height, image_width)
+                cameras_images[image.name] = decoded_image[...,::-1]
+                cameras_bboxes[image.name] = get_image_bboxes(frame.camera_labels, image.name)
+            ordered_images = order_camera(cameras_images, [4, 2, 1, 3, 5])
+            ordered_bboxes = order_camera(cameras_bboxes, [4, 2, 1, 3, 5])
 
-                # Save image
-                cv2.imwrite(os.path.join(images_path, f'{frame_idx:05d}_{image_idx:05d}_camera{str(image.name)}.jpg'), cv2.cvtColor(decoded_image, cv2.COLOR_BGR2RGB) )
-                with open(os.path.join(labels_path, f'{frame_idx:05d}_{image_idx:05d}_camera{str(image.name)}.txt'), mode='w') as f:
-                    for annot in camera_yolo_bboxes:
-                        f.write(' '.join(map(str, annot)))
-                        f.write('\n')
+            canvas = generate_canvas(ordered_images)
 
-                print("Saved " + str(frame.context.name) + "_camera" + str(image.name) + "\n")
-
-                image_idx += 1
-            frame_idx += 1
-                
-                # labeled_image = np.copy(decoded_image)
-
-                # for bbox in camera_bboxes:
-                #     label = bbox.type
-                #     bbox_coords = bbox.box
-                #     br_x = int(bbox_coords.center_x + bbox_coords.length/2)
-                #     br_y = int(bbox_coords.center_y + bbox_coords.width/2)
-                #     tl_x = int(bbox_coords.center_x - bbox_coords.length/2)
-                #     tl_y = int(bbox_coords.center_y - bbox_coords.width/2)
-
-                #     tl = (tl_x, tl_y)
-                #     br = (br_x, br_y)
-
-                #     labeled_image = cv2.rectangle(labeled_image, tl, br, (255,0,0), 2)
-
-                # cv2.imshow(str(frame.context.name) + "_camera" + str(image.name), labeled_image)
-                # cv2.waitKey(0)
-                # cv2.destroyAllWindows()
-
-
-                # camearas_images.append(decoded_image[...,::-1])
-            # canvas = generate_canvas(camearas_images)
-
-            # # Show cameras images
-            # cv2.namedWindow('Canvas', cv2.WINDOW_NORMAL)
-            # cv2.setWindowProperty('Canvas', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-            # cv2.imshow("Canvas", canvas)
-            # cv2.waitKey(0)
-            # cv2.destroyAllWindows()
+            # Show cameras images
+            cv2.namedWindow('Canvas', cv2.WINDOW_NORMAL)
+            cv2.setWindowProperty('Canvas', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+            cv2.imshow("Canvas", canvas)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()

@@ -9,6 +9,7 @@ import pathlib
 import struct
 import ctypes
 import rospy
+import open3d as o3d
 import sensor_msgs.point_cloud2 as pc2
 from sensor_msgs.msg import PointCloud2, PointField, Image
 from waymo_parser.msg import CameraProj
@@ -266,7 +267,6 @@ class CameraProcessor(WaymoClient):
 
 
 def plot_referenced_pointcloud(point_cloud):
-    import open3d as o3d
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(point_cloud)
     mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.6, origin=[0, 0, 0])

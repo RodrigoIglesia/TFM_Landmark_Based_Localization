@@ -9,7 +9,7 @@ src_dir = os.path.abspath(os.path.join(current_script_directory, "../.."))
 sys.path.insert(0, src_dir)
 
 # Load a model
-model = YOLO('models/yolov8s.pt')  # load a pretrained model (recommended for training)
+model = YOLO('models/yolov8n-seg.pt')  # load a pretrained model (recommended for training)
 
 # Train the model
-results = model.train(data='data.yaml', epochs=100, imgsz=640)
+results = model.train(data='dataset/waymo_segment/data.yaml', epochs=100, imgsz=640)

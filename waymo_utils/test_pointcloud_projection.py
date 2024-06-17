@@ -15,6 +15,7 @@ import tensorflow.compat.v1 as tf
 if not tf.executing_eagerly():
   tf.compat.v1.enable_eager_execution()
 from waymo_open_dataset import dataset_pb2 as open_dataset
+
 # Add project root root to python path
 current_script_directory = os.path.dirname(os.path.realpath(__file__))
 src_dir = os.path.abspath(os.path.join(current_script_directory, ".."))

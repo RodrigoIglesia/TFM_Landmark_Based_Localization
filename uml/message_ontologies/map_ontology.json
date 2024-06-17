@@ -1,0 +1,347 @@
+{
+  "Map": {
+    "map_features": {
+      "type": "array",
+      "item_type": {
+        "id": {
+          "type": "int64"
+        },
+        "feature_data": {
+          "type": "oneof",
+          "fields": {
+            "lane": {
+              "speed_limit_mph": {
+                "type": "double"
+              },
+              "type": {
+                "type": "enum",
+                "values": {
+                  "TYPE_UNDEFINED": 0,
+                  "TYPE_FREEWAY": 1,
+                  "TYPE_SURFACE_STREET": 2,
+                  "TYPE_BIKE_LANE": 3
+                }
+              },
+              "interpolating": {
+                "type": "bool"
+              },
+              "polyline": {
+                "type": "array",
+                "item_type": {
+                  "x": {
+                    "type": "double"
+                  },
+                  "y": {
+                    "type": "double"
+                  },
+                  "z": {
+                    "type": "double"
+                  }
+                }
+              },
+              "entry_lanes": {
+                "type": "array",
+                "item_type": "int64",
+                "packed": true
+              },
+              "exit_lanes": {
+                "type": "array",
+                "item_type": "int64",
+                "packed": true
+              },
+              "left_boundaries": {
+                "type": "array",
+                "item_type": {
+                  "lane_start_index": {
+                    "type": "int32"
+                  },
+                  "lane_end_index": {
+                    "type": "int32"
+                  },
+                  "boundary_feature_id": {
+                    "type": "int64"
+                  },
+                  "boundary_type": {
+                    "type": "enum",
+                    "values": {
+                      "TYPE_UNKNOWN": 0,
+                      "TYPE_ROAD_EDGE_BOUNDARY": 1,
+                      "TYPE_ROAD_EDGE_MEDIAN": 2
+                    }
+                  }
+                }
+              },
+              "right_boundaries": {
+                "type": "array",
+                "item_type": {
+                  "lane_start_index": {
+                    "type": "int32"
+                  },
+                  "lane_end_index": {
+                    "type": "int32"
+                  },
+                  "boundary_feature_id": {
+                    "type": "int64"
+                  },
+                  "boundary_type": {
+                    "type": "enum",
+                    "values": {
+                      "TYPE_UNKNOWN": 0,
+                      "TYPE_ROAD_EDGE_BOUNDARY": 1,
+                      "TYPE_ROAD_EDGE_MEDIAN": 2
+                    }
+                  }
+                }
+              },
+              "left_neighbors": {
+                "type": "array",
+                "item_type": {
+                  "feature_id": {
+                    "type": "int64"
+                  },
+                  "self_start_index": {
+                    "type": "int32"
+                  },
+                  "self_end_index": {
+                    "type": "int32"
+                  },
+                  "neighbor_start_index": {
+                    "type": "int32"
+                  },
+                  "neighbor_end_index": {
+                    "type": "int32"
+                  },
+                  "boundaries": {
+                    "type": "array",
+                    "item_type": {
+                      "lane_start_index": {
+                        "type": "int32"
+                      },
+                      "lane_end_index": {
+                        "type": "int32"
+                      },
+                      "boundary_feature_id": {
+                        "type": "int64"
+                      },
+                      "boundary_type": {
+                        "type": "enum",
+                        "values": {
+                          "TYPE_UNKNOWN": 0,
+                          "TYPE_ROAD_EDGE_BOUNDARY": 1,
+                          "TYPE_ROAD_EDGE_MEDIAN": 2
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "right_neighbors": {
+                "type": "array",
+                "item_type": {
+                  "feature_id": {
+                    "type": "int64"
+                  },
+                  "self_start_index": {
+                    "type": "int32"
+                  },
+                  "self_end_index": {
+                    "type": "int32"
+                  },
+                  "neighbor_start_index": {
+                    "type": "int32"
+                  },
+                  "neighbor_end_index": {
+                    "type": "int32"
+                  },
+                  "boundaries": {
+                    "type": "array",
+                    "item_type": {
+                      "lane_start_index": {
+                        "type": "int32"
+                      },
+                      "lane_end_index": {
+                        "type": "int32"
+                      },
+                      "boundary_feature_id": {
+                        "type": "int64"
+                      },
+                      "boundary_type": {
+                        "type": "enum",
+                        "values": {
+                          "TYPE_UNKNOWN": 0,
+                          "TYPE_ROAD_EDGE_BOUNDARY": 1,
+                          "TYPE_ROAD_EDGE_MEDIAN": 2
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "road_line": {
+              "type": {
+                "type": "enum",
+                "values": {
+                  "TYPE_UNKNOWN": 0,
+                  "TYPE_BROKEN_SINGLE_WHITE": 1,
+                  "TYPE_SOLID_SINGLE_WHITE": 2,
+                  "TYPE_SOLID_DOUBLE_WHITE": 3,
+                  "TYPE_BROKEN_SINGLE_YELLOW": 4,
+                  "TYPE_BROKEN_DOUBLE_YELLOW": 5,
+                  "TYPE_SOLID_SINGLE_YELLOW": 6,
+                  "TYPE_SOLID_DOUBLE_YELLOW": 7,
+                  "TYPE_PASSING_DOUBLE_YELLOW": 8
+                }
+              },
+              "polyline": {
+                "type": "array",
+                "item_type": {
+                  "x": {
+                    "type": "double"
+                  },
+                  "y": {
+                    "type": "double"
+                  },
+                  "z": {
+                    "type": "double"
+                  }
+                }
+              }
+            },
+            "road_edge": {
+              "type": {
+                "type": "enum",
+                "values": {
+                  "TYPE_UNKNOWN": 0,
+                  "TYPE_ROAD_EDGE_BOUNDARY": 1,
+                  "TYPE_ROAD_EDGE_MEDIAN": 2
+                }
+              },
+              "polyline": {
+                "type": "array",
+                "item_type": {
+                  "x": {
+                    "type": "double"
+                  },
+                  "y": {
+                    "type": "double"
+                  },
+                  "z": {
+                    "type": "double"
+                  }
+                }
+              }
+            },
+            "stop_sign": {
+              "lane": {
+                "type": "array",
+                "item_type": "int64"
+              },
+              "position": {
+                "type": {
+                  "x": {
+                    "type": "double"
+                  },
+                  "y": {
+                    "type": "double"
+                  },
+                  "z": {
+                    "type": "double"
+                  }
+                }
+              }
+            },
+            "crosswalk": {
+              "polygon": {
+                "type": "array",
+                "item_type": {
+                  "x": {
+                    "type": "double"
+                  },
+                  "y": {
+                    "type": "double"
+                  },
+                  "z": {
+                    "type": "double"
+                  }
+                }
+              }
+            },
+            "speed_bump": {
+              "polygon": {
+                "type": "array",
+                "item_type": {
+                  "x": {
+                    "type": "double"
+                  },
+                  "y": {
+                    "type": "double"
+                  },
+                  "z": {
+                    "type": "double"
+                  }
+                }
+              }
+            },
+            "driveway": {
+              "polygon": {
+                "type": "array",
+                "item_type": {
+                  "x": {
+                    "type": "double"
+                  },
+                  "y": {
+                    "type": "double"
+                  },
+                  "z": {
+                    "type": "double"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "DynamicState": {
+    "timestamp_seconds": {
+      "type": "double"
+    },
+    "lane_states": {
+      "type": "array",
+      "item_type": {
+        "lane": {
+          "type": "int64"
+        },
+        "state": {
+          "type": "enum",
+          "values": {
+            "LANE_STATE_UNKNOWN": 0,
+            "LANE_STATE_ARROW_STOP": 1,
+            "LANE_STATE_ARROW_CAUTION": 2,
+            "LANE_STATE_ARROW_GO": 3,
+            "LANE_STATE_STOP": 4,
+            "LANE_STATE_CAUTION": 5,
+            "LANE_STATE_GO": 6,
+            "LANE_STATE_FLASHING_STOP": 7,
+            "LANE_STATE_FLASHING_CAUTION": 8
+          }
+        },
+        "stop_point": {
+          "type": {
+            "x": {
+              "type": "double"
+            },
+            "y": {
+              "type": "double"
+            },
+            "z": {
+              "type": "double"
+            }
+          }
+        }
+      }
+    }
+  }
+}

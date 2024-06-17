@@ -2,15 +2,10 @@
     Author: Rodrigo de la Iglesia Sánchez (2024)
     Euclidean clustering Program
     Source: https://github.com/ahermosin/TFM_velodyne (Alberto Hermosín, 2019)
-    This program is implemented as a ROS Package and executed in a ROS node.
+    This program is implemented as a ROS Service instead of a ROS node.
     Applies an euclidean clustering algorithm to a concatenated pointcloud, in order to extract the clusters for vertical elements.
-    Output of this processes are clustered poinclouds, which will be feeded to an EKF (or similar algorithms) in further steps.
+    Output of this process is a clustered pointcloud.
 */
-
-
-//TODO: Crear clase clustering
-//TODO: Crear un fichero de configuración global (no solo para ROS) y acceder desde el código
-
 
 #include <ros/ros.h>
 #include <rosbag/bag.h>
@@ -38,6 +33,7 @@
 #include <pcl/segmentation/extract_clusters.h>
 #include <pcl/visualization/pcl_visualizer.h>
 #include <boost/foreach.hpp>
+#include <boost/program_options.hpp>
 #include "sensor_msgs/PointCloud2.h"
 #include "std_msgs/Header.h"
 #include "geometry_msgs/PoseStamped.h"
@@ -47,57 +43,90 @@
 #include <visualization_msgs/MarkerArray.h>
 #include <pcl_ros/transforms.h>
 #include <stdexcept>
-
 #include <iostream>
 #include <fstream>
 #include <mutex>
+#include "pointcloud_clustering/clustering_srv.h"
 
-// Declare a mutex for thread-safe operations
-std::mutex mtx;
+// Configuration structure
+struct Config {
+    float low_lim_x, low_lim_y, low_lim_z, up_lim_x, up_lim_y, up_lim_z;
+    int minPointsVoxel;
+    float KSearchGround;
+    bool OptimizeCoefficientsGround;
+    float NormalDistanceWeightGround;
+    float MaxIterationsGround;
+    float DistanceThresholdGround;
+    float clusterTolerance;
+    float do_downsampling;
+    float leafSize;
+};
 
-float leafSize = 0.2;
-std::string frame_id;
-//FIXME: El parametro leafsize es usado en varios métodos > tiene que inicializarse en una clase
-// ros::param::get("leafSize", leafSize);
+// PointCloudProcessor class
+class PointCloudProcessor {
+public:
+    PointCloudProcessor(const std::string& configFilePath);
+    bool processPointCloudService(pointcloud_clustering::clustering_srv::Request &req,
+                                  pointcloud_clustering::clustering_srv::Response &res);
+private:
+    void readConfig(const std::string &filename);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloudCrop(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloudDownsample(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloudExtractGround(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr euclideanClustering(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud);
+    void generatePointcloudMsg(pcl::shared_ptr<pcl::PointCloud<pcl::PointXYZ>> &cloud, sensor_msgs::PointCloud2 &cloudMsg);
 
-// Flag that determined that a point cloud has been published as input > callback entered
-bool receivedPointCloud = false;
+    Config config_;
+    std::mutex mtx_;
+    std::string frame_id_;
+};
 
-// Output messages declaration
-//TODO: Estas variables deben ser atributos de la clase clustering
-sensor_msgs::PointCloud2 inCloudMsg; // Input message -> debug
-sensor_msgs::PointCloud2 cropCloudMsg; // Pointcloud cropped -> debug
-sensor_msgs::PointCloud2 dsCloudMsg; // Pointcloud downsampled -> debug
-sensor_msgs::PointCloud2 geCloudMsg; // Pointcloud ground extracted -> debug
-sensor_msgs::PointCloud2 clusteredCloudMsg; // Pointcloud clustered -> FOR IMAGE DETECTOR FUSION
+PointCloudProcessor::PointCloudProcessor(const std::string& configFilePath) {
+    readConfig(configFilePath);
+}
 
+void PointCloudProcessor::readConfig(const std::string &filename) {
+    namespace po = boost::program_options;
+    po::options_description config("Configuration");
+    config.add_options()
+        ("clustering.low_lim_x", po::value<float>(&config_.low_lim_x)->default_value(-10.0), "Lower limit for x axis")
+        ("clustering.low_lim_y", po::value<float>(&config_.low_lim_y)->default_value(-10.0), "Lower limit for y axis")
+        ("clustering.low_lim_z", po::value<float>(&config_.low_lim_z)->default_value(-2.0), "Lower limit for z axis")
+        ("clustering.up_lim_x", po::value<float>(&config_.up_lim_x)->default_value(10.0), "Upper limit for x axis")
+        ("clustering.up_lim_y", po::value<float>(&config_.up_lim_y)->default_value(10.0), "Upper limit for y axis")
+        ("clustering.up_lim_z", po::value<float>(&config_.up_lim_z)->default_value(2.0), "Upper limit for z axis")
+        ("clustering.minPointsVoxel", po::value<int>(&config_.minPointsVoxel)->default_value(1), "Minimum points per voxel")
+        ("clustering.KSearchGround", po::value<float>(&config_.KSearchGround)->default_value(50), "K search for ground extraction")
+        ("clustering.OptimizeCoefficientsGround", po::value<bool>(&config_.OptimizeCoefficientsGround)->default_value(true), "Optimize coefficients for ground extraction")
+        ("clustering.NormalDistanceWeightGround", po::value<float>(&config_.NormalDistanceWeightGround)->default_value(0.1), "Normal distance weight for ground extraction")
+        ("clustering.MaxIterationsGround", po::value<float>(&config_.MaxIterationsGround)->default_value(1000), "Max iterations for ground extraction")
+        ("clustering.DistanceThresholdGround", po::value<float>(&config_.DistanceThresholdGround)->default_value(0.05), "Distance threshold for ground extraction")
+        ("clustering.clusterTolerance", po::value<float>(&config_.clusterTolerance)->default_value(0.02), "Cluster tolerance for euclidean clustering")
+        ("clustering.do_downsampling", po::value<float>(&config_.do_downsampling)->default_value(1), "Downsampling flag")
+        ("clustering.leafSize", po::value<float>(&config_.leafSize)->default_value(0.2), "Leaf size for downsampling");
 
-pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloudCrop(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud)
+    po::variables_map vm;
+    std::ifstream ifs(filename.c_str());
+    if (!ifs) {
+        throw std::runtime_error("Cannot open config file: " + filename);
+    }
+    po::store(po::parse_config_file(ifs, config), vm);
+    po::notify(vm);
+}
+
+pcl::PointCloud<pcl::PointXYZ>::Ptr PointCloudProcessor::pointcloudCrop(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud)
 {
-    /*
-    Given an input pointcloud apply cropping to extract the invalid points
-    Invalid points are those that belongs inside a minimum dimensions cube
-    */
     ROS_INFO("Cropping received pointcloud");
-    // Output cloud after cropping.
     pcl::PointCloud<pcl::PointXYZ>::Ptr cropCloud(new pcl::PointCloud<pcl::PointXYZ>);
-    float low_lim_x, low_lim_y, low_lim_z, up_lim_x, up_lim_y, up_lim_z; // So it will be done manually
-    ros::param::get("low_lim_x", low_lim_x);
-    ros::param::get("low_lim_y", low_lim_y);
-    ros::param::get("low_lim_z", low_lim_z);
-    ros::param::get("up_lim_x", up_lim_x);
-    ros::param::get("up_lim_y", up_lim_y);
-    ros::param::get("up_lim_z", up_lim_z);
 
-    int k = 0;
-    for (k = 0; k <= inputCloud->points.size(); k++) // Remove the points within a cube of volume (up_lim_x - low_lim_x)m x (up_lim_y - low_lim_y)m x (up_lim_z - low_lim_z)m centered in the sensor. In order to avoid 6 comparations at a time it will be performed in three steps, saving efforts
+    for (int k = 0; k < inputCloud->points.size(); k++)
     {
-        if (inputCloud->points[k].x < low_lim_x || inputCloud->points[k].x > up_lim_x)
+        if (inputCloud->points[k].x < config_.low_lim_x || inputCloud->points[k].x > config_.up_lim_x ||
+            inputCloud->points[k].y < config_.low_lim_y || inputCloud->points[k].y > config_.up_lim_y ||
+            inputCloud->points[k].z < config_.low_lim_z || inputCloud->points[k].z > config_.up_lim_z)
+        {
             cropCloud->points.push_back(inputCloud->points[k]);
-        else if (inputCloud->points[k].y < low_lim_y || inputCloud->points[k].y > up_lim_y)
-            cropCloud->points.push_back(inputCloud->points[k]);
-        else if (inputCloud->points[k].z < low_lim_z || inputCloud->points[k].z > up_lim_z)
-            cropCloud->points.push_back(inputCloud->points[k]);
+        }
     }
 
     cropCloud->width = cropCloud->points.size();
@@ -107,77 +136,48 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloudCrop(pcl::PointCloud<pcl::PointXYZ
     return cropCloud;
 }
 
-pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloudDownsample(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud)
+pcl::PointCloud<pcl::PointXYZ>::Ptr PointCloudProcessor::pointcloudDownsample(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud)
 {
-    /*
-    Given an input pointcloud apply downsampling to reduce its density
-    */
     ROS_INFO("Downsampling received pointcloud");
-    // Output cloud after downsampling.
     pcl::PointCloud<pcl::PointXYZ>::Ptr dsCloud(new pcl::PointCloud<pcl::PointXYZ>);
-    
-
-    int minPointsVoxel;
-    ros::param::get("minPointsVoxel", minPointsVoxel);
 
     pcl::VoxelGrid<pcl::PointXYZ> vg;
     vg.setInputCloud(inputCloud);
-    vg.setLeafSize(leafSize, leafSize, leafSize);
-    vg.setMinimumPointsNumberPerVoxel(minPointsVoxel);
+    vg.setLeafSize(config_.leafSize, config_.leafSize, config_.leafSize);
+    vg.setMinimumPointsNumberPerVoxel(config_.minPointsVoxel);
     vg.filter(*dsCloud);
 
     return dsCloud;
 }
 
-pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloudExtractGround(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud)
+pcl::PointCloud<pcl::PointXYZ>::Ptr PointCloudProcessor::pointcloudExtractGround(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud)
 {
-    /*
-    Given an input pointcloud apply downsampling to reduce its density
-    */
     ROS_INFO("Extracting ground from received pointcloud");
-    // Output cloud after extracting the ground.
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloudNoGround(new pcl::PointCloud<pcl::PointXYZ>());
 
-    //TODO: Estas variables tienen que ser atributos de la clase Clustering
-
     float theta;
-    // u is the normalized vector used to turn Z axis until it reaches the orientation of the ground, by turning theta radians. It is obtained by cross-multiplying Z-axis and the director vector of the vertical element
     float u[3];
     tf::Quaternion tfQuat;
 
-    // Normalize the imput pointcloud
     pcl::PointCloud<pcl::Normal>::Ptr cloudNormals(new pcl::PointCloud<pcl::Normal>);
-    pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> neGround, neClusters;
+    pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> neGround;
     pcl::SACSegmentationFromNormals<pcl::PointXYZ, pcl::Normal> segGroundN;
     pcl::ExtractIndices<pcl::PointXYZ> extract;
     pcl::search::KdTree<pcl::PointXYZ>::Ptr treeGround(new pcl::search::KdTree<pcl::PointXYZ>());
     pcl::ModelCoefficients::Ptr coefficientsGround(new pcl::ModelCoefficients);
-    pcl::ModelCoefficients::Ptr coefficientsLine(new pcl::ModelCoefficients);
-    pcl::PointIndices::Ptr inliersGround(new pcl::PointIndices), inliersLine(new pcl::PointIndices);
+    pcl::PointIndices::Ptr inliersGround(new pcl::PointIndices);
 
     neGround.setSearchMethod(treeGround);
-    neGround.setInputCloud(inputCloud); // Doing downsampling increases computation speed up to 10 times
-    float KSearchGround;
-    ros::param::get("KSearchGround", KSearchGround);
-    neGround.setKSearch(KSearchGround); // The higher KSearchGround is, the slower neGround.compute gets
+    neGround.setInputCloud(inputCloud);
+    neGround.setKSearch(config_.KSearchGround);
     neGround.compute(*cloudNormals);
 
-    // Extract the ground from the pointcloud
-
-    bool OptimizeCoefficientsGround;
-    ros::param::get("OptimizeCoefficientsGround", OptimizeCoefficientsGround);
-    segGroundN.setOptimizeCoefficients(OptimizeCoefficientsGround);
+    segGroundN.setOptimizeCoefficients(config_.OptimizeCoefficientsGround);
     segGroundN.setModelType(pcl::SACMODEL_NORMAL_PLANE);
-    float NormalDistanceWeightGround;
-    ros::param::get("NormalDistanceWeightGround", NormalDistanceWeightGround);
-    segGroundN.setNormalDistanceWeight(NormalDistanceWeightGround);
+    segGroundN.setNormalDistanceWeight(config_.NormalDistanceWeightGround);
     segGroundN.setMethodType(pcl::SAC_RANSAC);
-    float MaxIterationsGround;
-    ros::param::get("MaxIterationsGround", MaxIterationsGround);
-    segGroundN.setMaxIterations(MaxIterationsGround);
-    float DistanceThresholdGround;
-    ros::param::get("DistanceThresholdGround", DistanceThresholdGround);
-    segGroundN.setDistanceThreshold(DistanceThresholdGround);
+    segGroundN.setMaxIterations(config_.MaxIterationsGround);
+    segGroundN.setDistanceThreshold(config_.DistanceThresholdGround);
     segGroundN.setInputCloud(inputCloud);
     segGroundN.setInputNormals(cloudNormals);
     segGroundN.segment(*inliersGround, *coefficientsGround);
@@ -201,25 +201,23 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloudExtractGround(pcl::PointCloud<pcl:
 
         theta = acos(groundDirection.z);
 
-        tfQuat = {sin(theta / 2) * u[0], sin(theta / 2) * u[1], sin(theta / 2) * u[2], cos(theta / 2)}; // We need to translate this information into quaternion form
+        tfQuat = {sin(theta / 2) * u[0], sin(theta / 2) * u[1], sin(theta / 2) * u[2], cos(theta / 2)};
 
-        extract.setInputCloud(inputCloud); // Extract the planar inliers from the input cloud
+        extract.setInputCloud(inputCloud);
         extract.setIndices(inliersGround);
         extract.setNegative(true);
         extract.filter(*cloudNoGround);
     }
     else
+    {
         *cloudNoGround = *inputCloud;
+    }
 
     return cloudNoGround;
 }
 
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr euclideanClustering(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud)
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr PointCloudProcessor::euclideanClustering(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud)
 {
-    /*
-    Euclidean clustering: given an input pointcloud, the algorithm returns a list of pointclouds.
-    Each pointcloud belongs to a different cluster.
-    */
     ROS_INFO("Clustering received pointcloud");
     std::vector<pcl::PointIndices> clusterIndices;
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr clusteredCloud(new pcl::PointCloud<pcl::PointXYZRGB>);
@@ -227,14 +225,12 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr euclideanClustering(pcl::PointCloud<pcl::
     pcl::search::KdTree<pcl::PointXYZ>::Ptr treeClusters(new pcl::search::KdTree<pcl::PointXYZ>);
     treeClusters->setInputCloud(inputCloud);
     pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
-    float clusterTolerance;
-    ros::param::get("clusterTolerance", clusterTolerance);
 
-    ec.setClusterTolerance(clusterTolerance); // Be careful setting the right value for setClusterTolerance(). If you take a very small value, it can happen that an actual object can be seen as multiple clusters. On the other hand, if you set the value too high, it could happen, that multiple objects are seen as one cluster.
+    ec.setClusterTolerance(config_.clusterTolerance);
 
     float clusterMinSize, clusterMaxSize;
-    clusterMinSize = -25.0 * leafSize + 17.5;   // for leafSize = 0.1 -> clusterMinSize = 15 | for leafSize = 0.5 -> clusterMinSize = 5
-    clusterMaxSize = -500.0 * leafSize + 350.0; // for leafSize = 0.1 -> clusterMaxSize = 300 | for leafSize = 0.5 -> clusterMinSize = 100
+    clusterMinSize = -25.0 * config_.leafSize + 17.5;
+    clusterMaxSize = -500.0 * config_.leafSize + 350.0;
 
     ec.setMinClusterSize(clusterMinSize);
     ec.setMaxClusterSize(clusterMaxSize);
@@ -242,12 +238,10 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr euclideanClustering(pcl::PointCloud<pcl::
     ec.setInputCloud(inputCloud);
     ec.extract(clusterIndices);
 
-    // Unify all the clusters with a colour label
     for (int i = 0; i < clusterIndices.size(); ++i)
     {
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cluster_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
         pcl::PointIndices cluster = clusterIndices[i];
-        // Generate a random RGB color for each cluster
         uint8_t r = rand() % 256;
         uint8_t g = rand() % 256;
         uint8_t b = rand() % 256;
@@ -258,7 +252,6 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr euclideanClustering(pcl::PointCloud<pcl::
             point.x = inputCloud->points[cluster.indices[j]].x;
             point.y = inputCloud->points[cluster.indices[j]].y;
             point.z = inputCloud->points[cluster.indices[j]].z;
-            // Assign the same color to each point in the cluster
             point.r = r;
             point.g = g;
             point.b = b;
@@ -270,152 +263,78 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr euclideanClustering(pcl::PointCloud<pcl::
     return clusteredCloud;
 }
 
-void generatePointcloudMsg(pcl::shared_ptr<pcl::PointCloud<pcl::PointXYZ>> &cloud, sensor_msgs::PointCloud2 &cloudMsg)
+void PointCloudProcessor::generatePointcloudMsg(pcl::shared_ptr<pcl::PointCloud<pcl::PointXYZ>> &cloud, sensor_msgs::PointCloud2 &cloudMsg)
 {
-    // Generate message for a pointcloud
     pcl::toROSMsg(*cloud, cloudMsg);
-    // cloudMsg.header.stamp = ros::Time::now();
     cloudMsg.header.frame_id = "base_link";
 }
 
-void pointcloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg)
+bool PointCloudProcessor::processPointCloudService(pointcloud_clustering::clustering_srv::Request &req,
+                                                   pointcloud_clustering::clustering_srv::Response &res)
 {
-    std::lock_guard<std::mutex> lock(mtx);
-    receivedPointCloud = true;
-    ROS_INFO("Subscibed to Test PointCloud topic correctly");
-    frame_id = msg->header.frame_id;
-    ROS_INFO("PointCloud received: %s", frame_id.c_str());
+    std::lock_guard<std::mutex> lock(mtx_);
+    frame_id_ = req.pointcloud.header.frame_id;
+    ROS_INFO("PointCloud received: %s", frame_id_.c_str());
 
-    // Poin Cloud variables
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>); // Received pointcloud
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloudCropped(new pcl::PointCloud<pcl::PointXYZ>); // Pointcloud cropped > invalid points extracted
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloudDownsampled(new pcl::PointCloud<pcl::PointXYZ>); // Pointcloud downsampled > density reduce
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloudGroundExtracted(new pcl::PointCloud<pcl::PointXYZ>); // Pointcloud without ground
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloudClustered(new pcl::PointCloud<pcl::PointXYZRGB>); // Pointcloud clustered, each cluster point has a different colour
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloudCropped(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloudDownsampled(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloudGroundExtracted(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloudClustered(new pcl::PointCloud<pcl::PointXYZRGB>);
 
-    // Convert ROS PointCloud2 message to PCL point cloud
-    pcl::fromROSMsg(*msg, *cloud);
-    // Generate message for the imput pointcloud
-    generatePointcloudMsg(cloud, inCloudMsg);
-    inCloudMsg.header.stamp = msg->header.stamp;
+    pcl::fromROSMsg(req.pointcloud, *cloud);
 
-    /*
-    Crop > delete points near to the sensors
-    */
     cloudCropped = pointcloudCrop(cloud);
-    // Generate message for the cropped pointcloud
-    generatePointcloudMsg(cloudCropped, cropCloudMsg);
-    cropCloudMsg.header.stamp = msg->header.stamp;
 
-    /*
-    Downsample > Reduce the density of the pointcloud
-    */
-    float do_downsampling;;
-    ros::param::get("do_downsampling", do_downsampling);
-
-    if (do_downsampling == true)
+    if (config_.do_downsampling)
     {
         cloudDownsampled = pointcloudDownsample(cloudCropped);
     }
     else
+    {
         cloudDownsampled = cloudCropped;
-    // Generate message for the downsampled pointcloud
-    generatePointcloudMsg(cloudDownsampled, dsCloudMsg);
-    dsCloudMsg.header.stamp = msg->header.stamp;
+    }
 
-    /*
-    Extract Ground
-    */
     cloudGroundExtracted = pointcloudExtractGround(cloudDownsampled);
-    // Generate message for the downsampled pointcloud
-    generatePointcloudMsg(cloudGroundExtracted, geCloudMsg);
-    geCloudMsg.header.stamp = msg->header.stamp;
-
-    /*
-    Pointcloud clustering
-    */
     cloudClustered = euclideanClustering(cloudGroundExtracted);
-    // Generate a message for the clustered pointcloud
-    //FIXME: Intentar cambiar la función generatePointCloudMsg para ser agnóstica del tipo de mensaje. Una propuesta sería trabajar siempre con mensajes RGB en PCL
-    pcl::toROSMsg(*cloudClustered, clusteredCloudMsg);
-    clusteredCloudMsg.header.stamp = msg->header.stamp;
-    clusteredCloudMsg.header.frame_id = "base_link";
 
-    /*
-    Fitting > 
-    */
+    pcl::toROSMsg(*cloudClustered, res.clustered_pointcloud);
+    res.clustered_pointcloud.header.frame_id = "base_link";
+    res.clustered_pointcloud.header.stamp = ros::Time::now();
 
-    // Callback has been entered
-    receivedPointCloud = true;
+    ROS_INFO("Server response completed");
+
+    return true;
 }
-
 
 int main(int argc, char **argv)
 {
-    ros::init(argc, argv, "clustering");
-    ROS_INFO("Node clustering initialized correctly");
+    ros::init(argc, argv, "clustering_service");
     ros::NodeHandle nh;
-    // Subscribe to the Test_PointCloud topic
-    ros::Subscriber sub = nh.subscribe("waymo_PointCloud", 10, pointcloudCallback);
 
-    // Publishing topics
-    ros::Publisher pub = nh.advertise<sensor_msgs::PointCloud2>("input_PointCloud", 1000); // input pointcloud
-    ros::Publisher pub_crop = nh.advertise<sensor_msgs::PointCloud2>("cropped_PointCloud", 1000); // cropped pointcloud
-    ros::Publisher pub_ds = nh.advertise<sensor_msgs::PointCloud2>("ds_PointCloud", 1000); // cropped pointcloud
-    ros::Publisher pub_ge = nh.advertise<sensor_msgs::PointCloud2>("ge_PointCloud", 1000); // Ground extracted pointcloud
-    ros::Publisher pub_clustered = nh.advertise<sensor_msgs::PointCloud2>("clustered_PointCloud", 1000); // Clustered pointcloud
-
-    // Initialize the bag
-    // TODO: Ruta configurable
-    std::string base_dir ="/home/rodrigo/catkin_ws/src/TFM_Landmark_Based_Localization/dataset/pointcloud_bags/";
-    rosbag::Bag bag;
-
-    ros::Rate rate(10);
-
-    while (ros::ok())
-    {
-        ros::spinOnce(); // Handle callbacks
-        // Use mutex to safely access shared variables
-        mtx.lock();
-
-        if (receivedPointCloud)
-        {
-            receivedPointCloud = false; // Reset the flag
-            // Copy global messages to local
-            sensor_msgs::PointCloud2 inCloudMsg_local = inCloudMsg;
-            sensor_msgs::PointCloud2 cropCloudMsg_local = cropCloudMsg;
-            sensor_msgs::PointCloud2 dsCloudMsg_local = dsCloudMsg;
-            sensor_msgs::PointCloud2 geCloudMsg_local = geCloudMsg;
-            sensor_msgs::PointCloud2 clusteredCloudMsg_local = clusteredCloudMsg;
-            mtx.unlock();
-
-            pub.publish(inCloudMsg_local);
-            ROS_INFO("Point cloud published");
-            pub_crop.publish(cropCloudMsg_local);
-            ROS_INFO("Point cloud Cropped published");
-            pub_ds.publish(dsCloudMsg_local);
-            ROS_INFO("Point cloud Downsampled published");
-            pub_ge.publish(geCloudMsg_local);
-            ROS_INFO("Point cloud without ground published");
-
-            pub_clustered.publish(clusteredCloudMsg_local);
-            ROS_INFO("Point cloud clustered published");
-
-            // Write to 
-            ROS_INFO("Saving bag: %s", frame_id.c_str());
-            std::string bag_path = base_dir + "clustered_pointcloud_" + frame_id.c_str() + ".bag";
-            bag.open(bag_path, rosbag::bagmode::Write);  // Open a bag file in write mode
-
-            bag.write("clustered_PointCloud", inCloudMsg_local.header.stamp, clusteredCloudMsg_local);
-            ROS_INFO("Point cloud clustered saved to ROS bag");
-            bag.close();
-        } else {
-            mtx.unlock();
-        }
-        
-
-        rate.sleep();
+    // Current working directory
+    char cwd[PATH_MAX];
+    if (getcwd(cwd, sizeof(cwd)) != NULL) {
+        ROS_INFO("Current working directory: %s", cwd);
+    } else {
+        ROS_ERROR("Error getting current working directory");
     }
 
-    return (0);
+    std::string configFilePath;
+    if (!nh.getParam("config_file_path", configFilePath)) {
+        ROS_ERROR("Failed to get param 'config_file_path'");
+        return -1;
+    }
+    try {
+        PointCloudProcessor processor(configFilePath);
+        ros::ServiceServer service = nh.advertiseService("process_pointcloud", &PointCloudProcessor::processPointCloudService, &processor);
+        ROS_INFO("Service server initialized correctly");
+
+        ros::spin();
+    } catch (const std::exception &e) {
+        ROS_ERROR("Error initializing PointCloudProcessor: %s", e.what());
+        return -1;
+    }
+
+    return 0;
 }

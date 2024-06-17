@@ -37,6 +37,38 @@ def get_frame_image(frame_image):
 
     return decoded_image
 
+def order_camera(camera_list, camera_order):
+    # Create a list of tuples (key, data)
+    key_tuples = [(key, camera_list[key]) for key in camera_list]
+    # Sort the list of tuples based on the custom order
+    sorted_tuples = sorted(key_tuples, key=lambda x: camera_order.index(x[0]))
+    # Extract image data from sorted tuples
+    ordered_camera = [item[1] for item in sorted_tuples]
+    return ordered_camera
+
+
+def get_camera_images(frame, cams_order):
+    # Gets and orders camera images from left to right
+    cameras_images = {}
+    camera_bboxed = {}
+
+    for i, image in enumerate(frame.images):
+        decoded_image = get_frame_image(image)
+        cameras_images[image.name] = decoded_image[...,::-1]
+        camera_bboxed[image.name] = get_image_bboxes(frame.camera_labels, image.name)
+
+    # Create a list of tuples (key, image_data)
+    key_image_tuples = [(key, cameras_images[key]) for key in cameras_images]
+    key_bbox_tuples = [(key, camera_bboxed[key]) for key in camera_bboxed]
+    # Sort the list of tuples based on the custom order
+    sorted_image_tuples = sorted(key_image_tuples, key=lambda x: cams_order.index(x[0]))
+    sorted_bbox_tuples = sorted(key_bbox_tuples, key=lambda x: cams_order.index(x[0]))
+    # Extract image data from sorted tuples
+    ordered_images = [item[1] for item in sorted_image_tuples]
+    ordered_bboxes = [item[1] for item in sorted_bbox_tuples]
+
+    return ordered_images, ordered_bboxes
+
 def generate_canvas(images):
     """
     Generateas a canvas of concatenated images for visualization porpuses

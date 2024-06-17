@@ -204,7 +204,7 @@ def save_protobuf_features(protobuf_message, output):
 
 
 if __name__ == "__main__":
-    dataset_path        = os.path.join(src_dir, "dataset/waymo_samples")
+    dataset_path        = os.path.join(src_dir, "dataset/waymo_map_scene")
     json_maps_path      = os.path.join(src_dir, "dataset/hd_maps")
     point_clouds_path   = os.path.join(src_dir, "dataset/pointclouds")
     output_dataset_path = os.path.join(src_dir, "dataset/waymo_map_scene_mod")
@@ -339,4 +339,4 @@ if __name__ == "__main__":
         # Close the writer
         writer.close()
 
-        # plot_pointcloud_on_map(map_features, point_clouds, cluster_labels)
+        plot_pointcloud_on_map(map_features, point_clouds, cluster_labels)

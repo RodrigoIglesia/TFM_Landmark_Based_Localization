@@ -10,11 +10,13 @@ import os
 import sys
 
 import pathlib
-import tensorflow as tf
-import dask.dataframe as dd
 import cv2
 import numpy as np
+import matplotlib.pyplot as plt
 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
+import tensorflow.compat.v1 as tf
 if not tf.executing_eagerly():
   tf.compat.v1.enable_eager_execution()
 
@@ -23,6 +25,15 @@ import immutabledict
 from waymo_open_dataset import dataset_pb2 as open_dataset
 from waymo_open_dataset.protos import camera_segmentation_pb2 as cs_pb2
 from waymo_open_dataset.utils import camera_segmentation_utils
+
+# Add project root root to python path
+current_script_directory = os.path.dirname(os.path.realpath(__file__))
+src_dir = os.path.abspath(os.path.join(current_script_directory, ".."))
+sys.path.append(src_dir)
+
+
+from waymo_utils.WaymoParser import *
+from waymo_utils.bbox_utils import *
 
 SIGNS_COLOR_MAP = immutabledict.immutabledict({
     cs_pb2.CameraSegmentation.TYPE_UNDEFINED: [0, 0, 0],
@@ -128,17 +139,15 @@ def get_signs_color_map(color_map_dict= None):
     color_map[classes] = colors
     return color_map
 
+def merge_semantic_labels(semantic_mask):
+    # Merge semantic_mask with a same color
+    semantic_mask_merged = semantic_mask.copy()
+    semantic_mask_merged[(semantic_mask_merged != [0, 0, 0]).any(axis=-1)] = [255,0,255]
+
+    return semantic_mask_merged
 
 if __name__ == "__main__":
-    from WaymoParser import *
-    from bbox_utils import *
-
-    # Add project root root to python path
-    current_script_directory = os.path.dirname(os.path.realpath(__file__))
-    src_dir = os.path.abspath(os.path.join(current_script_directory, ".."))
-    sys.path.append(src_dir)
-
-    dataset_path = os.path.join(src_dir, "dataset/waymo_map_scene")
+    dataset_path = os.path.join(src_dir, "dataset/waymo_test_scene")
 
     tfrecord_list = list(
         sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
@@ -153,17 +162,27 @@ if __name__ == "__main__":
     frame_index = 0
     for frame in frames_with_seg:
         # Read the 5 cammera images of the frame
-        camearas_images = []
+        cameras_images = {}
+        cameras_bboxes = {}
+        cameras_images_bboxes = {}
+        cameras_semantics = {}
+        cameras_panoptics = {}
         for i, image in enumerate(frame.images):
             decoded_image = get_frame_image(image)
+            cameras_images[image.name] = decoded_image[...,::-1]
+            bboxes = get_image_bboxes(frame.camera_labels, image.name)
+            cameras_bboxes[image.name] = bboxes
+
+            image_bboxes = decoded_image.copy()
+            draw_bboxes(bboxes, image_bboxes)
+            cameras_images_bboxes[image.name] = image_bboxes
             image_size = (decoded_image.shape[1], decoded_image.shape[0])
-            camera_bboxes = get_image_bboxes(frame.camera_labels, image.name)
 
             semantic_label, instance_label = get_semantic_labels(image)
 
-            ###########################################################<
+            ###########################################################
             # Keep only interest classes in semantic classes
-            values_to_keep = [15, 16, 17, 18, 19]
+            values_to_keep = [15, 17, 18]
             # Create a copy of the original semantic labels to keep them
             semantic_label_signs = np.copy(semantic_label)
             # Create a mask for the values you want to keep
@@ -171,29 +190,46 @@ if __name__ == "__main__":
             # Apply the mask to set other pixel values to 0
             semantic_label_signs[mask == False] = 0
 
+
             # Get panoptic label and plot on top of the image
             panoptic_label_rgb = camera_segmentation_utils.panoptic_label_to_rgb(
                 semantic_label, instance_label
             )
+            cameras_panoptics[image.name] = panoptic_label_rgb
 
             semantic_label_original_rgb = camera_segmentation_utils.semantic_label_to_rgb(semantic_label)
 
             # Only get segmentation labels of desired objects
             color_map = get_signs_color_map()
             semantic_label_rgb = camera_segmentation_utils.semantic_label_to_rgb(semantic_label_signs, color_map)
+            semantic_label_rgb_merged = merge_semantic_labels(semantic_label_rgb)
+            cameras_semantics[image.name] = semantic_label_rgb_merged
 
-            result_image_panoptic = cv2.addWeighted(decoded_image, 1, panoptic_label_rgb, 0.5, 0)
-            draw_bboxes(camera_bboxes, result_image_panoptic)
-            result_image_semantic_original = cv2.addWeighted(decoded_image, 1, semantic_label_original_rgb, 0.5, 0)
-            draw_bboxes(camera_bboxes, result_image_semantic_original)
-            result_image_semantic = cv2.addWeighted(decoded_image, 1, semantic_label_rgb, 0.5, 0)
+        # Order images and labels by cameras
+        ordered_images = order_camera(cameras_images, [4, 2, 1, 3, 5])
+        ordered_bboxes = order_camera(cameras_bboxes, [4, 2, 1, 3, 5])
+        ordered_images_bboxes = order_camera(cameras_images_bboxes, [4, 2, 1, 3, 5])
+        ordered_semantics = order_camera(cameras_semantics, [4, 2, 1, 3, 5])
+        ordered_panoptics = order_camera(cameras_panoptics, [4, 2, 1, 3, 5])
 
-            result_image = cv2.hconcat([result_image_panoptic, result_image_semantic_original, result_image_semantic])
+        images_canvas = generate_canvas(ordered_images)
+        images_bboxes_canvas = generate_canvas(ordered_images_bboxes)
+        semantics_canvas = generate_canvas(ordered_semantics)
+        panoptic_canvas = generate_canvas(ordered_panoptics)
 
-            cv2.namedWindow('panoptic', cv2.WINDOW_NORMAL)
-            cv2.setWindowProperty('panoptic', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-            cv2.imshow("panoptic", result_image)
-            cv2.waitKey(0)
-            cv2.destroyAllWindows()
+        result_image_panoptic = cv2.addWeighted(ordered_images[2], 1, ordered_panoptics[2], 0.5, 0)
+        result_image_semantic = cv2.addWeighted(ordered_images[2], 1, ordered_semantics[2], 0.5, 0)
+ 
+        # result_image = cv2.vconcat([images_canvas, result_image_panoptic, result_image_semantic])
 
-            frame_index += 1
+        plt.imshow(cv2.cvtColor(result_image_semantic, cv2.COLOR_BGR2RGB))
+        plt.axis('off')
+        plt.show()
+
+        # cv2.namedWindow('panoptic', cv2.WINDOW_NORMAL)
+        # cv2.setWindowProperty('panoptic', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+        # cv2.imshow("panoptic", images_canvas)
+        # cv2.waitKey(0)
+        # cv2.destroyAllWindows()
+
+        frame_index += 1

@@ -35,13 +35,14 @@ class WaymoClient:
     def __init__(self, frame, cams_order):
         self.frame = frame
         self.cams_order = cams_order
-        self.pointcloud = np.zeros((0, 3))
-        self.cluster_labels = np.zeros((0, 3))
+        self.points = np.zeros((0,3)) # Original pointcloud obtained from the dataset
+        self.pointcloud = np.zeros((0, 3)) # Pointcloud processor response (clustered pointcloud)
+        self.cluster_labels = np.zeros((0, 3)) # Pointcloud processor response (cluster labels assingment)
         self.init_camera_params()
-        self.processed_image = None
+        self.processed_image = None # Landmark detection response (processed image)
         self.image_height = None
         self.image_width = None
-        self.detection_association_image = None
+        self.detection_association_image = None # Image resultant of projecting the pointcloud in the original image
 
         rospy.loginfo("Waiting for server processes...")
         # Initialize pointcloud process
@@ -88,9 +89,9 @@ class WaymoClient:
         """
         Gets the pointcloud from the source and manages the processing with the server service.
         """
-        points, points_cp = self.pointcloud_processor.get_pointcloud()
-        if points is not None:
-            self.pointcloud_processor.pointcloud_to_ros(points)
+        self.points, points_cp = self.pointcloud_processor.get_pointcloud()
+        if self.points is not None:
+            self.pointcloud_processor.pointcloud_to_ros(self.points)
             request = clustering_srvRequest()
             request.pointcloud = self.pointcloud_processor.pointcloud_msg
 
@@ -278,7 +279,7 @@ if __name__ == "__main__":
 
     rate = rospy.Rate(1/30)  # Adjust the rate as needed
 
-    dataset_path = os.path.join(src_dir, "dataset/waymo_map_scene")
+    dataset_path = os.path.join(src_dir, "dataset/waymo_test_scene")
     tfrecord_list = list(sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
 
 

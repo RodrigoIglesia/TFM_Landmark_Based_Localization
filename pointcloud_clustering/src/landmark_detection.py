@@ -75,3 +75,4 @@ if __name__ == "__main__":
     rospy.loginfo("Service 'landmark_detection' is ready")
 
     rospy.spin()
+     

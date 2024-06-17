@@ -212,6 +212,6 @@ include_directories(
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
 
-add_executable (clustering src/clustering.cpp)
-target_link_libraries (clustering ${PCL_LIBRARIES} ${catkin_LIBRARIES} ${rosbag_LIBRARIES})
+add_executable(clustering src/clustering.cpp)
+target_link_libraries(clustering ${PCL_LIBRARIES} ${catkin_LIBRARIES} ${rosbag_LIBRARIES})
 add_dependencies(clustering ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})

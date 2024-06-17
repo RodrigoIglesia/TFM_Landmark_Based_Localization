@@ -163,4 +163,9 @@ cython_debug/
 /src/data/kitti_samples
 /src/data/waymo_samples
 /dataset
+/models
+/logs
+/results
+/uml
+*.rviz
 *.tfrecords

@@ -93,7 +93,7 @@ def plot_referenced_pointcloud(point_cloud):
     o3d.visualization.draw_geometries([pcd, mesh_frame])
 
 if __name__ == "__main__":
-    dataset_path = os.path.join(src_dir, "dataset/waymo_map_scene")
+    dataset_path = os.path.join(src_dir, "dataset/waymo_valid_scene")
     tfrecord_list = list(sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
 
     ##############################################################
@@ -134,7 +134,7 @@ if __name__ == "__main__":
         # Frame pointcloud
         point_cloud, points_cp = get_pointcloud(frame)
         print("PointCloud: ", point_cloud)
-        plot_referenced_pointcloud(point_cloud)
+        # plot_referenced_pointcloud(point_cloud)
 
         ########################################################################################
         ## Project Velodyne points to Camera
@@ -142,7 +142,7 @@ if __name__ == "__main__":
         # Project 3D points in vehicle reference to 3D points in camera reference using extrinsic params
         point_cloud_hom = cart2hom(point_cloud)  # nx4
         point_cloud_cam =  np.dot(point_cloud_hom, np.transpose(extrinsic_matrix_inv))
-        plot_referenced_pointcloud(point_cloud_cam)
+        # plot_referenced_pointcloud(point_cloud_cam)
 
         ########################################################################################
         ## Rotate pointcloud to match pin hole axis
@@ -166,7 +166,7 @@ if __name__ == "__main__":
         # Rotate the point cloud -90 degrees in Y
         point_cloud_cam = np.dot(Ry, point_cloud_cam.T).T
 
-        plot_referenced_pointcloud(point_cloud_cam)
+        # plot_referenced_pointcloud(point_cloud_cam)
 
         ########################################################################################
         ## Remove points with z<0
@@ -175,7 +175,7 @@ if __name__ == "__main__":
         point_cloud_cam = point_cloud_cam[point_cloud_cam[:, 2] >= 0]
 
         # Plot pointcloud referenced to the camera
-        plot_referenced_pointcloud(point_cloud_cam)
+        # plot_referenced_pointcloud(point_cloud_cam)
 
         # Get a color map based on the Z depth
         # Normalize Z coordinate values
@@ -208,7 +208,7 @@ if __name__ == "__main__":
 
         # Plot image
         plt.imshow(cv2.cvtColor(front_image, cv2.COLOR_BGR2RGB))
-        plt.scatter(point_cloud_image[:, 0], point_cloud_image[:, 1], color=colors, s=5)
+        plt.scatter(point_cloud_image[:, 0], point_cloud_image[:, 1], color=colors, s=2)
         plt.colorbar(label='Depth')
         plt.show()
 

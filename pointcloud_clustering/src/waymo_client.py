@@ -279,7 +279,7 @@ if __name__ == "__main__":
 
     rate = rospy.Rate(1/30)  # Adjust the rate as needed
 
-    dataset_path = os.path.join(src_dir, "dataset/waymo_test_scene")
+    dataset_path = os.path.join(src_dir, "dataset/waymo_valid_scene")
     tfrecord_list = list(sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
 
 

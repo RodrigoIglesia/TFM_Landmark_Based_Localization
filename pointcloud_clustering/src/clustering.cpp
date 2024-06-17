@@ -58,7 +58,8 @@ struct Config {
     float MaxIterationsGround;
     float DistanceThresholdGround;
     float clusterTolerance;
-    float do_downsampling;
+    bool do_cropping;
+    bool do_downsampling;
     float leafSize;
 };
 
@@ -89,21 +90,22 @@ void PointCloudProcessor::readConfig(const std::string &filename) {
     namespace po = boost::program_options;
     po::options_description config("Configuration");
     config.add_options()
-        ("clustering.low_lim_x", po::value<float>(&config_.low_lim_x)->default_value(-10.0), "Lower limit for x axis")
-        ("clustering.low_lim_y", po::value<float>(&config_.low_lim_y)->default_value(-10.0), "Lower limit for y axis")
-        ("clustering.low_lim_z", po::value<float>(&config_.low_lim_z)->default_value(-2.0), "Lower limit for z axis")
-        ("clustering.up_lim_x", po::value<float>(&config_.up_lim_x)->default_value(10.0), "Upper limit for x axis")
-        ("clustering.up_lim_y", po::value<float>(&config_.up_lim_y)->default_value(10.0), "Upper limit for y axis")
-        ("clustering.up_lim_z", po::value<float>(&config_.up_lim_z)->default_value(2.0), "Upper limit for z axis")
-        ("clustering.minPointsVoxel", po::value<int>(&config_.minPointsVoxel)->default_value(1), "Minimum points per voxel")
-        ("clustering.KSearchGround", po::value<float>(&config_.KSearchGround)->default_value(50), "K search for ground extraction")
-        ("clustering.OptimizeCoefficientsGround", po::value<bool>(&config_.OptimizeCoefficientsGround)->default_value(true), "Optimize coefficients for ground extraction")
-        ("clustering.NormalDistanceWeightGround", po::value<float>(&config_.NormalDistanceWeightGround)->default_value(0.1), "Normal distance weight for ground extraction")
-        ("clustering.MaxIterationsGround", po::value<float>(&config_.MaxIterationsGround)->default_value(1000), "Max iterations for ground extraction")
-        ("clustering.DistanceThresholdGround", po::value<float>(&config_.DistanceThresholdGround)->default_value(0.05), "Distance threshold for ground extraction")
-        ("clustering.clusterTolerance", po::value<float>(&config_.clusterTolerance)->default_value(0.02), "Cluster tolerance for euclidean clustering")
-        ("clustering.do_downsampling", po::value<float>(&config_.do_downsampling)->default_value(1), "Downsampling flag")
-        ("clustering.leafSize", po::value<float>(&config_.leafSize)->default_value(0.2), "Leaf size for downsampling");
+        ("cropping.do_cropping", po::value<bool>(&config_.do_cropping)->default_value(true), "Cropping flag")
+        ("cropping.low_lim_x", po::value<float>(&config_.low_lim_x)->default_value(-10.0), "Lower limit for x axis")
+        ("cropping.low_lim_y", po::value<float>(&config_.low_lim_y)->default_value(-10.0), "Lower limit for y axis")
+        ("cropping.low_lim_z", po::value<float>(&config_.low_lim_z)->default_value(-2.0), "Lower limit for z axis")
+        ("cropping.up_lim_x", po::value<float>(&config_.up_lim_x)->default_value(10.0), "Upper limit for x axis")
+        ("cropping.up_lim_y", po::value<float>(&config_.up_lim_y)->default_value(10.0), "Upper limit for y axis")
+        ("cropping.up_lim_z", po::value<float>(&config_.up_lim_z)->default_value(2.0), "Upper limit for z axis")
+        ("downsampling.do_downsampling", po::value<bool>(&config_.do_downsampling)->default_value(true), "Downsampling flag")
+        ("downsampling.minPointsVoxel", po::value<int>(&config_.minPointsVoxel)->default_value(1), "Minimum points per voxel")
+        ("downsampling.leafSize", po::value<float>(&config_.leafSize)->default_value(0.2), "Leaf size for downsampling")
+        ("ground_extraction.KSearchGround", po::value<float>(&config_.KSearchGround)->default_value(50), "K search for ground extraction")
+        ("ground_extraction.OptimizeCoefficientsGround", po::value<bool>(&config_.OptimizeCoefficientsGround)->default_value(true), "Optimize coefficients for ground extraction")
+        ("ground_extraction.NormalDistanceWeightGround", po::value<float>(&config_.NormalDistanceWeightGround)->default_value(0.1), "Normal distance weight for ground extraction")
+        ("ground_extraction.MaxIterationsGround", po::value<float>(&config_.MaxIterationsGround)->default_value(1000), "Max iterations for ground extraction")
+        ("ground_extraction.DistanceThresholdGround", po::value<float>(&config_.DistanceThresholdGround)->default_value(0.05), "Distance threshold for ground extraction")
+        ("clustering.clusterTolerance", po::value<float>(&config_.clusterTolerance)->default_value(0.02), "Cluster tolerance for euclidean clustering");
 
     po::variables_map vm;
     std::ifstream ifs(filename.c_str());
@@ -284,7 +286,15 @@ bool PointCloudProcessor::processPointCloudService(pointcloud_clustering::cluste
 
     pcl::fromROSMsg(req.pointcloud, *cloud);
 
-    cloudCropped = pointcloudCrop(cloud);
+    if (config_.do_cropping)
+    {
+        cloudCropped = pointcloudCrop(cloud);
+    }
+    else
+    {
+        cloudCropped = cloud;
+    }
+    
 
     if (config_.do_downsampling)
     {

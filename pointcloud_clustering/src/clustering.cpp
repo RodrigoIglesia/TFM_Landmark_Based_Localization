@@ -61,6 +61,8 @@ struct Config {
     bool do_cropping;
     bool do_downsampling;
     float leafSize;
+    int clusterMinSize;
+    int clusterMaxSize;
 };
 
 // PointCloudProcessor class
@@ -105,7 +107,9 @@ void PointCloudProcessor::readConfig(const std::string &filename) {
         ("ground_extraction.NormalDistanceWeightGround", po::value<float>(&config_.NormalDistanceWeightGround)->default_value(0.1), "Normal distance weight for ground extraction")
         ("ground_extraction.MaxIterationsGround", po::value<float>(&config_.MaxIterationsGround)->default_value(1000), "Max iterations for ground extraction")
         ("ground_extraction.DistanceThresholdGround", po::value<float>(&config_.DistanceThresholdGround)->default_value(0.05), "Distance threshold for ground extraction")
-        ("clustering.clusterTolerance", po::value<float>(&config_.clusterTolerance)->default_value(0.02), "Cluster tolerance for euclidean clustering");
+        ("clustering.clusterTolerance", po::value<float>(&config_.clusterTolerance)->default_value(0.02), "Cluster tolerance for euclidean clustering")
+        ("clustering.clusterMinSize", po::value<int>(&config_.clusterMinSize)->default_value(100), "Cluster minimum points number")
+        ("clustering.clusterMaxSize", po::value<int>(&config_.clusterMaxSize)->default_value(1000), "Cluster maximum points number");
 
     po::variables_map vm;
     std::ifstream ifs(filename.c_str());
@@ -230,12 +234,13 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr PointCloudProcessor::euclideanClustering(
 
     ec.setClusterTolerance(config_.clusterTolerance);
 
-    float clusterMinSize, clusterMaxSize;
-    clusterMinSize = -25.0 * config_.leafSize + 17.5;
-    clusterMaxSize = -500.0 * config_.leafSize + 350.0;
+    // float clusterMinSize, clusterMaxSize;
+    // clusterMinSize = -25.0 * config_.leafSize + 17.5;
+    // clusterMaxSize = -500.0 * config_.leafSize + 350.0;
 
-    ec.setMinClusterSize(clusterMinSize);
-    ec.setMaxClusterSize(clusterMaxSize);
+
+    ec.setMinClusterSize(config_.clusterMinSize);
+    ec.setMaxClusterSize(config_.clusterMaxSize);
     ec.setSearchMethod(treeClusters);
     ec.setInputCloud(inputCloud);
     ec.extract(clusterIndices);

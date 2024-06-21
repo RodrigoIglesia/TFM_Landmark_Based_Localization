@@ -85,8 +85,7 @@ void callback_poseOdom(const geometry_msgs::PoseStamped input_poseOdom)
 
 
 
-int 
-main (int argc, char** argv)
+int main (int argc, char** argv)
 {
   ros::init(argc, argv, "ekf");
   ros::NodeHandle nh;

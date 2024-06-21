@@ -314,11 +314,11 @@ if __name__ == "__main__":
                 if wc.processed_image is None:
                     rospy.logerror("Image received is empty")
                     continue
-                cv2.namedWindow('detection result', cv2.WINDOW_NORMAL)
-                cv2.setWindowProperty('detection result', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-                cv2.imshow('detection result', wc.processed_image)
-                cv2.waitKey(0)
-                cv2.destroyAllWindows()
+                # cv2.namedWindow('detection result', cv2.WINDOW_NORMAL)
+                # cv2.setWindowProperty('detection result', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+                # cv2.imshow('detection result', wc.processed_image)
+                # cv2.waitKey(0)
+                # cv2.destroyAllWindows()
 
                 # Project camera on image
                 wc.project_pointcloud_on_image()

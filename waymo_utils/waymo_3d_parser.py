@@ -24,6 +24,24 @@ from waymo_open_dataset.utils import  frame_utils
 from waymo_open_dataset import dataset_pb2 as open_dataset
 
 
+def get_pointcloud(frame):
+    (range_images, camera_projections, segmentation_labels, range_image_top_pose) = frame_utils.parse_range_image_and_camera_projection(frame)
+    # Get points labeled for first and second return
+    # Parse range image for lidar 1
+    def _range_image_to_pcd(ri_index = 0):
+        points, points_cp = frame_utils.convert_range_image_to_point_cloud(
+            frame, range_images, camera_projections, range_image_top_pose,
+            ri_index=ri_index)
+        return points, points_cp
+    
+    # Return of the first 2 lidar scans
+    points_return1 = _range_image_to_pcd()
+    points_return2 = _range_image_to_pcd(1)
+
+    points, points_cp = concatenate_pcd_returns(points_return1, points_return2)
+
+    return points, points_cp
+
 def convert_range_image_to_point_cloud_labels(frame,
                                               range_images,
                                               segmentation_labels,
@@ -245,6 +263,11 @@ def get_cluster_centroid(point_cloud):
     #                                 lookat=[2.1813, 2.0619, 2.0999],
     #                                 up=[0.1204, -0.9852, 0.1215])
 
+def plot_referenced_pointcloud(point_cloud):
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(point_cloud)
+    mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.6, origin=[0, 0, 0])
+    o3d.visualization.draw_geometries([pcd, mesh_frame])
 
 if __name__ == "__main__":
     from WaymoParser import *

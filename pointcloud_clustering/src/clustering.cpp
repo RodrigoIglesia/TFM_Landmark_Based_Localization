@@ -9,6 +9,7 @@
 
 #include <ros/ros.h>
 #include <rosbag/bag.h>
+#include <ros/publisher.h>
 #include <time.h>
 #include <math.h>
 #include <tf/tf.h>
@@ -82,9 +83,22 @@ private:
     Config config_;
     std::mutex mtx_;
     std::string frame_id_;
+
+    // Debug publishers -> publisher to debug processing results in RVIZ topics
+    ros::Publisher input_pub_;
+    ros::Publisher crop_pub_;
+    ros::Publisher downsample_pub_;
+    ros::Publisher ground_extract_pub_;
+    ros::Publisher clustering_pub_;
 };
 
 PointCloudProcessor::PointCloudProcessor(const std::string& configFilePath) {
+    ros::NodeHandle nh;
+    input_pub_ = nh.advertise<sensor_msgs::PointCloud2>("input_pointcloud", 1);
+    crop_pub_ = nh.advertise<sensor_msgs::PointCloud2>("cropped_pointcloud", 1);
+    downsample_pub_ = nh.advertise<sensor_msgs::PointCloud2>("downsampled_pointcloud", 1);
+    ground_extract_pub_ = nh.advertise<sensor_msgs::PointCloud2>("ground_extracted_pointcloud", 1);
+    clustering_pub_ = nh.advertise<sensor_msgs::PointCloud2>("clustered_pointcloud", 1);
     readConfig(configFilePath);
 }
 
@@ -139,6 +153,13 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr PointCloudProcessor::pointcloudCrop(pcl::Poi
     cropCloud->height = 1;
     cropCloud->is_dense = true;
 
+    // Debug publish
+    sensor_msgs::PointCloud2 cropCloudMsg;
+    pcl::toROSMsg(*cropCloud, cropCloudMsg);
+    cropCloudMsg.header.frame_id = "base_link";
+    cropCloudMsg.header.stamp = ros::Time::now();
+    crop_pub_.publish(cropCloudMsg);
+
     return cropCloud;
 }
 
@@ -152,6 +173,13 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr PointCloudProcessor::pointcloudDownsample(pc
     vg.setLeafSize(config_.leafSize, config_.leafSize, config_.leafSize);
     vg.setMinimumPointsNumberPerVoxel(config_.minPointsVoxel);
     vg.filter(*dsCloud);
+
+    // Debug publish
+    sensor_msgs::PointCloud2 dsCloudMsg;
+    pcl::toROSMsg(*dsCloud, dsCloudMsg);
+    dsCloudMsg.header.frame_id = "base_link";
+    dsCloudMsg.header.stamp = ros::Time::now();
+    downsample_pub_.publish(dsCloudMsg);
 
     return dsCloud;
 }
@@ -219,6 +247,13 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr PointCloudProcessor::pointcloudExtractGround
         *cloudNoGround = *inputCloud;
     }
 
+    // Debug publish
+    sensor_msgs::PointCloud2 groundExtractMsg;
+    pcl::toROSMsg(*cloudNoGround, groundExtractMsg);
+    groundExtractMsg.header.frame_id = "base_link";
+    groundExtractMsg.header.stamp = ros::Time::now();
+    ground_extract_pub_.publish(groundExtractMsg);
+
     return cloudNoGround;
 }
 
@@ -267,6 +302,13 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr PointCloudProcessor::euclideanClustering(
         *clusteredCloud += *cluster_cloud;
     }
 
+    // Debug publish
+    sensor_msgs::PointCloud2 clusterCloudMsg;
+    pcl::toROSMsg(*clusteredCloud, clusterCloudMsg);
+    clusterCloudMsg.header.frame_id = "base_link";
+    clusterCloudMsg.header.stamp = ros::Time::now();
+    clustering_pub_.publish(clusterCloudMsg);
+
     return clusteredCloud;
 }
 
@@ -290,6 +332,13 @@ bool PointCloudProcessor::processPointCloudService(pointcloud_clustering::cluste
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloudClustered(new pcl::PointCloud<pcl::PointXYZRGB>);
 
     pcl::fromROSMsg(req.pointcloud, *cloud);
+
+    // debug publishing
+    sensor_msgs::PointCloud2 inputCloudMsg;
+    pcl::toROSMsg(*cloud, inputCloudMsg);
+    inputCloudMsg.header.frame_id = "base_link";
+    inputCloudMsg.header.stamp = ros::Time::now();
+    input_pub_.publish(inputCloudMsg);
 
     if (config_.do_cropping)
     {

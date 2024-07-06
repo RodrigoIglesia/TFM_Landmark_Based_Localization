@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """
-    This node reads an point cloud from Waymo Open Dataset, converts it to PCL and publishd to a determined topic
+    This node reads a point cloud from Waymo Open Dataset, converts it to PCL and publishes to a determined topic
 """
 import os
 import sys
 import numpy as np
 import pathlib
 from matplotlib import cm
-
+import open3d as o3d
+import matplotlib.pyplot as plt
+import cv2
+from sklearn.cluster import DBSCAN
+from scipy.spatial import ConvexHull
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
@@ -23,7 +27,6 @@ sys.path.append(src_dir)
 
 from waymo_utils.WaymoParser import *
 from waymo_utils.waymo_3d_parser import *
-
 
 def get_pointcloud(frame):
     (range_images, camera_projections, segmentation_labels, range_image_top_pose) = frame_utils.parse_range_image_and_camera_projection(frame)
@@ -43,26 +46,19 @@ def get_pointcloud(frame):
 
     return points, points_cp
 
-
 def get_camera_image(frame):
     # Gets and orders camera images from left to right
     cameras_images = {}
     for i, image in enumerate(frame.images):
         decoded_image = get_frame_image(image)
         cameras_images[image.name] = decoded_image[...,::-1]
-    # # Create a list of tuples (key, image_data)
-    # key_image_tuples = [(key, cameras_images[key]) for key in cameras_images]
-    # # Sort the list of tuples based on the custom order
-    # sorted_tuples = sorted(key_image_tuples, key=lambda x: self.cams_order.index(x[0]))
-    # # Extract image data from sorted tuples
-    # ordered_images = [item[1] for item in sorted_tuples]
     ordered_images = [cameras_images[1]]
 
     return ordered_images
 
 def cart2hom( pts_3d):
     """ Input: nx3 points in Cartesian
-        Oupput: nx4 points in Homogeneous by pending 1
+        Output: nx4 points in Homogeneous by pending 1
     """
     n = pts_3d.shape[0]
     pts_3d_hom = np.hstack((pts_3d, np.ones((n, 1))))
@@ -199,16 +195,30 @@ if __name__ == "__main__":
             (point_cloud_image[:, 0] >= 0) & (point_cloud_image[:, 0] < image_width) &
             (point_cloud_image[:, 1] >= 0) & (point_cloud_image[:, 1] < image_height)
         )
-        # point_cloud_image = point_cloud_image[
-        #     (point_cloud_image[:, 0] >= 0) & (point_cloud_image[:, 0] < image_width) &
-        #     (point_cloud_image[:, 1] >= 0) & (point_cloud_image[:, 1] < image_height)
-        # ]
         point_cloud_image = point_cloud_image[filtered_indices]
         colors = colors[filtered_indices]
+
+        # Clustering the point cloud data
+        clustering = DBSCAN(eps=0.5, min_samples=10).fit(point_cloud_image)
+        labels = clustering.labels_
+
+        # Get unique clusters
+        unique_labels = set(labels)
 
         # Plot image
         plt.imshow(cv2.cvtColor(front_image, cv2.COLOR_BGR2RGB))
         plt.scatter(point_cloud_image[:, 0], point_cloud_image[:, 1], color=colors, s=2)
+
+        # Plot contours for each cluster
+        for label in unique_labels:
+            if label == -1:
+                continue
+            class_member_mask = (labels == label)
+            xy = point_cloud_image[class_member_mask]
+            if len(xy) >= 3:  # Convex hull requires at least 3 points
+                hull = ConvexHull(xy)
+                for simplex in hull.simplices:
+                    plt.plot(xy[simplex, 0], xy[simplex, 1], 'k-')
+
         plt.colorbar(label='Depth')
         plt.show()
-

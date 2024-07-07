@@ -7,6 +7,14 @@ import os
 import sys
 import cv2
 import numpy as np
+
+# Import tensorflow before transformers with logs deactivated to avoid printing tf logs
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
+import tensorflow as tf
+if not tf.executing_eagerly():
+    tf.compat.v1.enable_eager_execution()
+
 import torch
 import torchvision.transforms as T
 from torch.nn import functional as F
@@ -17,11 +25,6 @@ from cv_bridge import CvBridge
 from pointcloud_clustering.srv import landmark_detection_srv, landmark_detection_srvResponse
 import configparser
 
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-
-import tensorflow as tf
-if not tf.executing_eagerly():
-    tf.compat.v1.enable_eager_execution()
 
 # Add project src root to python path
 current_script_directory = os.path.dirname(os.path.realpath(__file__))

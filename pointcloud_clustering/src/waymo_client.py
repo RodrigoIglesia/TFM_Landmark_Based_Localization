@@ -10,6 +10,7 @@ import struct
 import ctypes
 import rospy
 import open3d as o3d
+from shapely.geometry import Polygon
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial import ConvexHull
 import sensor_msgs.point_cloud2 as pc2
@@ -21,6 +22,9 @@ from cv_bridge import CvBridge
 import cv2
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+import tensorflow as tf
+if not tf.executing_eagerly():
+    tf.compat.v1.enable_eager_execution()
 
 # Add project root to python path
 current_script_directory = os.path.dirname(os.path.realpath(__file__))
@@ -39,8 +43,11 @@ class WaymoClient:
         self.points = np.zeros((0,3))
         self.pointcloud = np.zeros((0, 3))
         self.cluster_labels = np.zeros((0, 3))
+        self.clustered_pointcloud = {}
+        self.clustered_pointcloud_image = {} # Dictionary class:cluster for image projected pointcloud
         self.init_camera_params()
-        self.processed_image = None
+        self.image = None # Original Image
+        self.processed_image = None # Returned segmentation mask by the landmark detection service
         self.image_height = None
         self.image_width = None
         self.detection_association_image = None
@@ -97,9 +104,9 @@ class WaymoClient:
             rospy.loginfo("No pointcloud in frame")
 
     def process_image(self):
-        image = self.camera_processor.get_camera_image()[0]
-        if image is not None:
-            self.camera_processor.camera_to_ros(image)
+        self.image = self.camera_processor.get_camera_image()[0]
+        if self.image is not None:
+            self.camera_processor.camera_to_ros(self.image)
             request = landmark_detection_srvRequest()
             request.image = self.camera_processor.camera_msg
 
@@ -117,6 +124,9 @@ class WaymoClient:
             rospy.loginfo("No image in frame")
 
     def project_pointcloud_on_image(self):
+        """
+        Returns: cluster labels dictionary, projected on camera frame --> {label: cluster}
+        """
         if self.pointcloud.size == 0 or self.processed_image is None:
             rospy.logwarn("No pointcloud or processed image available for projection")
             return
@@ -158,22 +168,85 @@ class WaymoClient:
         # Apply convex hull for each cluster
         # Generate clusters based on filtered labels
         unique_labels = np.unique(filtered_labels, axis=0)
-        clusters = {tuple(label): point_cloud_image[np.all(filtered_labels == label, axis=1), :] for label in unique_labels}
+        self.clustered_pointcloud_image = {tuple(label): point_cloud_image[np.all(filtered_labels == label, axis=1), :] for label in unique_labels}
 
-        # Create a black image to draw contours
-        black_image = np.zeros_like(self.processed_image)
 
-        # Plot each cluster separately
-        for label, cluster_points in clusters.items():
+    def __calculate_iou(self, hull1, hull2):
+        # Convert hulls to polygons, ensure hulls are in the form (N, 2)
+        polygon1 = Polygon(hull1.reshape(-1, 2))
+        polygon2 = Polygon(hull2.reshape(-1, 2))
+
+        # Calculate intersection and union
+        intersection = polygon1.intersection(polygon2).area
+        union = polygon1.union(polygon2).area
+
+        # Calculate IoU
+        if union == 0:
+            return 0
+        return intersection / union
+
+
+    def __draw_iou_text(self, image, hull1, hull2, iou):
+        # Calculate the center points of the hulls
+        center1 = np.mean(hull1.reshape(-1, 2), axis=0).astype(int)
+        center2 = np.mean(hull2.reshape(-1, 2), axis=0).astype(int)
+        
+        # Calculate the midpoint between the two centers
+        midpoint = ((center1 + center2) // 2).astype(int)
+        
+        # Draw the IoU value at the midpoint
+        cv2.putText(image, f'IoU: {iou:.2f}', tuple(midpoint), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+
+    def get_association_iou(self, min_hull_area = 500, iou_threshold=0.5):
+        rospy.loginfo("Getting associations...")
+
+        # Convert processed image to grayscale
+        processed_image = cv2.cvtColor(self.processed_image, cv2.COLOR_RGB2GRAY)
+        segmentation_contours, _ = cv2.findContours(processed_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        # Compute convex hulls for the segmentation contours
+        segmentation_hulls = [cv2.convexHull(contour).reshape((-1, 2)) for contour in segmentation_contours]
+
+        # Process each cluster
+        for label, cluster_points in self.clustered_pointcloud_image.items():
             if len(cluster_points) >= 3:  # Convex hull requires at least 3 points
                 hull = ConvexHull(cluster_points)
-                hull_points = cluster_points[hull.vertices]
+                cluster_hull = cluster_points[hull.vertices].reshape((-1, 2)).astype(np.int32)
 
-                # Draw convex hull
-                cv2.fillPoly(black_image, [np.int32(hull_points)], color=(0, 0, 255))  # Fill with red color
+                # Filter cluster hull by area
+                if (cv2.contourArea(cluster_hull) <= min_hull_area):
+                    continue
 
-        # Merge the black image with the processed image
-        self.detection_association_image = cv2.addWeighted(cv2.cvtColor(self.processed_image, cv2.COLOR_BGR2RGB), 1, black_image, 1, 0)
+                # Get cluster hull polygon
+                cluster_poly = Polygon(cluster_hull.reshape(-1, 2))
+
+                # Calculate IoU with all segmentation hulls
+                for seg_hull in segmentation_hulls:
+                    # Filter segmentation hulls by area
+                    if (cv2.contourArea(seg_hull) <= min_hull_area):
+                        continue
+                    
+                    # Get segmentation hull polygon
+                    seg_poly = Polygon(seg_hull.reshape(-1,2))
+
+                    ## TODO: REMOVE DEBUG
+                    pair_image = np.copy(self.image)
+                    cv2.drawContours(pair_image, [seg_hull.reshape((-1, 1, 2))], -1, (255, 0, 0), 2)  # White for segmentation hull
+                    cv2.drawContours(pair_image, [cluster_hull.reshape((-1, 1, 2))], -1, (0, 0, 255), 2)  # Red for cluster hull
+                    
+                    iou = self.__calculate_iou(cluster_hull, seg_hull)
+                    self.__draw_iou_text(pair_image, cluster_hull, seg_hull, iou)
+
+                    # Show the image with the pair of hulls
+                    cv2.imshow("Hull Pair", pair_image)
+                    cv2.waitKey(0)
+                    # if iou >= iou_threshold:
+                    #     print("Intersection over Union: ", iou)
+                    #     self.__draw_iou_text(black_image, cluster_hull, seg_hull, iou)
+
+        # # Merge the black image with the processed image
+        # self.detection_association_image = cv2.addWeighted(self.image, 1, black_image, 1, 0)
 
 
 class IncrementalOdometryExtractor(WaymoClient):
@@ -324,6 +397,7 @@ if __name__ == "__main__":
 
     rate = rospy.Rate(1/30)
 
+    # Read dataset
     dataset_path = os.path.join(src_dir, "dataset/waymo_test_scene")
     tfrecord_list = list(sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
 
@@ -361,12 +435,18 @@ if __name__ == "__main__":
                 DATA ASSOCIATION > PROJECT POINTCLOUD ON IMAGE AND FILTER CLUSTERS
                 This process 
                 """
+
+                # Pointcloud - Image projection
                 wc.project_pointcloud_on_image()
-                cv2.namedWindow('result', cv2.WINDOW_NORMAL)
-                cv2.setWindowProperty('result', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-                cv2.imshow('result', wc.detection_association_image)
-                cv2.waitKey(0)
-                cv2.destroyAllWindows()
+
+                # Pointclous filtering
+                wc.get_association_iou()
+
+                # cv2.namedWindow('result', cv2.WINDOW_NORMAL)
+                # cv2.setWindowProperty('result', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+                # cv2.imshow('result', wc.detection_association_image)
+                # cv2.waitKey(0)
+                # cv2.destroyAllWindows()
 
                 # Process odometry
                 # wc.incremental_odometry.process_odometry()

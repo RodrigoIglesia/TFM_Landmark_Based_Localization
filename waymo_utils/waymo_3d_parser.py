@@ -8,12 +8,14 @@ En caso de existir, se muestra en 3D
 
 import os
 import sys
+import math
 
 import matplotlib.pyplot as plt
 import pathlib
 import tensorflow as tf
 import numpy as np
 import open3d as o3d
+from scipy.spatial.transform import Rotation as R
 from sklearn.cluster import DBSCAN, OPTICS, cluster_optics_dbscan
 
 
@@ -253,21 +255,102 @@ def get_cluster_centroid(point_cloud):
 
     return centroid_projected
 
-    
-    # colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
-    # colors[labels < 0] = 0
-    # point_cloud.colors = o3d.utility.Vector3dVector(colors[:, :3])
-    # o3d.visualization.draw_geometries([point_cloud],
-    #                                 zoom=0.455,
-    #                                 front=[-0.4999, -0.1659, -0.8499],
-    #                                 lookat=[2.1813, 2.0619, 2.0999],
-    #                                 up=[0.1204, -0.9852, 0.1215])
 
-def plot_referenced_pointcloud(point_cloud):
+def get_cluster_orientation(point_cloud):
+    """
+    Get roll, pitch and yaw of a pointcloud
+    """
+    # Perform PCA to find the principal components (orientation)
+    cov = np.cov(point_cloud.T)
+    eigenvalues, eigenvectors = np.linalg.eigh(cov)
+    order = eigenvalues.argsort()[::-1]
+    eigenvectors = eigenvectors[:, order]
+
+    # Create a rotation matrix
+    rot = eigenvectors.T
+
+    # Convert rotation matrix to roll, pitch, yaw
+    r = R.from_matrix(rot)
+    roll, pitch, yaw = r.as_euler('xyz', degrees=True)
+
+    return [roll,pitch,yaw]
+
+
+def euler_to_quaternion(roll, pitch, yaw):
+    qx = np.sin(roll/2) * np.cos(pitch/2) * np.cos(yaw/2) - np.cos(roll/2) * np.sin(pitch/2) * np.sin(yaw/2)
+    qy = np.cos(roll/2) * np.sin(pitch/2) * np.cos(yaw/2) + np.sin(roll/2) * np.cos(pitch/2) * np.sin(yaw/2)
+    qz = np.cos(roll/2) * np.cos(pitch/2) * np.sin(yaw/2) - np.sin(roll/2) * np.sin(pitch/2) * np.cos(yaw/2)
+    qw = np.cos(roll/2) * np.cos(pitch/2) * np.cos(yaw/2) + np.sin(roll/2) * np.sin(pitch/2) * np.sin(yaw/2)
+
+    return [qx, qy, qz, qw]
+
+def quaternion_to_euler(w, x, y, z):
+    sinr_cosp = 2 * (w * x + y * z)
+    cosr_cosp = 1 - 2 * (x * x + y * y)
+    roll = np.arctan2(sinr_cosp, cosr_cosp)
+
+    sinp = 2 * (w * y - z * x)
+    if np.abs(sinp) >= 1:
+        pitch = np.sign(sinp) * np.pi / 2
+    else:
+        pitch = np.arcsin(sinp)
+
+    siny_cosp = 2 * (w * z + x * y)
+    cosy_cosp = 1 - 2 * (y * y + z * z)
+    yaw = np.arctan2(siny_cosp, cosy_cosp)
+
+    return roll, pitch, yaw
+
+def plot_referenced_pointcloud(point_cloud, plot=True):
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(point_cloud)
     mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.6, origin=[0, 0, 0])
-    o3d.visualization.draw_geometries([pcd, mesh_frame])
+
+    if (plot):
+        o3d.visualization.draw_geometries([pcd, mesh_frame])
+    else:
+        return [pcd, mesh_frame]
+
+
+def create_pose_frame(pose, size=0.6):
+    x, y, z, roll, pitch, yaw = pose
+    mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=size, origin=[x, y, z])
+    # Create rotation matrix from roll, pitch, yaw
+    r = R.from_euler('xyz', [roll, pitch, yaw], degrees=True)
+    rot_matrix = r.as_matrix()
+    mesh_frame.rotate(rot_matrix, center=[x, y, z])
+    return mesh_frame
+
+
+def plot_labeled_pointcloud(labeled_pointclouds):
+    vis = o3d.visualization.Visualizer()
+    vis.create_window()
+
+    for color, points in labeled_pointclouds.items():
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(points)
+        color_float = tuple(np.array(color) / 255.0)
+        pcd.paint_uniform_color(color_float)
+
+        vis.add_geometry(pcd)
+
+        # Compute bounding box
+        min_bound = np.min(points, axis=0)
+        max_bound = np.max(points, axis=0)
+
+        # Create bounding box
+        bbox = o3d.geometry.AxisAlignedBoundingBox(min_bound, max_bound)
+        bbox_wireframe = o3d.geometry.LineSet.create_from_axis_aligned_bounding_box(bbox)
+        bbox_wireframe.paint_uniform_color([1, 0, 0])  # Red color
+
+        # Add bounding box to the visualizer
+        vis.add_geometry(bbox_wireframe)
+
+    mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.6, origin=[0, 0, 0])
+    vis.add_geometry(mesh_frame)
+
+    vis.run()
+    vis.destroy_window()
 
 if __name__ == "__main__":
     from WaymoParser import *

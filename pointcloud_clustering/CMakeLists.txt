@@ -15,6 +15,8 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   rosbag
   geometry_msgs
+  nav_msgs
+  visualization_msgs
   message_generation
   message_runtime
 )
@@ -43,11 +45,13 @@ generate_messages(
   std_msgs
   sensor_msgs
   geometry_msgs
+  nav_msgs
+  visualization_msgs
 )
 
 ## The catkin_package macro generates cmake config files for your package
 catkin_package(
-  CATKIN_DEPENDS roscpp rospy std_msgs message_runtime sensor_msgs geometry_msgs
+  CATKIN_DEPENDS roscpp rospy std_msgs message_runtime sensor_msgs geometry_msgs nav_msgs visualization_msgs
   INCLUDE_DIRS include
 )
 

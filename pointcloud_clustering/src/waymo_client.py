@@ -5,6 +5,7 @@
 import os
 import sys
 import numpy as np
+import math
 import pathlib
 import struct
 import ctypes
@@ -13,9 +14,12 @@ import open3d as o3d
 from shapely.geometry import Polygon
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial import ConvexHull
+from std_msgs.msg import Header, ColorRGBA
+from visualization_msgs.msg import Marker
 import sensor_msgs.point_cloud2 as pc2
 from sensor_msgs.msg import PointCloud2, PointField, Image
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, PoseArray, Point, Quaternion
+from nav_msgs.msg import Path, Odometry
 from waymo_parser.msg import CameraProj
 from pointcloud_clustering.srv import clustering_srv, clustering_srvRequest, landmark_detection_srv, landmark_detection_srvRequest
 from cv_bridge import CvBridge
@@ -32,7 +36,7 @@ src_dir = os.path.abspath(os.path.join(current_script_directory, "../.."))
 sys.path.append(src_dir)
 
 from waymo_utils.WaymoParser import *
-from waymo_utils.waymo_3d_parser import *
+import waymo_utils.waymo_3d_parser as w3d
 
 
 
@@ -40,17 +44,20 @@ class WaymoClient:
     def __init__(self, frame, cams_order):
         self.frame = frame
         self.cams_order = cams_order
-        self.points = np.zeros((0,3))
+        self.points = np.zeros((0,3)) # Received clustered pointcloud
         self.pointcloud = np.zeros((0, 3))
         self.cluster_labels = np.zeros((0, 3))
-        self.clustered_pointcloud = {}
+        self.clustered_pointcloud = {} # Dictionary class:cluster for vehicle frame cluster pointclouds
         self.clustered_pointcloud_image = {} # Dictionary class:cluster for image projected pointcloud
+        self.clustered_pointcloud_iou = {} # Dictionary class:cluster for image projected pointclouds matched with segmentation masks
+        self.clustered_pointcloud_iou_vehicle_frame = {} # Dictionary class:cluster for vehicle frame cluster pointclouds matched with segmentation masks
+        self.clusters_poses = {} # Dictionary label:pose of landmarks in vehicle frame
+        self.clusters_poses_global = {} # Dictionary label:pose of landmarks in global frame
         self.init_camera_params()
         self.image = None # Original Image
         self.processed_image = None # Returned segmentation mask by the landmark detection service
         self.image_height = None
         self.image_width = None
-        self.detection_association_image = None
 
         rospy.loginfo("Waiting for server processes...")
         rospy.wait_for_service('process_pointcloud')
@@ -98,8 +105,14 @@ class WaymoClient:
                 rospy.loginfo("Pointcloud received")
                 self.pointcloud, self.cluster_labels = self.pointcloud_processor.respmsg_to_pointcloud(clustered_pointcloud)
                 rospy.loginfo("Pointcloud message decoded")
+
             except rospy.ServiceException as e:
                 rospy.logerr(f"Service call failed: {e}")
+
+            # Get the dictionary of lables and clusters
+            unique_labels = np.unique(self.cluster_labels, axis=0)
+            self.clustered_pointcloud = {tuple(label): self.pointcloud[np.all(self.cluster_labels == label, axis=1), :] for label in unique_labels}
+
         else:
             rospy.loginfo("No pointcloud in frame")
 
@@ -123,16 +136,9 @@ class WaymoClient:
         else:
             rospy.loginfo("No image in frame")
 
-    def project_pointcloud_on_image(self):
-        """
-        Returns: cluster labels dictionary, projected on camera frame --> {label: cluster}
-        """
-        if self.pointcloud.size == 0 or self.processed_image is None:
-            rospy.logwarn("No pointcloud or processed image available for projection")
-            return
-
-        point_cloud_hom = self.cart2hom(self.pointcloud)
-        point_cloud_cam = np.dot(point_cloud_hom, np.transpose(self.extrinsic_matrix_inv))
+    def __vehicle_to_camera(self, pointcloud, transform):
+        point_cloud_hom = self.cart2hom(pointcloud)
+        point_cloud_cam = np.dot(point_cloud_hom, np.transpose(transform))
 
         theta_x = np.pi / 2
         theta_y = -np.pi / 2
@@ -148,6 +154,19 @@ class WaymoClient:
                        [0, 0, 1]])
         point_cloud_cam = np.dot(Rx, point_cloud_cam.T).T
         point_cloud_cam = np.dot(Ry, point_cloud_cam.T).T
+
+        return point_cloud_cam
+
+    def project_pointcloud_on_image(self):
+        """
+        Returns: cluster labels dictionary, projected on camera frame --> {label: cluster}
+        """
+        if self.pointcloud.size == 0 or self.processed_image is None:
+            rospy.logwarn("No pointcloud or processed image available for projection")
+            return
+
+        point_cloud_cam = self.__vehicle_to_camera(self.pointcloud, self.extrinsic_matrix_inv)
+
         positive_indices = (point_cloud_cam[:, 2] >= 0)
         point_cloud_cam = point_cloud_cam[positive_indices]
         positive_labels = self.cluster_labels[positive_indices]
@@ -198,7 +217,11 @@ class WaymoClient:
         cv2.putText(image, f'IoU: {iou:.2f}', tuple(midpoint), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
 
-    def get_association_iou(self, min_hull_area = 500, iou_threshold=0.5):
+    def filter_association_iou(self, debug=False, min_hull_area = 500, iou_threshold=0.1):
+        """
+        This method computes the IoU between the clusters projections and the segmentation masks
+        Filters the projections and stores only cluster projections that intersect with segmentation masks
+        """
         rospy.loginfo("Getting associations...")
 
         # Convert processed image to grayscale
@@ -218,60 +241,96 @@ class WaymoClient:
                 if (cv2.contourArea(cluster_hull) <= min_hull_area):
                     continue
 
-                # Get cluster hull polygon
-                cluster_poly = Polygon(cluster_hull.reshape(-1, 2))
-
                 # Calculate IoU with all segmentation hulls
                 for seg_hull in segmentation_hulls:
                     # Filter segmentation hulls by area
                     if (cv2.contourArea(seg_hull) <= min_hull_area):
                         continue
                     
-                    # Get segmentation hull polygon
-                    seg_poly = Polygon(seg_hull.reshape(-1,2))
-
-                    ## TODO: REMOVE DEBUG
-                    pair_image = np.copy(self.image)
-                    cv2.drawContours(pair_image, [seg_hull.reshape((-1, 1, 2))], -1, (255, 0, 0), 2)  # White for segmentation hull
-                    cv2.drawContours(pair_image, [cluster_hull.reshape((-1, 1, 2))], -1, (0, 0, 255), 2)  # Red for cluster hull
-                    
+                    # Compute IoU
                     iou = self.__calculate_iou(cluster_hull, seg_hull)
-                    self.__draw_iou_text(pair_image, cluster_hull, seg_hull, iou)
+                    # Save only clusters which iou with segmentation masks is greater than threshols
+                    if (iou > iou_threshold):
+                        self.clustered_pointcloud_iou[label] = cluster_points
+                    # Filter 3D clusters in vehicle frame
+                    self.clustered_pointcloud_iou_vehicle_frame = filtered_dict = {label: self.clustered_pointcloud[label] for label in self.clustered_pointcloud_iou.keys() if label in self.clustered_pointcloud}
 
                     # Show the image with the pair of hulls
-                    cv2.imshow("Hull Pair", pair_image)
-                    cv2.waitKey(0)
-                    # if iou >= iou_threshold:
-                    #     print("Intersection over Union: ", iou)
-                    #     self.__draw_iou_text(black_image, cluster_hull, seg_hull, iou)
+                    if (debug==True):
+                        ## TODO: REMOVE DEBUG
+                        pair_image = np.copy(self.image)
+                        cv2.drawContours(pair_image, [seg_hull.reshape((-1, 1, 2))], -1, (255, 0, 0), 2)  # White for segmentation hull
+                        cv2.drawContours(pair_image, [cluster_hull.reshape((-1, 1, 2))], -1, (0, 0, 255), 2)  # Red for cluster hull
+                        self.__draw_iou_text(pair_image, cluster_hull, seg_hull, iou)
+                        cv2.imshow("Hull Pair", pair_image)
+                        cv2.waitKey(0)
 
-        # # Merge the black image with the processed image
-        # self.detection_association_image = cv2.addWeighted(self.image, 1, black_image, 1, 0)
+
+    def calculate_landmark_pose(self):
+        """
+        This method computes the [x,y,z, roll, pitch, yaw] coordinates of a clustered pointcloud
+        """
+        for label, pointcloud in self.clustered_pointcloud_iou_vehicle_frame.items():
+            centroid = w3d.get_cluster_centroid(pointcloud)
+            orientation = w3d.get_cluster_orientation(pointcloud)
+            
+            # Generate dict label:pose
+            landmark_pose = [centroid[0], centroid[1], centroid[2], orientation[0], orientation[1], orientation[2]]
+            self.clusters_poses[label] = landmark_pose
+
+            # Get pose in global frame
+            # Convert the centroid to homogeneous coordinates
+            landmark_pose_hom = np.hstack((landmark_pose[:3], [1]))
+            landmark_global_hom = np.dot(self.incremental_odometry_extractor.transform_matrix, landmark_pose_hom)
+            landmark_global = landmark_global_hom[:3]
+
+            # Rotation
+            R_x = np.array([[1, 0, 0],
+                    [0, np.cos(orientation[0]), -np.sin(orientation[0])],
+                    [0, np.sin(orientation[0]), np.cos(orientation[0])]])
+
+            R_y = np.array([[np.cos(orientation[1]), 0, np.sin(orientation[1])],
+                            [0, 1, 0],
+                            [-np.sin(orientation[1]), 0, np.cos(orientation[1])]])
+            
+            R_z = np.array([[np.cos(orientation[2]), -np.sin(orientation[2]), 0],
+                            [np.sin(orientation[2]), np.cos(orientation[2]), 0],
+                            [0, 0, 1]])
+            
+            landmark_rotation_matrix = np.dot(R_z, np.dot(R_y, R_x))
+            # Transform the orientation using the rotation matrix
+            global_rotation_matrix = np.dot(self.incremental_odometry_extractor.transform_matrix[:3,:3], landmark_rotation_matrix)
+
+            # Convert the global rotation matrix back to euler angles
+            sy = math.sqrt(global_rotation_matrix[0, 0] ** 2 + global_rotation_matrix[1, 0] ** 2)
+            singular = sy < 1e-6
+            if not singular:
+                global_roll = math.atan2(global_rotation_matrix[2, 1], global_rotation_matrix[2, 2])
+                global_pitch = math.atan2(-global_rotation_matrix[2, 0], sy)
+                global_yaw = math.atan2(global_rotation_matrix[1, 0], global_rotation_matrix[0, 0])
+            else:
+                global_roll = math.atan2(-global_rotation_matrix[1, 2], global_rotation_matrix[1, 1])
+                global_pitch = math.atan2(-global_rotation_matrix[2, 0], sy)
+                global_yaw = 0
+
+            self.clusters_poses_global[label] = [landmark_global[0],landmark_global[1],landmark_global[2], global_roll, global_pitch, global_yaw]
+
+
+    def process_EKF(self):
+        """
+        Method to send current pose and rest of parameters to the EKF process
+        """
+        pass
 
 
 class IncrementalOdometryExtractor(WaymoClient):
     def __init__(self, frame):
         super().__init__(frame, None)
+        self.transform_matrix = []
         self.prev_transform_matrix = None
+        self.global_pose = None
+        self.inc_odom = []
         self.inc_odom_msg = PoseStamped()
-        self.transform_matrix = np.array(self.frame.pose.transform).reshape(4, 4)
-
-    def quaternion_to_euler(self, w, x, y, z):
-        sinr_cosp = 2 * (w * x + y * z)
-        cosr_cosp = 1 - 2 * (x * x + y * y)
-        roll = np.arctan2(sinr_cosp, cosr_cosp)
-
-        sinp = 2 * (w * y - z * x)
-        if np.abs(sinp) >= 1:
-            pitch = np.sign(sinp) * np.pi / 2
-        else:
-            pitch = np.arcsin(sinp)
-
-        siny_cosp = 2 * (w * z + x * y)
-        cosy_cosp = 1 - 2 * (y * y + z * z)
-        yaw = np.arctan2(siny_cosp, cosy_cosp)
-
-        return roll, pitch, yaw
 
     def ominus(self, T1, T2):
         return np.linalg.inv(T2) @ T1
@@ -281,23 +340,35 @@ class IncrementalOdometryExtractor(WaymoClient):
         R_matrix = T[:3, :3]
         rotation = R.from_matrix(R_matrix)
         quaternion = rotation.as_quat()
-        roll, pitch, yaw = self.quaternion_to_euler(quaternion[3], quaternion[0], quaternion[1], quaternion[2])
-        return [position[0], position[1], position[2], roll, pitch, yaw]
+
+        return [position[0], position[1], position[2], quaternion[0], quaternion[1], quaternion[2], quaternion[3]]
 
     def process_odometry(self):
-        if self.prev_transform_matrix is not None:
+        """
+        Get incremental pose of the vehicle
+        """
+        print("Pose transform: ", self.frame.pose.transform)
+        self.transform_matrix = np.array(self.frame.pose.transform).reshape(4, 4)
+        print("Transform matrix: ", self.transform_matrix)
+        self.global_pose = self.get_pose(self.transform_matrix)
+        print("Vehicle pose: ", self.get_pose(self.transform_matrix))
+        if self.prev_transform_matrix is None:
+            # First incremental pose is 0 to send to EKF
+            self.inc_odom = [0,0,0,1,0,0,0] # identity quaternion
+        else:
             inc_odom_matrix = self.ominus(self.transform_matrix, self.prev_transform_matrix)
-            inc_odom = self.get_pose(inc_odom_matrix)
 
-            # Create PoseStamped message
-            self.inc_odom_msg.pose.position.x = inc_odom[0]
-            self.inc_odom_msg.pose.position.y = inc_odom[1]
-            self.inc_odom_msg.pose.position.z = inc_odom[2]
-            quaternion = R.from_euler('xyz', [inc_odom[3], inc_odom[4], inc_odom[5]]).as_quat()
-            self.inc_odom_msg.pose.orientation.x = quaternion[0]
-            self.inc_odom_msg.pose.orientation.y = quaternion[1]
-            self.inc_odom_msg.pose.orientation.z = quaternion[2]
-            self.inc_odom_msg.pose.orientation.w = quaternion[3]
+            self.inc_odom = self.get_pose(inc_odom_matrix)
+            print("Vehicle pose increment: ", self.inc_odom)
+
+        # Create PoseStamped message
+        self.inc_odom_msg.pose.position.x       = self.inc_odom[0]
+        self.inc_odom_msg.pose.position.y       = self.inc_odom[1]
+        self.inc_odom_msg.pose.position.z       = self.inc_odom[2]
+        self.inc_odom_msg.pose.orientation.x    = self.inc_odom[3]
+        self.inc_odom_msg.pose.orientation.y    = self.inc_odom[4]
+        self.inc_odom_msg.pose.orientation.z    = self.inc_odom[5]
+        self.inc_odom_msg.pose.orientation.w    = self.inc_odom[6]
         
         self.prev_transform_matrix = self.transform_matrix
 
@@ -325,7 +396,7 @@ class PointCloudProcessor(WaymoClient):
         range_images, camera_projections, segmentation_labels, range_image_top_pose = frame_utils.parse_range_image_and_camera_projection(self.frame)
         points_return1 = self._range_image_to_pcd(self.frame, range_images, camera_projections, range_image_top_pose)
         points_return2 = self._range_image_to_pcd(self.frame, range_images, camera_projections, range_image_top_pose, ri_index=1)
-        points, points_cp = concatenate_pcd_returns(points_return1, points_return2)
+        points, points_cp = w3d.concatenate_pcd_returns(points_return1, points_return2)
         return points, points_cp
     
     def _range_image_to_pcd(self, frame, range_images, camera_projections, range_image_top_pose, ri_index=0):
@@ -385,35 +456,113 @@ class CameraProcessor(WaymoClient):
         return processed_image
 
 
-def plot_referenced_pointcloud(point_cloud):
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(point_cloud)
-    mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.6, origin=[0, 0, 0])
-    o3d.visualization.draw_geometries([pcd, mesh_frame])
-
 if __name__ == "__main__":
+    # DEBUG --> Publishers for rviz
+    clustered_pointcloud_pub = rospy.Publisher('clustered_pointcloud', PointCloud2, queue_size=10)
+    filtered_pointcloud_pub = rospy.Publisher('filtered_pointcloud', PointCloud2, queue_size=10)
+    vehicle_pose_pub = rospy.Publisher('vehicle_pose', Odometry, queue_size=10)
+    landmark_pose_pub = rospy.Publisher('landmark_pose', PoseArray, queue_size=10)
+    landmark_pose_global_pub = rospy.Publisher('landmark_pose_global', PoseArray, queue_size=10)
+    pose_text_pub = rospy.Publisher('pose_text', Marker, queue_size=10)
+
     rospy.init_node('waymo_client', anonymous=True)
     rospy.loginfo("Node initialized correctly")
 
-    rate = rospy.Rate(1/30)
+    rate = rospy.Rate(1/4)
 
     # Read dataset
-    dataset_path = os.path.join(src_dir, "dataset/waymo_test_scene")
+    dataset_path = os.path.join(src_dir, "dataset/clustering_test_scene")
     tfrecord_list = list(sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
+
+    # Initialize classes outside the loop
+    wc = None
+    pointcloud_processor = None
+    camera_processor = None
+    incremental_odometry_extractor = None
 
     while not rospy.is_shutdown():
         for scene_index, scene_path in enumerate(tfrecord_list):
             scene_name = scene_path.stem
             rospy.loginfo(f"Scene {scene_index}: {scene_name} processing: {scene_path}")
-            frame = next(load_frame(scene_path))
-            if frame is not None:
-                wc = WaymoClient(frame, [2, 1, 3])
-                wc.pointcloud_processor = PointCloudProcessor(frame)
-                wc.camera_processor = CameraProcessor(frame)
-                wc.incremental_odometry = IncrementalOdometryExtractor(frame)
+            frame_n = 0  # Scene frames counter
+
+            ## Evaluation > position and orientation vectors to store vehicles poses
+            initial_pose = np.array([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float64) # DEBUG --> Plot accumulated pose
+            accumulated_pose = np.copy(initial_pose)
+            for frame in load_frame(scene_path):
+                if frame is None:
+                    rospy.logerr("Error reading frame")
+                    continue
+                print("FRAME: ", frame_n)
+
+                # Initialize classes if not already done
+                if wc is None:
+                    wc = WaymoClient(frame, [2, 1, 3])
+                if pointcloud_processor is None:
+                    pointcloud_processor = PointCloudProcessor(frame)
+                if camera_processor is None:
+                    camera_processor = CameraProcessor(frame)
+                if incremental_odometry_extractor is None:
+                    incremental_odometry_extractor = IncrementalOdometryExtractor(frame)
+
+                # Update frame for each class
+                wc.frame = frame
+                pointcloud_processor.frame = frame
+                camera_processor.frame = frame
+                incremental_odometry_extractor.frame = frame
+
+                # Set class references in wc
+                wc.pointcloud_processor = pointcloud_processor
+                wc.camera_processor = camera_processor
+                wc.incremental_odometry_extractor = incremental_odometry_extractor
 
                 rospy.loginfo("Calling processing services")
 
+                """ 
+                PROCESS ODOMETRY --> GET INCREMENTAL VEHICLE POSITION ON EACH FRAME
+                Odometry service also get the transformation matrix of the vehicle
+                """
+                wc.incremental_odometry_extractor.process_odometry()
+
+                # DEBUG -> send incremental odometry to publish in RVIZ
+                incremental_pose_msg = Odometry()
+                # Obtain odometry increment (in frame 0 will be 0)
+                increment_pose = np.array(wc.incremental_odometry_extractor.inc_odom)
+                  # Update accumulated pose
+                accumulated_pose[:3] += increment_pose[:3]
+                accumulated_rotation = R.from_quat(accumulated_pose[3:])
+                increment_rotation = R.from_quat(increment_pose[3:])
+                new_rotation = accumulated_rotation * increment_rotation
+                accumulated_pose[3:] = new_rotation.as_quat()
+                
+                print("NEW VEHICLE POSE RELATIVE TO 0: ", accumulated_pose)
+
+                # Publish the updated pose
+                incremental_pose_msg.header.frame_id = "base_link"
+                incremental_pose_msg.header.stamp = rospy.Time.now()
+                incremental_pose_msg.pose.pose.position = Point(*accumulated_pose[:3])
+                quaternion = [accumulated_pose[3], accumulated_pose[4], accumulated_pose[5], accumulated_pose[6]]
+                incremental_pose_msg.pose.pose.orientation = Quaternion(*quaternion)
+                vehicle_pose_pub.publish(incremental_pose_msg)
+
+                text_marker = Marker()
+                text_marker.header.frame_id = "base_link"
+                text_marker.header.stamp = rospy.Time.now()
+                text_marker.ns = "pose_text"
+                text_marker.id = 0
+                text_marker.type = Marker.TEXT_VIEW_FACING
+                text_marker.action = Marker.ADD
+                text_marker.pose.position = Point(accumulated_pose[0], accumulated_pose[1], accumulated_pose[2] + 1.0)  # Slightly above the vehicle
+                text_marker.pose.orientation = Quaternion(0, 0, 0, 1)
+                text_marker.scale.z = 0.5  # Height of the text
+                text_marker.color = ColorRGBA(1.0, 1.0, 1.0, 1.0)  # White color
+                text_marker.text = f"Pos: ({accumulated_pose[0]:.2f}, {accumulated_pose[1]:.2f}, {accumulated_pose[2]:.2f})\n" \
+                                   f"Quat: ({accumulated_pose[3]:.2f}, {accumulated_pose[4]:.2f}, {accumulated_pose[5]:.2f}, {accumulated_pose[6]:.2f})"
+                pose_text_pub.publish(text_marker)
+
+                """
+                POINTCLOUD CLUSTERING PROCESS
+                """
                 rospy.loginfo("Pointcloud processing service")
                 wc.pointcloud_processor.pointcloud_msg.header.frame_id = f"base_link_{scene_name}"
                 wc.pointcloud_processor.pointcloud_msg.header.stamp = rospy.Time.now()
@@ -423,6 +572,9 @@ if __name__ == "__main__":
                     continue
                 rospy.loginfo("Processed Pointcloud received")
 
+                """
+                LANDMARK DETECTION PROCESS
+                """
                 rospy.loginfo("Landmark detection processing service")
                 wc.camera_processor.camera_msg.header.frame_id = f"base_link_{scene_name}"
                 wc.camera_processor.camera_msg.header.stamp = rospy.Time.now()
@@ -435,20 +587,36 @@ if __name__ == "__main__":
                 DATA ASSOCIATION > PROJECT POINTCLOUD ON IMAGE AND FILTER CLUSTERS
                 This process 
                 """
-
+                rospy.loginfo("Data association process")
                 # Pointcloud - Image projection
                 wc.project_pointcloud_on_image()
+                
+                # Pointclouds filtering > get the IoU of pointcloud clusters and segmentation masks
+                # This method generates a dictionary of the classes and those clusters that match the segmentations.
+                # Generates clusters in the camera and vehicle frame
+                wc.filter_association_iou(debug=False,iou_threshold=0.1)
 
-                # Pointclous filtering
-                wc.get_association_iou()
+                # DEBUG - Publish filtered pointcloud only with landmarks
+                filtered_pointcloud_msg = PointCloud2()
+                final_pointcloud = []
+                for label, points in wc.clustered_pointcloud_iou_vehicle_frame.items():
+                    for point in points:
+                        final_pointcloud.append(point)
+                
+                fields = [
+                    PointField('x', 0, PointField.FLOAT32, 1),
+                    PointField('y', 4, PointField.FLOAT32, 1),
+                    PointField('z', 8, PointField.FLOAT32, 1)
+                ]
+                header = Header()
+                header.frame_id = "base_link"
+                header.stamp = rospy.Time.now()
+                filtered_pointcloud_msg = pc2.create_cloud(header, fields, final_pointcloud)
+                filtered_pointcloud_pub.publish(filtered_pointcloud_msg)
 
-                # cv2.namedWindow('result', cv2.WINDOW_NORMAL)
-                # cv2.setWindowProperty('result', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-                # cv2.imshow('result', wc.detection_association_image)
-                # cv2.waitKey(0)
-                # cv2.destroyAllWindows()
+                # Get cluster landmarks pose
+                wc.calculate_landmark_pose()
+                # TODO DEBUG - Publish landmark poses in vehicle and global frame
 
-                # Process odometry
-                # wc.incremental_odometry.process_odometry()
-
+                frame_n += 1
                 rate.sleep()

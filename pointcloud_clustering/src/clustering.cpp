@@ -392,7 +392,7 @@ int main(int argc, char **argv)
     try {
         PointCloudProcessor processor(configFilePath);
         ros::ServiceServer service = nh.advertiseService("process_pointcloud", &PointCloudProcessor::processPointCloudService, &processor);
-        ROS_INFO("Service server initialized correctly");
+        ROS_INFO("Service clustering initialized correctly");
 
         ros::spin();
     } catch (const std::exception &e) {

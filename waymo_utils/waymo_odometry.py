@@ -75,6 +75,7 @@ if __name__ == "__main__":
     
     prev_transform_matrix = None
     incremental_positions = []
+    poses = []
     orientations = []
 
     # for scene_index, scene_path in enumerate(sorted(tfrecord_list)):
@@ -84,17 +85,28 @@ if __name__ == "__main__":
         print(frame.context.name)
 
         point_cloud, points_cp = get_pointcloud(frame)
-        print("PointCloud: ", point_cloud)
-
         vehicle_pose_vector = frame.pose.transform
         transform_matrix = np.array(vehicle_pose_vector).reshape(4, 4)
+        pose = get_pose(transform_matrix)
+        print("X: ",        pose[0])
+        print("Y: ",        pose[1])
+        print("Z: ",        pose[2])
+        print("Roll: ",     pose[3])
+        print("Pitch: ",    pose[4])
+        print("Yaw: ",      pose[5])
+        poses.append(pose[:3])
+
 
         if prev_transform_matrix is not None:
             inc_odom_matrix = ominus(transform_matrix, prev_transform_matrix)
-            print("Incremental Pose Matrix:")
-            print(inc_odom_matrix)
 
             inc_odom = get_pose(inc_odom_matrix)
+            # print("X: ",        inc_odom[0])
+            # print("Y: ",        inc_odom[1])
+            # print("Z: ",        inc_odom[2])
+            # print("Roll: ",     inc_odom[3])
+            # print("Pitch: ",    inc_odom[4])
+            # print("Yaw: ",      inc_odom[5])
             incremental_positions.append(inc_odom[:3])  # Only x, y, z
             orientations.append(inc_odom[6])  # Rotation matrix
 
@@ -111,10 +123,10 @@ if incremental_positions:
     incremental_positions = np.array(incremental_positions)
 
     # Plot positions
-    ax.plot(incremental_positions[:, 0], incremental_positions[:, 1], incremental_positions[:, 2], 'o-', label='Position')
+    ax.plot(poses[:, 0], poses[:, 1], poses[:, 2], 'o-', label='Position')
 
     # Plot orientations as arrows
-    for pos, ori in zip(incremental_positions, orientations):
+    for pos, ori in zip(poses, orientations):
         ax.quiver(pos[0], pos[1], pos[2], ori[0, 0], ori[1, 0], ori[2, 0], color='r', length=0.5, normalize=True)
         ax.quiver(pos[0], pos[1], pos[2], ori[0, 1], ori[1, 1], ori[2, 1], color='g', length=0.5, normalize=True)
         ax.quiver(pos[0], pos[1], pos[2], ori[0, 2], ori[1, 2], ori[2, 2], color='b', length=0.5, normalize=True)

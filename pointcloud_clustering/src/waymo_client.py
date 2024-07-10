@@ -2,6 +2,7 @@
 """
     This node reads a point cloud from Waymo Open Dataset, converts it to PCL, and sends it to various service servers for processing.
 """
+# TODO: Incremental position computed is not being plotted correctly in RVIZ, it plots a straight line
 import os
 import sys
 import numpy as np

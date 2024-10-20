@@ -8,12 +8,12 @@ import sys
 import cv2
 import numpy as np
 
-# Import tensorflow before transformers with logs deactivated to avoid printing tf logs
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-
 import tensorflow as tf
 if not tf.executing_eagerly():
     tf.compat.v1.enable_eager_execution()
+
+# Import tensorflow before transformers with logs deactivated to avoid printing tf logs
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import torch
 import torchvision.transforms as T
@@ -135,6 +135,27 @@ def image_overlay(image, segmented_image):
     cv2.addWeighted(image, alpha, segmented_image, beta, gamma, image)
     return image
 
+def publish_image_to_topic(topic, image, header):
+    """
+    Publishes an image to the specified ROS topic.
+
+    :param topic: The ROS topic to publish the image to (string).
+    :param image: The image to be published (OpenCV format).
+    :param header: The header to maintain the metadata (ROS header).
+    """
+    # Initialize the publisher for the specified topic
+    image_publisher = rospy.Publisher(topic, Image, queue_size=10)
+
+    # Convert OpenCV image to ROS Image message
+    bridge = CvBridge()
+    image_msg = bridge.cv2_to_imgmsg(image, encoding="bgr8")
+
+    # Maintain the header information from the original image
+    image_msg.header = header
+
+    # Publish the image message
+    image_publisher.publish(image_msg)
+
 def process_image_service(req):
     rospy.loginfo("Image received for processing")
     # Load the model and feature extractor from Hugging Face
@@ -149,16 +170,28 @@ def process_image_service(req):
     image = bridge.imgmsg_to_cv2(req.image, desired_encoding="bgr8")
 
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    # DEBUG publishing -> input image
+    publish_image_to_topic(topic='/landmark_detection_input', image=image, header=req.image.header)
+
+
     # Get labels.
     labels = predict(model, feature_extractor, image, 'cpu')
     # Get segmentation map.
     seg_map = draw_segmentation_map(
         labels.cpu(), cityscapes_palette
     )
+    # DEBUG publishing -> segmentation map
+    publish_image_to_topic(topic='/landmark_detection_seg_map', image=seg_map, header=req.image.header)
+
     outputs = image_overlay(image, seg_map)
+    # DEBUG publishing -> output result
+    publish_image_to_topic(topic='/landmark_detection_output', image=outputs, header=req.image.header)
+
     # cv2.imshow('Image', outputs)
     # cv2.waitKey(0)
     # Convert result back to ROS Image message
+
+    # Create response mesage of the service
     detection_msg = bridge.cv2_to_imgmsg(seg_map, encoding="bgr8")
     detection_msg.header = req.image.header  # Maintain image header
 

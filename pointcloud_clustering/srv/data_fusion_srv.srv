@@ -1,0 +1,4 @@
+geometry_msgs/PoseStamped odometry
+geometry_msgs/PoseArray observations
+---
+pointcloud_clustering/positionRPY corrected_position

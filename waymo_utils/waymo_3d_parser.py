@@ -18,7 +18,6 @@ import open3d as o3d
 from scipy.spatial.transform import Rotation as R
 from sklearn.cluster import DBSCAN, OPTICS, cluster_optics_dbscan
 
-
 if not tf.executing_eagerly():
   tf.compat.v1.enable_eager_execution()
 
@@ -43,6 +42,7 @@ def get_pointcloud(frame):
     points, points_cp = concatenate_pcd_returns(points_return1, points_return2)
 
     return points, points_cp
+
 
 def convert_range_image_to_point_cloud_labels(frame,
                                               range_images,
@@ -83,23 +83,6 @@ def convert_range_image_to_point_cloud_labels(frame,
     return point_labels
 
 
-def plot_range_image_helper(data, name, layout, vmin = 0, vmax=1, cmap='gray'):
-    """Plots range image.
-
-    Args:
-        data: range image data
-        name: the image title
-        layout: plt layout
-        vmin: minimum value of the passed data
-        vmax: maximum value of the passed data
-        cmap: color map
-    """
-    plt.subplot(*layout)
-    plt.imshow(data, cmap=cmap, vmin=vmin, vmax=vmax)
-    plt.title(name)
-    plt.grid(False)
-    plt.axis('off')
-
 def concatenate_pcd_returns(pcd_return_1, pcd_return_2):
     points, points_cp = pcd_return_1
     points_ri2, points_cp_ri2 = pcd_return_2
@@ -120,12 +103,16 @@ def show_semseg_label_image(semseg_label_image, layout_index_start = 1):
     semseg_label_image_tensor = tf.convert_to_tensor(semseg_label_image.data)
     semseg_label_image_tensor = tf.reshape(
         semseg_label_image_tensor, semseg_label_image.shape.dims)
-    instance_id_image = semseg_label_image_tensor[...,0] 
-    semantic_class_image = semseg_label_image_tensor[...,1]
-    plot_range_image_helper(instance_id_image.numpy(), 'instance id',
-                    [8, 1, layout_index_start], vmin=-1, vmax=200, cmap='Paired')
-    plot_range_image_helper(semantic_class_image.numpy(), 'semantic class',
-                    [8, 1, layout_index_start + 1], vmin=0, vmax=22, cmap='tab20')
+    range_image_range = semseg_label_image_tensor[...,0] 
+    range_image_intensity = semseg_label_image_tensor[...,1]
+    range_image_elongation = semseg_label_image_tensor[...,2]
+
+    plot_range_image_helper(range_image_range.numpy(), 'Range',
+                    [8, 1, layout_index_start], vmax=75, cmap='Paired')
+    plot_range_image_helper(range_image_intensity.numpy(), 'Intensity',
+                    [8, 1, layout_index_start + 1], vmax=1.5, cmap='tab20')
+    plot_range_image_helper(range_image_elongation.numpy(), 'Elongation',
+                    [8, 1, layout_index_start + 2], vmax=1.5, cmap='gray')
 
 
 def concatenate_points(points):
@@ -190,6 +177,7 @@ def show_point_cloud_with_labels(points, segmentation_labels=None):
 
     vis.run()
 
+
 def filter_lidar_data(point_clouds, segmentation_labels, labels_to_keep):
     """
     Function to filter points.
@@ -229,7 +217,6 @@ def cluster_pointcloud(point_cloud):
         clustered_point_cloud.append(cluster_points)
 
     return clustered_point_cloud, cluster_labels
-
 
 
 def calculate_centroid(points):
@@ -284,6 +271,7 @@ def euler_to_quaternion(roll, pitch, yaw):
 
     return [qx, qy, qz, qw]
 
+
 def quaternion_to_euler(w, x, y, z):
     sinr_cosp = 2 * (w * x + y * z)
     cosr_cosp = 1 - 2 * (x * x + y * y)
@@ -300,6 +288,38 @@ def quaternion_to_euler(w, x, y, z):
     yaw = np.arctan2(siny_cosp, cosy_cosp)
 
     return roll, pitch, yaw
+
+
+def normalize_quaternion(q):
+    norm = np.linalg.norm(q)
+    if norm == 0:
+        raise ValueError("Cannot normalize a zero-norm quaternion")
+    return q / norm
+
+
+def quaternion_multiply(q1, q2):
+    """ Multiplies two quaternions in the format [x, y, z, w]. """
+    x1, y1, z1, w1 = q1
+    x2, y2, z2, w2 = q2
+    return [
+        w1*x2 + x1*w2 + y1*z2 - z1*y2,
+        w1*y2 - x1*z2 + y1*w2 + z1*x2,
+        w1*z2 + x1*y2 - y1*x2 + z1*w2,
+        w1*w2 - x1*x2 - y1*y2 - z1*z2
+    ]
+
+
+def quaternion_conjugate(q):
+    """ Returns the conjugate (inverse) of a quaternion in the format [x, y, z, w]. """
+    x, y, z, w = q
+    return [-x, -y, -z, w]
+
+
+def quaternion_difference(q1, q2):
+    """ Returns the quaternion representing the rotation from q1 to q2 in the format [x, y, z, w]. """
+    q1_inv = quaternion_conjugate(q1)
+    return quaternion_multiply(q1_inv, q2)
+
 
 def plot_referenced_pointcloud(point_cloud, plot=True):
     pcd = o3d.geometry.PointCloud()
@@ -352,6 +372,7 @@ def plot_labeled_pointcloud(labeled_pointclouds):
     vis.run()
     vis.destroy_window()
 
+
 if __name__ == "__main__":
     from WaymoParser import *
     from sklearn.cluster import DBSCAN
@@ -359,10 +380,10 @@ if __name__ == "__main__":
 
     # Add project root root to python path
     current_script_directory = os.path.dirname(os.path.realpath(__file__))
-    src_dir = os.path.abspath(os.path.join(current_script_directory, "../.."))
+    src_dir = os.path.abspath(os.path.join(current_script_directory, ".."))
     sys.path.append(src_dir)
 
-    dataset_path = os.path.join(src_dir, "dataset/waymo_map_scene")
+    dataset_path = os.path.join(src_dir, "dataset/waymo_test_scene")
 
     tfrecord_list = list(
         sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
@@ -375,7 +396,9 @@ if __name__ == "__main__":
             if not(segmentation_labels):
                 continue
 
-            show_semseg_label_image(range_images[1])
+            frame.lasers.sort(key=lambda laser: laser.name)
+            show_semseg_label_image(range_images[open_dataset.LaserName.TOP][0])
+            plt.show()
 
 
             # Get points labeled for first and second return
@@ -387,7 +410,6 @@ if __name__ == "__main__":
                 return points, points_cp
             
             # Return of the first 2 lidar scans
- 
             points_return1, _ = _range_image_to_pcd()
             points_return2, _ = _range_image_to_pcd(1)
 
@@ -411,8 +433,8 @@ if __name__ == "__main__":
             # # Cluster filtered pointcloud
             clustered_point_clouds, cluster_labels = cluster_pointcloud(concat_point_cloud)
 
-            # plt.figure()
-            # plt.scatter(concat_point_cloud[:,0], concat_point_cloud[:,1], c=cluster_labels)
-            # plt.show()
+            plt.figure()
+            plt.scatter(concat_point_cloud[:,0], concat_point_cloud[:,1], c=cluster_labels)
+            plt.show()
 
-            show_point_cloud_with_labels(concat_point_cloud, cluster_labels)
+            # show_point_cloud_with_labels(concat_point_cloud, cluster_labels)

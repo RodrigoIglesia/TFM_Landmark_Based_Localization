@@ -21,8 +21,8 @@ import sensor_msgs.point_cloud2 as pc2
 from sensor_msgs.msg import PointCloud2, PointField, Image
 from geometry_msgs.msg import PoseStamped, PoseArray, Point, Quaternion
 from nav_msgs.msg import Path, Odometry
-from waymo_parser.msg import CameraProj
-from pointcloud_clustering.srv import clustering_srv, clustering_srvRequest, landmark_detection_srv, landmark_detection_srvRequest
+from pointcloud_clustering.msg import CameraProj, positionRPY
+from pointcloud_clustering.srv import clustering_srv, clustering_srvRequest, landmark_detection_srv, landmark_detection_srvRequest, data_fusion_srv, data_fusion_srvRequest
 from cv_bridge import CvBridge
 import cv2
 
@@ -59,15 +59,26 @@ class WaymoClient:
         self.processed_image = None # Returned segmentation mask by the landmark detection service
         self.image_height = None
         self.image_width = None
+        # Positioning
+        self.odometry_pose = None
+        self.corrected_pose = None
 
         rospy.loginfo("Waiting for server processes...")
+        # Wait until POINTCLOUD CLUSTERING service is UP AND RUNNING
         rospy.wait_for_service('process_pointcloud')
+        # Create client to call POINTCLOUD CLUSTERING
         self.pointcloud_clustering_client = rospy.ServiceProxy('process_pointcloud', clustering_srv)
         rospy.loginfo("Clustering service is running")
 
+        # Wait until LANDMARK DETECTION service is UP AND RUNNING
         rospy.wait_for_service('landmark_detection')
+        # Create client to call LANDMARK DETECTION
         self.landmark_detection_client = rospy.ServiceProxy('landmark_detection', landmark_detection_srv)
         rospy.loginfo("Landmark service is running")
+
+        # rospy.wait_for_service('data_fusion')
+        # self.data_fusion_client = rospy.ServiceProxy('data_fusion', data_fusion_srv)
+        # rospy.loginfo("Data Fusion service is running")
 
     def init_camera_params(self):
         camera_intrinsic = np.array(self.frame.context.camera_calibrations[0].intrinsic)
@@ -87,10 +98,12 @@ class WaymoClient:
         self.extrinsic_matrix_inv[3, 3] = 1.0
         self.extrinsic_matrix_inv = self.extrinsic_matrix_inv[:3,:]
 
+
     def cart2hom(self, pts_3d):
         n = pts_3d.shape[0]
         pts_3d_hom = np.hstack((pts_3d, np.ones((n, 1))))
         return pts_3d_hom
+
 
     def process_pointcloud(self):
         self.points, points_cp = self.pointcloud_processor.get_pointcloud()
@@ -117,6 +130,7 @@ class WaymoClient:
         else:
             rospy.loginfo("No pointcloud in frame")
 
+
     def process_image(self):
         self.image = self.camera_processor.get_camera_image()[0]
         if self.image is not None:
@@ -136,6 +150,7 @@ class WaymoClient:
                 rospy.logerr(f"Service call failed: {e}")
         else:
             rospy.loginfo("No image in frame")
+
 
     def __vehicle_to_camera(self, pointcloud, transform):
         point_cloud_hom = self.cart2hom(pointcloud)
@@ -157,6 +172,7 @@ class WaymoClient:
         point_cloud_cam = np.dot(Ry, point_cloud_cam.T).T
 
         return point_cloud_cam
+
 
     def project_pointcloud_on_image(self):
         """
@@ -321,7 +337,55 @@ class WaymoClient:
         """
         Method to send current pose and rest of parameters to the EKF process
         """
-        pass
+        # Create the service request
+        ekf_request = data_fusion_srvRequest()
+        
+        # Populate the request with incremental odometry pose
+        self.incremental_odometry_extractor.process_odometry()
+        self.odometry_pose = self.incremental_odometry_extractor.inc_odom
+        ekf_request.odometry = self.incremental_odometry_extractor.inc_odom_msg
+
+        # Populate the request with landmark poses
+        landmark_poses = PoseArray()
+        for label, pose in self.clusters_poses.items():
+            landmark_pose = PoseStamped()
+            landmark_pose.pose.position.x = pose[0]
+            landmark_pose.pose.position.y = pose[1]
+            landmark_pose.pose.position.z = pose[2]
+            quaternion = R.from_euler('xyz', pose[3:]).as_quat()
+            landmark_pose.pose.orientation.x = quaternion[0]
+            landmark_pose.pose.orientation.y = quaternion[1]
+            landmark_pose.pose.orientation.z = quaternion[2]
+            landmark_pose.pose.orientation.w = quaternion[3]
+            landmark_poses.poses.append(landmark_pose.pose)
+        ekf_request.observations = landmark_poses
+
+        # Call the EKF service
+        try:
+            rospy.loginfo("Calling EKF service...")
+            ekf_response = self.data_fusion_client(ekf_request)
+            rospy.loginfo("EKF service call successful")
+            
+            # Handle the response to get the corrected pose
+            self.corrected_pose = ekf_response.corrected_position
+            rospy.loginfo(f"Corrected Pose: {self.corrected_pose}")
+            
+            # Optionally, publish the corrected pose
+            corrected_pose_msg = PoseStamped()
+            corrected_pose_msg.header.frame_id = "map"
+            corrected_pose_msg.header.stamp = rospy.Time.now()
+            corrected_pose_msg.pose.position.x = self.corrected_pose.x
+            corrected_pose_msg.pose.position.y = self.corrected_pose.y
+            corrected_pose_msg.pose.position.z = self.corrected_pose.z
+            quaternion = R.from_euler('xyz', [self.corrected_pose.roll, self.corrected_pose.pitch, self.corrected_pose.yaw]).as_quat()
+            corrected_pose_msg.pose.orientation.x = quaternion[0]
+            corrected_pose_msg.pose.orientation.y = quaternion[1]
+            corrected_pose_msg.pose.orientation.z = quaternion[2]
+            corrected_pose_msg.pose.orientation.w = quaternion[3]
+            vehicle_pose_pub.publish(corrected_pose_msg)
+            
+        except rospy.ServiceException as e:
+            rospy.logerr(f"EKF service call failed: {e}")
 
 
 class IncrementalOdometryExtractor(WaymoClient):
@@ -333,43 +397,52 @@ class IncrementalOdometryExtractor(WaymoClient):
         self.inc_odom = []
         self.inc_odom_msg = PoseStamped()
 
-    def ominus(self, T1, T2):
-        return np.linalg.inv(T2) @ T1
-
     def get_pose(self, T):
         position = T[:3, 3]
         R_matrix = T[:3, :3]
         rotation = R.from_matrix(R_matrix)
-        quaternion = rotation.as_quat()
+        roll, pitch, yaw = rotation.as_euler('xyz', degrees=False)
 
-        return [position[0], position[1], position[2], quaternion[0], quaternion[1], quaternion[2], quaternion[3]]
+        return [position[0], position[1], position[2], roll, pitch, yaw]
+
+    def normalize_angle(self, angle):
+        """ Normalize the angle to be within the range [-π, π] """
+        return (angle + np.pi) % (2 * np.pi) - np.pi
 
     def process_odometry(self):
         """
         Get incremental pose of the vehicle
         """
-        print("Pose transform: ", self.frame.pose.transform)
         self.transform_matrix = np.array(self.frame.pose.transform).reshape(4, 4)
         print("Transform matrix: ", self.transform_matrix)
-        self.global_pose = self.get_pose(self.transform_matrix)
-        print("Vehicle pose: ", self.get_pose(self.transform_matrix))
         if self.prev_transform_matrix is None:
-            # First incremental pose is 0 to send to EKF
-            self.inc_odom = [0,0,0,1,0,0,0] # identity quaternion
+            self.inc_odom = [0, 0, 0, 0, 0, 0]  # Initialize Euler angles to 0
         else:
-            inc_odom_matrix = self.ominus(self.transform_matrix, self.prev_transform_matrix)
+            prev_pose = self.get_pose(self.prev_transform_matrix)
+            pose = self.get_pose(self.transform_matrix)
 
-            self.inc_odom = self.get_pose(inc_odom_matrix)
+            delta_position = np.subtract(pose[:3], prev_pose[:3])
+            delta_orientation = np.subtract(pose[3:], prev_pose[3:])  # Calculate delta Euler angles
+
+            # Normalize the delta_orientation
+            delta_orientation = [self.normalize_angle(angle) for angle in delta_orientation]
+            self.inc_odom = np.concatenate((delta_position, delta_orientation))
+
+            print("Vehicle previous pose: ", prev_pose)
+            print("Vehicle current pose: ", pose)
             print("Vehicle pose increment: ", self.inc_odom)
 
         # Create PoseStamped message
         self.inc_odom_msg.pose.position.x       = self.inc_odom[0]
         self.inc_odom_msg.pose.position.y       = self.inc_odom[1]
         self.inc_odom_msg.pose.position.z       = self.inc_odom[2]
-        self.inc_odom_msg.pose.orientation.x    = self.inc_odom[3]
-        self.inc_odom_msg.pose.orientation.y    = self.inc_odom[4]
-        self.inc_odom_msg.pose.orientation.z    = self.inc_odom[5]
-        self.inc_odom_msg.pose.orientation.w    = self.inc_odom[6]
+        # Convert Euler angles to quaternion for ROS message
+        rotation = R.from_euler('xyz', self.inc_odom[3:])
+        quaternion = rotation.as_quat()
+        self.inc_odom_msg.pose.orientation.x    = quaternion[0]
+        self.inc_odom_msg.pose.orientation.y    = quaternion[1]
+        self.inc_odom_msg.pose.orientation.z    = quaternion[2]
+        self.inc_odom_msg.pose.orientation.w    = quaternion[3]
         
         self.prev_transform_matrix = self.transform_matrix
 
@@ -458,7 +531,9 @@ class CameraProcessor(WaymoClient):
 
 
 if __name__ == "__main__":
+    ##############################################################################################
     # DEBUG --> Publishers for rviz
+    ##############################################################################################
     clustered_pointcloud_pub = rospy.Publisher('clustered_pointcloud', PointCloud2, queue_size=10)
     filtered_pointcloud_pub = rospy.Publisher('filtered_pointcloud', PointCloud2, queue_size=10)
     vehicle_pose_pub = rospy.Publisher('vehicle_pose', Odometry, queue_size=10)
@@ -466,13 +541,16 @@ if __name__ == "__main__":
     landmark_pose_global_pub = rospy.Publisher('landmark_pose_global', PoseArray, queue_size=10)
     pose_text_pub = rospy.Publisher('pose_text', Marker, queue_size=10)
 
+    ##############################################################################################
+    ## Initialize main client node
+    ##############################################################################################
     rospy.init_node('waymo_client', anonymous=True)
     rospy.loginfo("Node initialized correctly")
 
     rate = rospy.Rate(1/4)
 
     # Read dataset
-    dataset_path = os.path.join(src_dir, "dataset/clustering_test_scene")
+    dataset_path = os.path.join(src_dir, "dataset/waymo_train_scene")
     tfrecord_list = list(sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
 
     # Initialize classes outside the loop
@@ -481,6 +559,9 @@ if __name__ == "__main__":
     camera_processor = None
     incremental_odometry_extractor = None
 
+    ##############################################################################################
+    ## Dataset Parsing
+    ##############################################################################################
     while not rospy.is_shutdown():
         for scene_index, scene_path in enumerate(tfrecord_list):
             scene_name = scene_path.stem
@@ -488,13 +569,12 @@ if __name__ == "__main__":
             frame_n = 0  # Scene frames counter
 
             ## Evaluation > position and orientation vectors to store vehicles poses
-            initial_pose = np.array([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float64) # DEBUG --> Plot accumulated pose
+            initial_pose = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], dtype=np.float64) # Quaternion initialized to no rotation
             accumulated_pose = np.copy(initial_pose)
             for frame in load_frame(scene_path):
                 if frame is None:
                     rospy.logerr("Error reading frame")
                     continue
-                print("FRAME: ", frame_n)
 
                 # Initialize classes if not already done
                 if wc is None:
@@ -517,32 +597,46 @@ if __name__ == "__main__":
                 wc.camera_processor = camera_processor
                 wc.incremental_odometry_extractor = incremental_odometry_extractor
 
+                ##############################################################################################
+                ## Procesing Services
+                ##############################################################################################
+
                 rospy.loginfo("Calling processing services")
+
+                print("FRAME: ", frame_n)
 
                 """ 
                 PROCESS ODOMETRY --> GET INCREMENTAL VEHICLE POSITION ON EACH FRAME
                 Odometry service also get the transformation matrix of the vehicle
+                In this version, incremental odometry is also calculated by the client service
                 """
+
+                # Obtain odometry increment (in frame 0 will be 0)
                 wc.incremental_odometry_extractor.process_odometry()
+                increment_pose = np.array(wc.incremental_odometry_extractor.inc_odom)
+
+                if frame_n == 0:
+                    accumulated_pose = increment_pose
+                else:
+                    inc_position = increment_pose[:3]
+                    accumulated_position = accumulated_pose[:3] + inc_position
+                    inc_euler = increment_pose[3:]
+                    acc_euler = accumulated_pose[3:] + inc_euler  # Accumulate Euler angles
+                    # Normalize the accumulated Euler angles
+                    acc_euler = [wc.incremental_odometry_extractor.normalize_angle(angle) for angle in acc_euler]
+                    accumulated_pose = np.concatenate((accumulated_position, acc_euler))
+                
+                print("Accumulated pose starting from 0: ", accumulated_pose)
 
                 # DEBUG -> send incremental odometry to publish in RVIZ
                 incremental_pose_msg = Odometry()
-                # Obtain odometry increment (in frame 0 will be 0)
-                increment_pose = np.array(wc.incremental_odometry_extractor.inc_odom)
-                  # Update accumulated pose
-                accumulated_pose[:3] += increment_pose[:3]
-                accumulated_rotation = R.from_quat(accumulated_pose[3:])
-                increment_rotation = R.from_quat(increment_pose[3:])
-                new_rotation = accumulated_rotation * increment_rotation
-                accumulated_pose[3:] = new_rotation.as_quat()
-                
-                print("NEW VEHICLE POSE RELATIVE TO 0: ", accumulated_pose)
-
                 # Publish the updated pose
                 incremental_pose_msg.header.frame_id = "base_link"
                 incremental_pose_msg.header.stamp = rospy.Time.now()
                 incremental_pose_msg.pose.pose.position = Point(*accumulated_pose[:3])
-                quaternion = [accumulated_pose[3], accumulated_pose[4], accumulated_pose[5], accumulated_pose[6]]
+                # Convert Euler angles to quaternion for ROS message
+                rotation = R.from_euler('xyz', accumulated_pose[3:])
+                quaternion = rotation.as_quat()
                 incremental_pose_msg.pose.pose.orientation = Quaternion(*quaternion)
                 vehicle_pose_pub.publish(incremental_pose_msg)
 
@@ -553,13 +647,16 @@ if __name__ == "__main__":
                 text_marker.id = 0
                 text_marker.type = Marker.TEXT_VIEW_FACING
                 text_marker.action = Marker.ADD
+                # text_marker.pose.position = Point(0.0,0.0,1.0)  # Slightly above the vehicle
                 text_marker.pose.position = Point(accumulated_pose[0], accumulated_pose[1], accumulated_pose[2] + 1.0)  # Slightly above the vehicle
-                text_marker.pose.orientation = Quaternion(0, 0, 0, 1)
+                text_marker.pose.orientation = Quaternion(quaternion[0], quaternion[1], quaternion[2], quaternion[3])
                 text_marker.scale.z = 0.5  # Height of the text
                 text_marker.color = ColorRGBA(1.0, 1.0, 1.0, 1.0)  # White color
-                text_marker.text = f"Pos: ({accumulated_pose[0]:.2f}, {accumulated_pose[1]:.2f}, {accumulated_pose[2]:.2f})\n" \
-                                   f"Quat: ({accumulated_pose[3]:.2f}, {accumulated_pose[4]:.2f}, {accumulated_pose[5]:.2f}, {accumulated_pose[6]:.2f})"
+                text_marker.text =  f"Frame: ({frame_n})\n" \
+                                    f"Pos: ({accumulated_pose[0]:.2f}, {accumulated_pose[1]:.2f}, {accumulated_pose[2]:.2f})\n" \
+                                    f"Orientation: ({accumulated_pose[3]:.2f}, {accumulated_pose[4]:.2f}, {accumulated_pose[5]:.2f})"
                 pose_text_pub.publish(text_marker)
+                rospy.loginfo("New incremental pose published")
 
                 """
                 POINTCLOUD CLUSTERING PROCESS
@@ -615,9 +712,10 @@ if __name__ == "__main__":
                 filtered_pointcloud_msg = pc2.create_cloud(header, fields, final_pointcloud)
                 filtered_pointcloud_pub.publish(filtered_pointcloud_msg)
 
-                # Get cluster landmarks pose
-                wc.calculate_landmark_pose()
-                # TODO DEBUG - Publish landmark poses in vehicle and global frame
+                # # Get cluster landmarks pose
+                # wc.calculate_landmark_pose()
+                # # TODO DEBUG - Publish landmark poses in vehicle and global frame
 
-                frame_n += 1
+                # frame_n += 1
                 rate.sleep()
+                

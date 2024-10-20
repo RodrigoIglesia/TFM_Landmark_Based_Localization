@@ -5,8 +5,6 @@ project(pointcloud_clustering)
 # add_compile_options(-std=c++11)
 
 ## Find catkin macros and libraries
-## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
-## is used, also find other catkin packages
 find_package(PCL 1.2 REQUIRED)
 find_package(catkin REQUIRED COMPONENTS
   roscpp
@@ -20,9 +18,7 @@ find_package(catkin REQUIRED COMPONENTS
   message_generation
   message_runtime
 )
-
-## System dependencies are found with CMake's conventions
-# find_package(Boost REQUIRED COMPONENTS system)
+find_package(nlohmann_json 3.2.0 REQUIRED)
 
 # Generate messages in the 'msg' folder
 add_message_files(
@@ -37,6 +33,7 @@ add_service_files(
   FILES
   clustering_srv.srv
   landmark_detection_srv.srv
+  data_fusion_srv.srv
 )
 
 # Generate added messages and services with any dependencies listed here
@@ -61,9 +58,15 @@ include_directories(
   ${catkin_INCLUDE_DIRS}
 )
 
+# Agrega los archivos de código fuente adicionales aquí
 add_executable(clustering src/clustering.cpp)
-add_executable(data_fusion src/data_fusion.cpp)
-target_link_libraries(clustering ${PCL_LIBRARIES} ${catkin_LIBRARIES} ${rosbag_LIBRARIES})
-target_link_libraries(data_fusion ${catkin_LIBRARIES})
+add_executable(data_fusion src/data_fusion.cpp src/custom_functions.cpp)
 
+# Enlaza las bibliotecas necesarias a los ejecutables
+target_link_libraries(clustering ${PCL_LIBRARIES} ${catkin_LIBRARIES} ${rosbag_LIBRARIES})
+target_link_libraries(data_fusion ${catkin_LIBRARIES} nlohmann_json::nlohmann_json)
+
+
+# Asegúrate de que los mensajes y servicios se generen antes de compilar los ejecutables
 add_dependencies(clustering ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+add_dependencies(data_fusion ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})

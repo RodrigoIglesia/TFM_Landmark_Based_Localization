@@ -29,6 +29,7 @@ import sys
 
 import logging
 import numpy as np
+import matplotlib.pyplot as plt
 import plotly.graph_objs as go
 import pathlib
 
@@ -49,9 +50,35 @@ from waymo_open_dataset.utils import plot_maps
 current_script_directory = os.path.dirname(os.path.realpath(__file__))
 src_dir = os.path.abspath(os.path.join(current_script_directory, ".."))
 sys.path.append(src_dir)
+print(src_dir)
 
-# Configure logging
-logging.basicConfig(filename='logs/waymo_hd_map_gen.log', level=logging.DEBUG, format='%(asctime)s - %(message)s')
+###############################################################################
+## Configure logging
+###############################################################################
+
+# Set up logging to both file and console
+log_file = src_dir + '/hd_map_gen/logs/waymo_hd_map_gen.log'
+
+# Create handlers
+file_handler = logging.FileHandler(log_file)
+console_handler = logging.StreamHandler(sys.stdout)
+
+# Set logging level for both handlers
+file_handler.setLevel(logging.DEBUG)
+console_handler.setLevel(logging.DEBUG)
+
+# Create a logging format
+formatter = logging.Formatter('%(asctime)s - %(message)s')
+file_handler.setFormatter(formatter)
+console_handler.setFormatter(formatter)
+
+# Get the root logger
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
+
+# Add the handlers to the logger
+logger.addHandler(file_handler)
+logger.addHandler(console_handler)
 
 
 from waymo_utils.WaymoParser import *
@@ -60,7 +87,7 @@ from waymo_utils.waymo_3d_parser import *
 
 def project_points_on_map(points, frame):
     """
-    Project coordinates of the point cloud (referenced to the sensor system) to the map (referenced to the world system)
+    Project coordinates of the point cloud (referenced to the sensor system) to the map (referenced to the vehicle system)
     """
     # Get pointcloud coordinated to project in the map
     xyz = points[0]
@@ -204,7 +231,7 @@ def save_protobuf_features(protobuf_message, output):
 
 
 if __name__ == "__main__":
-    dataset_path        = os.path.join(src_dir, "dataset/waymo_map_scene")
+    dataset_path        = os.path.join(src_dir, "dataset/waymo_test_scene")
     json_maps_path      = os.path.join(src_dir, "dataset/hd_maps")
     point_clouds_path   = os.path.join(src_dir, "dataset/pointclouds")
     output_dataset_path = os.path.join(src_dir, "dataset/waymo_map_scene_mod")
@@ -268,7 +295,9 @@ if __name__ == "__main__":
                 frame, range_images, segmentation_labels)
             point_labels_ri2 = convert_range_image_to_point_cloud_labels(
                 frame, range_images, segmentation_labels, ri_index=1)
-            
+
+            plot_pointcloud_on_map(map_features, points_return1, point_labels)
+
             filtered_point_cloud, filtered_point_labels = filter_lidar_data(points_return1, point_labels, [8, 10])
 
             projected_point_cloud = project_points_on_map(filtered_point_cloud, frame)
@@ -292,51 +321,51 @@ if __name__ == "__main__":
             logging.debug("No pointclouds in scene")
             continue
 
-        # Save point cloud to csv
-        out_csv_path = point_clouds_path + '/pointcloud_concatenated' + os.path.splitext(os.path.basename(scene_path))[0] + '.csv'
-        # Use savetxt to save the array to a CSV file
-        np.savetxt(out_csv_path, point_clouds, delimiter=',')
-        logging.debug(f"NumPy array has been successfully saved to {out_csv_path}.")
+        # # # Save point cloud to csv
+        # # out_csv_path = point_clouds_path + '/pointcloud_concatenated' + os.path.splitext(os.path.basename(scene_path))[0] + '.csv'
+        # # # Use savetxt to save the array to a CSV file
+        # # np.savetxt(out_csv_path, point_clouds, delimiter=',')
+        # # logging.debug(f"NumPy array has been successfully saved to {out_csv_path}.")
 
-        # Get the clustered pointclouds, each cluster corresponding to a traffic sign
-        clustered_point_cloud, cluster_labels = cluster_pointcloud(point_clouds)
+        # # Get the clustered pointclouds, each cluster corresponding to a traffic sign
+        # clustered_point_cloud, cluster_labels = cluster_pointcloud(point_clouds)
 
-        ##############################################################
-        ## Enrich Feature Map
-        ##############################################################
-        # Add signs to map
-        sign_id = map_features[-1].id
-        for cluster in clustered_point_cloud:
-            # Get the centroid of each cluster of the pointcloud
-            cluster_centroid = get_cluster_centroid(cluster)
+        # ##############################################################
+        # ## Enrich Feature Map
+        # ##############################################################
+        # # Add signs to map
+        # sign_id = map_features[-1].id
+        # for cluster in clustered_point_cloud:
+        #     # Get the centroid of each cluster of the pointcloud
+        #     cluster_centroid = get_cluster_centroid(cluster)
 
-            # Add sign centroids to feature map
-            add_sign_to_map(map_features, cluster_centroid, sign_id)
-            logging.debug("Sign message added to map features")
-            sign_id += 1
-        save_protobuf_features(map_features, json_maps_path + "/signs_map_features_" + os.path.splitext(os.path.basename(scene_path))[0] + '.json')
-        logging.debug("Modified map saved as JSON")
+        #     # Add sign centroids to feature map
+        #     add_sign_to_map(map_features, cluster_centroid, sign_id)
+        #     logging.debug("Sign message added to map features")
+        #     sign_id += 1
+        # save_protobuf_features(map_features, json_maps_path + "/signs_map_features_" + os.path.splitext(os.path.basename(scene_path))[0] + '.json')
+        # logging.debug("Modified map saved as JSON")
 
-        ##############################################################
-        ## Generate a new tfrecord file
-        ##############################################################
-        output_filename = output_dataset_path + '/output' + os.path.basename(scene_path)
-        writer = tf.io.TFRecordWriter(output_filename)
-        for frame in load_frame(scene_path):
-            if hasattr(frame, 'map_features') and frame.map_features:
-                logging.debug("Removing current map features")
-                # Retrieve map_feature in the firts 
-                del frame.map_features[:]
+        # ##############################################################
+        # ## Generate a new tfrecord file
+        # ##############################################################
+        # output_filename = output_dataset_path + '/output' + os.path.basename(scene_path)
+        # writer = tf.io.TFRecordWriter(output_filename)
+        # for frame in load_frame(scene_path):
+        #     if hasattr(frame, 'map_features') and frame.map_features:
+        #         logging.debug("Removing current map features")
+        #         # Retrieve map_feature in the firts 
+        #         del frame.map_features[:]
 
-                # Append the new map_features object to the cleared list
-                logging.debug("Adding modified map features")
-                for feature in map_features:
-                    frame.map_features.append(feature)
-            serialized_frame = frame.SerializeToString()
-            writer.write(serialized_frame)
-            logging.info("Tfrecord saved...")
+        #         # Append the new map_features object to the cleared list
+        #         logging.debug("Adding modified map features")
+        #         for feature in map_features:
+        #             frame.map_features.append(feature)
+        #     serialized_frame = frame.SerializeToString()
+        #     writer.write(serialized_frame)
+        #     logging.info("Tfrecord saved...")
 
-        # Close the writer
-        writer.close()
+        # # Close the writer
+        # writer.close()
 
-        plot_pointcloud_on_map(map_features, point_clouds, cluster_labels)
+        # plot_pointcloud_on_map(map_features, point_clouds, cluster_labels)

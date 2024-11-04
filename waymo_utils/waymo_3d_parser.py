@@ -247,18 +247,15 @@ def get_cluster_orientation(point_cloud):
     """
     Get roll, pitch and yaw of a pointcloud
     """
-    # Perform PCA to find the principal components (orientation)
-    cov = np.cov(point_cloud.T)
-    eigenvalues, eigenvectors = np.linalg.eigh(cov)
-    order = eigenvalues.argsort()[::-1]
-    eigenvectors = eigenvectors[:, order]
-
-    # Create a rotation matrix
-    rot = eigenvectors.T
+    points_np = np.array(point_cloud)
+    # Calculate orientation using PCA
+    cov_matrix = np.cov(points_np.T)  # Compute covariance matrix
+    eigvals, eigvecs = np.linalg.eigh(cov_matrix)  # Eigen decomposition
+    rotation_matrix = eigvecs[:, ::-1]  # Align with major axis (descending order of eigenvalues)
 
     # Convert rotation matrix to roll, pitch, yaw
-    r = R.from_matrix(rot)
-    roll, pitch, yaw = r.as_euler('xyz', degrees=True)
+    r = R.from_matrix(rotation_matrix)
+    roll, pitch, yaw = r.as_euler('xyz', degrees=True)  # Convert to Euler angles
 
     return [roll,pitch,yaw]
 

@@ -33,6 +33,7 @@ sys.path.insert(0, src_dir)
 
 from waymo_utils.WaymoParser import *
 from waymo_utils.waymo_2d_parser import *
+from waymo_utils.publisher_utils import *
 
 cityscapes_classes = [
     "road",
@@ -135,26 +136,6 @@ def image_overlay(image, segmented_image):
     cv2.addWeighted(image, alpha, segmented_image, beta, gamma, image)
     return image
 
-def publish_image_to_topic(topic, image, header):
-    """
-    Publishes an image to the specified ROS topic.
-
-    :param topic: The ROS topic to publish the image to (string).
-    :param image: The image to be published (OpenCV format).
-    :param header: The header to maintain the metadata (ROS header).
-    """
-    # Initialize the publisher for the specified topic
-    image_publisher = rospy.Publisher(topic, Image, queue_size=10)
-
-    # Convert OpenCV image to ROS Image message
-    bridge = CvBridge()
-    image_msg = bridge.cv2_to_imgmsg(image, encoding="bgr8")
-
-    # Maintain the header information from the original image
-    image_msg.header = header
-
-    # Publish the image message
-    image_publisher.publish(image_msg)
 
 def process_image_service(req):
     rospy.loginfo("Image received for processing")

@@ -384,8 +384,8 @@ class IncrementalOdometryExtractor(WaymoClient):
         super().__init__(frame, None)
         self.transform_matrix = []
         self.initial_transform_matrix = None
-        self.global_pose = None
-        self.relative_pose = []
+        self.relative_pose = [] # Odometry pose
+        self.noisy_relative_pose = [] # Odometry pose with gaussian noise added
 
     def get_pose(self, T):
         position = T[:3, 3]
@@ -399,10 +399,41 @@ class IncrementalOdometryExtractor(WaymoClient):
         """ Normalize the angle to be within the range [-π, π] """
         return (angle + np.pi) % (2 * np.pi) - np.pi
 
-    def process_odometry(self):
+    def process_odometry(self, position_noise_std=0.01, orientation_noise_std=0.01): #TODO: valores de ruido por configuración
         """
         Get incremental pose of the vehicle
         """
+
+        # Extract the transform matrix for the current frame
+        self.transform_matrix = np.array(frame.pose.transform).reshape(4, 4)
+        
+        # Initialize the initial frame as the origin if not already done
+        if self.initial_transform_matrix is None:
+            self.initial_transform_matrix = self.transform_matrix
+        
+        # Compute the relative pose: relative_pose = initial_transform_matrix^-1 * transform_matrix
+        relative_transform = np.linalg.inv(self.initial_transform_matrix) @ self.transform_matrix
+        
+        # Get the relative pose (position and orientation in Euler angles) for the current frame
+        self.relative_pose = self.get_pose(relative_transform)
+        # Add Gaussian noise to the position (x, y, z) and orientation (roll, pitch, yaw)
+        noisy_position = [
+            self.relative_pose[0] + np.random.normal(0, position_noise_std),
+            self.relative_pose[1] + np.random.normal(0, position_noise_std),
+            self.relative_pose[2] + np.random.normal(0, position_noise_std)
+        ]
+        noisy_orientation = [
+            self.relative_pose[3] + np.random.normal(0, orientation_noise_std),  # roll
+            self.relative_pose[4] + np.random.normal(0, orientation_noise_std),  # pitch
+            self.relative_pose[5] + np.random.normal(0, orientation_noise_std)   # yaw
+        ]
+
+        # Update the relative_pose with noisy values
+        self.noisy_relative_pose = noisy_position + noisy_orientation
+        print("Noisy Relative Pose:", self.noisy_relative_pose)
+
+
+
         self.transform_matrix = np.array(self.frame.pose.transform).reshape(4, 4)
         if self.initial_transform_matrix is None:
             self.initial_transform_matrix = self.transform_matrix

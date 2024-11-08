@@ -56,7 +56,7 @@ def convert_annot2yolo(annotations, image_height, image_width):
 
 
 if __name__ == "__main__":
-    dataset_path = os.path.join(src_dir, "dataset/waymo_test_scene")
+    dataset_path = os.path.join(src_dir, "dataset/waymo_test_scene2")
 
     tfrecord_list = list(
         sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))

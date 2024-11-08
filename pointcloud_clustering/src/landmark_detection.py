@@ -137,14 +137,8 @@ def image_overlay(image, segmented_image):
     return image
 
 
-def process_image_service(req):
+def process_image_service(req, model, feature_extractor):
     rospy.loginfo("Image received for processing")
-    # Load the model and feature extractor from Hugging Face
-    model_name = "nvidia/segformer-b5-finetuned-cityscapes-1024-1024"
-    model = SegformerForSemanticSegmentation.from_pretrained(model_name)
-    feature_extractor = SegformerFeatureExtractor.from_pretrained(model_name)
-    model.to('cpu').eval()
-
 
     # Convert ROS Image message to OpenCV image
     bridge = CvBridge()
@@ -182,9 +176,14 @@ if __name__ == "__main__":
     # Initialize ROS node
     rospy.init_node('landmark_detection', anonymous=True)
     rospy.loginfo("Landmark detection server initialized correctly")
+    # Load the model and feature extractor from Hugging Face
+    model_name = "nvidia/segformer-b0-finetuned-cityscapes-1024-1024"
+    model = SegformerForSemanticSegmentation.from_pretrained(model_name)
+    feature_extractor = SegformerFeatureExtractor.from_pretrained(model_name)
+    model.to('cpu').eval()
 
     # Create service
-    service = rospy.Service('landmark_detection', landmark_detection_srv, process_image_service)
+    service = rospy.Service('landmark_detection', landmark_detection_srv,  lambda req: process_image_service(req, model, feature_extractor))
     rospy.loginfo("Service 'landmark_detection' is ready")
 
     rospy.spin()

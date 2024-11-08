@@ -291,8 +291,9 @@ class WaymoClient:
         for label, pointcloud in self.clustered_pointcloud_iou_vehicle_frame.items():
             centroid = w3d.get_cluster_centroid(pointcloud)
             orientation = w3d.get_cluster_orientation(pointcloud)
-            roll    = orientation[0]
-            pitch   = orientation[1]
+            # landmarks are always vertical
+            roll    = 0.0
+            pitch   = 0.0
             yaw     = orientation[2] *3.141592/180.0
             
             # Generate dict label:pose
@@ -382,10 +383,9 @@ class IncrementalOdometryExtractor(WaymoClient):
     def __init__(self, frame):
         super().__init__(frame, None)
         self.transform_matrix = []
-        self.prev_transform_matrix = None
+        self.initial_transform_matrix = None
         self.global_pose = None
-        self.inc_odom = []
-        self.inc_odom_msg = PoseStamped()
+        self.relative_pose = []
 
     def get_pose(self, T):
         position = T[:3, 3]
@@ -404,32 +404,14 @@ class IncrementalOdometryExtractor(WaymoClient):
         Get incremental pose of the vehicle
         """
         self.transform_matrix = np.array(self.frame.pose.transform).reshape(4, 4)
-        if self.prev_transform_matrix is None:
-            self.inc_odom = [0, 0, 0, 0, 0, 0]  # Initialize Euler angles to 0
-        else:
-            prev_pose = self.get_pose(self.prev_transform_matrix)
-            pose = self.get_pose(self.transform_matrix)
-
-            delta_position = np.subtract(pose[:3], prev_pose[:3])
-            delta_orientation = np.subtract(pose[3:], prev_pose[3:])  # Calculate delta Euler angles
-
-            # Normalize the delta_orientation
-            delta_orientation = [self.normalize_angle(angle) for angle in delta_orientation]
-            self.inc_odom = np.concatenate((delta_position, delta_orientation))
-
-        # Create PoseStamped message
-        self.inc_odom_msg.pose.position.x       = self.inc_odom[0]
-        self.inc_odom_msg.pose.position.y       = self.inc_odom[1]
-        self.inc_odom_msg.pose.position.z       = self.inc_odom[2]
-        # Convert Euler angles to quaternion for ROS message
-        rotation = R.from_euler('xyz', self.inc_odom[3:])
-        quaternion = rotation.as_quat()
-        self.inc_odom_msg.pose.orientation.x    = quaternion[0]
-        self.inc_odom_msg.pose.orientation.y    = quaternion[1]
-        self.inc_odom_msg.pose.orientation.z    = quaternion[2]
-        self.inc_odom_msg.pose.orientation.w    = quaternion[3]
+        if self.initial_transform_matrix is None:
+            self.initial_transform_matrix = self.transform_matrix
+        # Compute the relative pose: relative_pose = initial_transform_matrix^-1 * transform_matrix
+        relative_transform = np.linalg.inv(self.initial_transform_matrix) @ self.transform_matrix
         
-        self.prev_transform_matrix = self.transform_matrix
+        # Get the relative pose (position and orientation in Euler angles) for the current frame
+        self.relative_pose = self.get_pose(relative_transform)
+        rospy.loginfo(f"Vehicle relative Pose: {self.relative_pose}")
 
 
 class PointCloudProcessor(WaymoClient):
@@ -526,7 +508,7 @@ if __name__ == "__main__":
     rate = rospy.Rate(1/4)
 
     # Read dataset
-    dataset_path = os.path.join(src_dir, "dataset/waymo_test_scene")
+    dataset_path = os.path.join(src_dir, "dataset/waymo_test_scene2")
     tfrecord_list = list(sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
 
     # Initialize classes outside the loop
@@ -578,6 +560,7 @@ if __name__ == "__main__":
                 ##############################################################################################
 
                 rospy.loginfo("Calling processing services")
+                frame_n += 1
                 """ 
                 PROCESS ODOMETRY --> GET INCREMENTAL VEHICLE POSITION ON EACH FRAME
                 Odometry service also get the transformation matrix of the vehicle
@@ -586,27 +569,16 @@ if __name__ == "__main__":
 
                 # Obtain odometry increment (in frame 0 will be 0)
                 wc.incremental_odometry_extractor.process_odometry()
-                increment_pose = np.array(wc.incremental_odometry_extractor.inc_odom)
-
-                if frame_n == 0:
-                    accumulated_pose = increment_pose
-                else:
-                    inc_position = increment_pose[:3]
-                    accumulated_position = accumulated_pose[:3] + inc_position
-                    inc_euler = increment_pose[3:]
-                    acc_euler = accumulated_pose[3:] + inc_euler  # Accumulate Euler angles
-                    # Normalize the accumulated Euler angles
-                    acc_euler = [wc.incremental_odometry_extractor.normalize_angle(angle) for angle in acc_euler]
-                    accumulated_pose = np.concatenate((accumulated_position, acc_euler))
+                relative_pose = np.array(wc.incremental_odometry_extractor.relative_pose)
 
                 # DEBUG -> send incremental odometry to publish in RVIZ
                 text = f"Frame: ({frame_n})\n" \
-                                    f"Pos: ({accumulated_pose[0]:.2f}, {accumulated_pose[1]:.2f}, {accumulated_pose[2]:.2f})\n" \
-                                    f"Orientation: ({accumulated_pose[3]:.2f}, {accumulated_pose[4]:.2f}, {accumulated_pose[5]:.2f})"
+                                    f"Pos: ({relative_pose[0]:.2f}, {relative_pose[1]:.2f}, {relative_pose[2]:.2f})\n" \
+                                    f"Orientation: ({relative_pose[3]:.2f}, {relative_pose[4]:.2f}, {relative_pose[5]:.2f})"
                 header = Header()
                 header.frame_id = "base_link"
                 header.stamp = rospy.Time.now()
-                publish_incremental_pose_to_topic("vehicle_pose", accumulated_pose, text, header)
+                publish_incremental_pose_to_topic("vehicle_pose", relative_pose, text, header)
 
                 """
                 POINTCLOUD CLUSTERING PROCESS
@@ -659,5 +631,5 @@ if __name__ == "__main__":
                 header.stamp = rospy.Time.now()
                 publish_multiple_poses_to_topic("landmark_poses", wc.clusters_poses, header)
 
-                frame_n += 1
+                
                 rate.sleep()

@@ -24,30 +24,48 @@ def normalize_angle(angle):
     """ Normalize the angle to be within the range [-π, π] """
     return (angle + np.pi) % (2 * np.pi) - np.pi
 
-def process_odometry(frame, prev_transform_matrix):
+def process_odometry(frame, initial_transform_matrix=None, position_noise_std=0.01, orientation_noise_std=0.01):
+    # Extract the transform matrix for the current frame
     transform_matrix = np.array(frame.pose.transform).reshape(4, 4)
-    if prev_transform_matrix is None:
-        inc_odom = [0, 0, 0, 0, 0, 0]
-    else:
-        prev_pose = get_pose(prev_transform_matrix)
-        pose = get_pose(transform_matrix)
-        delta_position = np.subtract(pose[:3], prev_pose[:3])
-        delta_orientation = np.subtract(pose[3:], prev_pose[3:])
-        delta_orientation = [normalize_angle(angle) for angle in delta_orientation]
-        inc_odom = np.concatenate((delta_position, delta_orientation))
-    return inc_odom, transform_matrix
+    
+    # Initialize the initial frame as the origin if not already done
+    if initial_transform_matrix is None:
+        initial_transform_matrix = transform_matrix
+        print("Initial frame set as origin.")
+    
+    # Compute the relative pose: relative_pose = initial_transform_matrix^-1 * transform_matrix
+    relative_transform = np.linalg.inv(initial_transform_matrix) @ transform_matrix
+    
+    # Get the relative pose (position and orientation in Euler angles) for the current frame
+    relative_pose = get_pose(relative_transform)
+    print("Relative Pose:", relative_pose)
+     # Add Gaussian noise to the position (x, y, z) and orientation (roll, pitch, yaw)
+    noisy_position = [
+        relative_pose[0] + np.random.normal(0, position_noise_std),
+        relative_pose[1] + np.random.normal(0, position_noise_std),
+        relative_pose[2] + np.random.normal(0, position_noise_std)
+    ]
+    noisy_orientation = [
+        relative_pose[3] + np.random.normal(0, orientation_noise_std),  # roll
+        relative_pose[4] + np.random.normal(0, orientation_noise_std),  # pitch
+        relative_pose[5] + np.random.normal(0, orientation_noise_std)   # yaw
+    ]
+
+    # Update the relative_pose with noisy values
+    noisy_relative_pose = noisy_position + noisy_orientation
+    print("Noisy Relative Pose:", noisy_relative_pose)
+    
+    return relative_pose, noisy_relative_pose, transform_matrix, initial_transform_matrix
 
 def concatenate_pcd_returns(pcd_return_1, pcd_return_2):
     points, points_cp = pcd_return_1
     points_ri2, points_cp_ri2 = pcd_return_2
     points_concat = np.concatenate(points + points_ri2, axis=0)
     points_cp_concat = np.concatenate(points_cp + points_cp_ri2, axis=0)
-    print(f'points_concat shape: {points_concat.shape}')
-    print(f'points_cp_concat shape: {points_cp_concat.shape}')
     return points_concat, points_cp_concat
 
 # Read dataset
-dataset_path = os.path.join(src_dir, "dataset/waymo_test_scene")
+dataset_path = os.path.join(src_dir, "dataset/waymo_test_scene2")
 tfrecord_list = list(sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
 
 # Prepare Open3D visualization
@@ -56,29 +74,33 @@ vis.create_window()
 
 # Prepare Open3D geometry objects
 points = []
+noisy_points = []
 lines = []
+noisy_lines = []
 line_set = o3d.geometry.LineSet()
-axis_length = 0.005  # Axis length for visualization
+noisy_line_set = o3d.geometry.LineSet()
+axis_length = 0.05  # Axis length for visualization
 
-transform_matrix = None
 for scene_index, scene_path in enumerate(tfrecord_list):
     scene_name = scene_path.stem
     print("SCENE: ", scene_name)
     frame_n = 0  # Scene frames counter
     prev_point = None
+    prev_noisy_point = None
 
-    initial_pose = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], dtype=np.float64)
-    prev_transform_matrix = None
-    accumulated_pose = np.copy(initial_pose)
+    initial_transform_matrix = None
     for frame in load_frame(scene_path):
         if frame is None:
             continue
 
-        incremental_pose, transform_matrix = process_odometry(frame, prev_transform_matrix)
-        print(incremental_pose)
+        relative_pose, noisy_relative_pose, transform_matrix, initial_transform_matrix = process_odometry(frame, initial_transform_matrix)
+        print(relative_pose)
 
-        point = [incremental_pose[0], incremental_pose[1], incremental_pose[2]]
+        point = [relative_pose[0], relative_pose[1], relative_pose[2]]
         points.append(point)
+
+        noisy_point = [noisy_relative_pose[0], noisy_relative_pose[1], noisy_relative_pose[2]]
+        noisy_points.append(noisy_point)
 
         # Create an axis for the pose
         R_matrix = transform_matrix[:3, :3]
@@ -90,9 +112,11 @@ for scene_index, scene_path in enumerate(tfrecord_list):
         # Connect the current point to the previous one to show the path
         if prev_point is not None:
             lines.append([len(points) - 2, len(points) - 1])
+        if prev_noisy_point is not None:
+            noisy_lines.append([len(noisy_points) - 2, len(noisy_points) - 1])
 
         prev_point = point
-        prev_transform_matrix = transform_matrix
+        prev_noisy_point = noisy_point
         frame_n += 1
 
         # Obtain the point cloud for the first frame
@@ -118,6 +142,8 @@ for scene_index, scene_path in enumerate(tfrecord_list):
 
             # Add point cloud to the visualizer
             vis.add_geometry(pcd)
+            opt = vis.get_render_option()
+            opt.point_size = 1.0
 
     # Convert points and lines to Open3D format
     points_o3d = o3d.utility.Vector3dVector(points)
@@ -125,6 +151,11 @@ for scene_index, scene_path in enumerate(tfrecord_list):
     line_set.lines = o3d.utility.Vector2iVector(lines)
     line_set.paint_uniform_color([0, 0, 1])  # Optional: set color for path lines
     vis.add_geometry(line_set)
+
+    noisy_line_set.points = o3d.utility.Vector3dVector(noisy_points)
+    noisy_line_set.lines = o3d.utility.Vector2iVector(noisy_lines)
+    noisy_line_set.paint_uniform_color([1, 0, 0])  # Red for noisy path
+    vis.add_geometry(noisy_line_set)
 
     # Run the visualization
     vis.run()

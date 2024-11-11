@@ -24,38 +24,45 @@ def normalize_angle(angle):
     """ Normalize the angle to be within the range [-π, π] """
     return (angle + np.pi) % (2 * np.pi) - np.pi
 
-def process_odometry(frame, initial_transform_matrix=None, position_noise_std=0.01, orientation_noise_std=0.01):
+def process_odometry(frame, position_noise_cumulative, orientation_noise_cumulative, initial_transform_matrix=None, position_noise_std=0.1, orientation_noise_std=0.01):
+    """
+    Get incremental pose of the vehicle with cumulative noise.
+    """
     # Extract the transform matrix for the current frame
     transform_matrix = np.array(frame.pose.transform).reshape(4, 4)
     
     # Initialize the initial frame as the origin if not already done
     if initial_transform_matrix is None:
         initial_transform_matrix = transform_matrix
-        print("Initial frame set as origin.")
     
     # Compute the relative pose: relative_pose = initial_transform_matrix^-1 * transform_matrix
     relative_transform = np.linalg.inv(initial_transform_matrix) @ transform_matrix
-    
-    # Get the relative pose (position and orientation in Euler angles) for the current frame
     relative_pose = get_pose(relative_transform)
-    print("Relative Pose:", relative_pose)
-     # Add Gaussian noise to the position (x, y, z) and orientation (roll, pitch, yaw)
-    noisy_position = [
-        relative_pose[0] + np.random.normal(0, position_noise_std),
-        relative_pose[1] + np.random.normal(0, position_noise_std),
-        relative_pose[2] + np.random.normal(0, position_noise_std)
+    print(f"Vehicle relative pose: {relative_pose}")
+
+    # Generar ruido gaussiano y acumularlo en las variables de ruido acumulado
+    position_noise_cumulative = [
+        position_noise_cumulative[i] + np.random.normal(0, position_noise_std)
+        for i in range(3)
     ]
-    noisy_orientation = [
-        relative_pose[3] + np.random.normal(0, orientation_noise_std),  # roll
-        relative_pose[4] + np.random.normal(0, orientation_noise_std),  # pitch
-        relative_pose[5] + np.random.normal(0, orientation_noise_std)   # yaw
+    orientation_noise_cumulative = [
+        orientation_noise_cumulative[i] + np.random.normal(0, orientation_noise_std)
+        for i in range(3)
     ]
 
-    # Update the relative_pose with noisy values
-    noisy_relative_pose = noisy_position + noisy_orientation
-    print("Noisy Relative Pose:", noisy_relative_pose)
+    # Añadir el ruido acumulado a la pose relativa para obtener la odometría con ruido
+    noisy_position = [
+        relative_pose[i] + position_noise_cumulative[i] for i in range(3)
+    ]
+    noisy_orientation = [
+        relative_pose[i+3] + orientation_noise_cumulative[i] for i in range(3)
+    ]
+
+    # Actualizar la odometría con los valores ruidosos acumulativos
+    odometry_pose = noisy_position + noisy_orientation
+    print(f"Vehicle odometry Pose (with cumulative noise): {odometry_pose}")
     
-    return relative_pose, noisy_relative_pose, transform_matrix, initial_transform_matrix
+    return relative_pose, odometry_pose, transform_matrix, initial_transform_matrix
 
 def concatenate_pcd_returns(pcd_return_1, pcd_return_2):
     points, points_cp = pcd_return_1
@@ -65,12 +72,8 @@ def concatenate_pcd_returns(pcd_return_1, pcd_return_2):
     return points_concat, points_cp_concat
 
 # Read dataset
-dataset_path = os.path.join(src_dir, "dataset/waymo_test_scene2")
+dataset_path = os.path.join(src_dir, "dataset/final_tests_scene")
 tfrecord_list = list(sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
-
-# Prepare Open3D visualization
-vis = o3d.visualization.Visualizer()
-vis.create_window()
 
 # Prepare Open3D geometry objects
 points = []
@@ -82,18 +85,25 @@ noisy_line_set = o3d.geometry.LineSet()
 axis_length = 0.05  # Axis length for visualization
 
 for scene_index, scene_path in enumerate(tfrecord_list):
+    # Prepare Open3D visualization
+    vis = o3d.visualization.Visualizer()
+    vis.create_window()
+
     scene_name = scene_path.stem
     print("SCENE: ", scene_name)
+
     frame_n = 0  # Scene frames counter
     prev_point = None
     prev_noisy_point = None
-
     initial_transform_matrix = None
+    position_noise_cumulative = [0, 0, 0]
+    orientation_noise_cumulative = [0, 0, 0]
+
     for frame in load_frame(scene_path):
         if frame is None:
             continue
 
-        relative_pose, noisy_relative_pose, transform_matrix, initial_transform_matrix = process_odometry(frame, initial_transform_matrix)
+        relative_pose, noisy_relative_pose, transform_matrix, initial_transform_matrix = process_odometry(frame, position_noise_cumulative, orientation_noise_cumulative, initial_transform_matrix)
         print(relative_pose)
 
         point = [relative_pose[0], relative_pose[1], relative_pose[2]]
@@ -159,4 +169,6 @@ for scene_index, scene_path in enumerate(tfrecord_list):
 
     # Run the visualization
     vis.run()
+    vis.clear_geometries()
     vis.destroy_window()
+

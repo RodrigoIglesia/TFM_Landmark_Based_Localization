@@ -8,7 +8,6 @@ En caso de existir, se muestra en 3D
 
 import os
 import sys
-import math
 
 import matplotlib.pyplot as plt
 import pathlib
@@ -18,6 +17,7 @@ import open3d as o3d
 from scipy.spatial.transform import Rotation as R
 from sklearn.cluster import DBSCAN, OPTICS, cluster_optics_dbscan
 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 if not tf.executing_eagerly():
   tf.compat.v1.enable_eager_execution()
 
@@ -88,8 +88,7 @@ def concatenate_pcd_returns(pcd_return_1, pcd_return_2):
     points_ri2, points_cp_ri2 = pcd_return_2
     points_concat = np.concatenate(points + points_ri2, axis=0)
     points_cp_concat = np.concatenate(points_cp + points_cp_ri2, axis=0)
-    print(f'points_concat shape: {points_concat.shape}')
-    print(f'points_cp_concat shape: {points_cp_concat.shape}')
+
     return points_concat, points_cp_concat
 
 
@@ -206,10 +205,6 @@ def cluster_pointcloud(point_cloud):
     # clustering = OPTICS(min_samples=50, xi=0.05, min_cluster_size=0.05).fit(point_clouds[:,:2])
     clustering = DBSCAN(eps=0.15, min_samples=1).fit(point_cloud[:,:2])
     cluster_labels = clustering.labels_
-
-    print("Clusters detected: ", len(np.unique(cluster_labels)))
-    print("Segmentation labels: ", cluster_labels)
-    print("Clustered labels: ", cluster_labels)
 
     clustered_point_cloud = []
     for label in np.unique(cluster_labels):
@@ -387,8 +382,6 @@ if __name__ == "__main__":
     
     for scene_index, scene_path in enumerate(sorted(tfrecord_list)):
         for frame in load_frame(scene_path):
-            print(frame.timestamp_micros)
-
             (range_images, camera_projections, segmentation_labels, range_image_top_pose) = frame_utils.parse_range_image_and_camera_projection(frame)
             if not(segmentation_labels):
                 continue

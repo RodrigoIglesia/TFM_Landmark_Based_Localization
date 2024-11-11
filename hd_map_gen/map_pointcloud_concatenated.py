@@ -34,6 +34,7 @@ import plotly.graph_objs as go
 import pathlib
 
 import json
+import csv
 from google.protobuf.json_format import MessageToJson
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -231,10 +232,11 @@ def save_protobuf_features(protobuf_message, output):
 
 
 if __name__ == "__main__":
-    dataset_path        = os.path.join(src_dir, "dataset/waymo_test_scene")
+    dataset_path        = os.path.join(src_dir, "dataset/waymo_valid_scene")
     json_maps_path      = os.path.join(src_dir, "dataset/hd_maps")
     point_clouds_path   = os.path.join(src_dir, "dataset/pointclouds")
     output_dataset_path = os.path.join(src_dir, "dataset/waymo_map_scene_mod")
+    output_csv_path     = os.path.join(src_dir, "pointcloud_clustering/map")
 
     tfrecord_list = list(sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
 
@@ -296,7 +298,7 @@ if __name__ == "__main__":
             point_labels_ri2 = convert_range_image_to_point_cloud_labels(
                 frame, range_images, segmentation_labels, ri_index=1)
 
-            plot_pointcloud_on_map(map_features, points_return1, point_labels)
+            # plot_pointcloud_on_map(map_features, points_return1, point_labels)
 
             filtered_point_cloud, filtered_point_labels = filter_lidar_data(points_return1, point_labels, [8, 10])
 
@@ -321,51 +323,68 @@ if __name__ == "__main__":
             logging.debug("No pointclouds in scene")
             continue
 
-        # # # Save point cloud to csv
-        # # out_csv_path = point_clouds_path + '/pointcloud_concatenated' + os.path.splitext(os.path.basename(scene_path))[0] + '.csv'
-        # # # Use savetxt to save the array to a CSV file
-        # # np.savetxt(out_csv_path, point_clouds, delimiter=',')
-        # # logging.debug(f"NumPy array has been successfully saved to {out_csv_path}.")
+        # # Save point cloud to csv
+        # out_csv_path = point_clouds_path + '/pointcloud_concatenated' + os.path.splitext(os.path.basename(scene_path))[0] + '.csv'
+        # # Use savetxt to save the array to a CSV file
+        # np.savetxt(out_csv_path, point_clouds, delimiter=',')
+        # logging.debug(f"NumPy array has been successfully saved to {out_csv_path}.")
 
-        # # Get the clustered pointclouds, each cluster corresponding to a traffic sign
-        # clustered_point_cloud, cluster_labels = cluster_pointcloud(point_clouds)
+        # Get the clustered pointclouds, each cluster corresponding to a traffic sign
+        clustered_point_cloud, cluster_labels = cluster_pointcloud(point_clouds)
 
-        # ##############################################################
-        # ## Enrich Feature Map
-        # ##############################################################
-        # # Add signs to map
-        # sign_id = map_features[-1].id
-        # for cluster in clustered_point_cloud:
-        #     # Get the centroid of each cluster of the pointcloud
-        #     cluster_centroid = get_cluster_centroid(cluster)
+        ##############################################################
+        ## Enrich Feature Map
+        ##############################################################
+        # Add signs to map
+        sign_id = map_features[-1].id
+        for cluster in clustered_point_cloud:
+            # Get the centroid of each cluster of the pointcloud
+            cluster_centroid = get_cluster_centroid(cluster)
 
-        #     # Add sign centroids to feature map
-        #     add_sign_to_map(map_features, cluster_centroid, sign_id)
-        #     logging.debug("Sign message added to map features")
-        #     sign_id += 1
-        # save_protobuf_features(map_features, json_maps_path + "/signs_map_features_" + os.path.splitext(os.path.basename(scene_path))[0] + '.json')
-        # logging.debug("Modified map saved as JSON")
+            # Add sign centroids to feature map
+            add_sign_to_map(map_features, cluster_centroid, sign_id)
+            logging.debug("Sign message added to map features")
+            sign_id += 1
+        json_file = json_maps_path + "/signs_map_features_" + os.path.splitext(os.path.basename(scene_path))[0] + '.json'
+        save_protobuf_features(map_features, json_file)
+        logging.debug("Modified map saved as JSON")
 
-        # ##############################################################
-        # ## Generate a new tfrecord file
-        # ##############################################################
-        # output_filename = output_dataset_path + '/output' + os.path.basename(scene_path)
-        # writer = tf.io.TFRecordWriter(output_filename)
-        # for frame in load_frame(scene_path):
-        #     if hasattr(frame, 'map_features') and frame.map_features:
-        #         logging.debug("Removing current map features")
-        #         # Retrieve map_feature in the firts 
-        #         del frame.map_features[:]
+        with open(json_file, 'r') as f:
+            data = json.load(f)
+        # Open CSV file to write
+        output_csv = output_csv_path + "/signs_map_features_" + os.path.splitext(os.path.basename(scene_path))[0] + '.csv'
+        with open(output_csv, 'w', newline='') as csvfile:
+            csv_writer = csv.writer(csvfile)
 
-        #         # Append the new map_features object to the cleared list
-        #         logging.debug("Adding modified map features")
-        #         for feature in map_features:
-        #             frame.map_features.append(feature)
-        #     serialized_frame = frame.SerializeToString()
-        #     writer.write(serialized_frame)
-        #     logging.info("Tfrecord saved...")
+            # Iterate through each item in the JSON
+            for item in data:
+                if 'stopSign' in item:
+                    stop_sign = item['stopSign']
+                    if 'lane' in stop_sign and stop_sign['lane'] == ["100"]:
+                        # Extract x and y coordinates from position
+                        position = stop_sign['position']
+                        csv_writer.writerow([position['x'], position['y']])
 
-        # # Close the writer
-        # writer.close()
+        ##############################################################
+        ## Generate a new tfrecord file
+        ##############################################################
+        output_filename = output_dataset_path + '/output' + os.path.basename(scene_path)
+        writer = tf.io.TFRecordWriter(output_filename)
+        for frame in load_frame(scene_path):
+            if hasattr(frame, 'map_features') and frame.map_features:
+                logging.debug("Removing current map features")
+                # Retrieve map_feature in the firts 
+                del frame.map_features[:]
+
+                # Append the new map_features object to the cleared list
+                logging.debug("Adding modified map features")
+                for feature in map_features:
+                    frame.map_features.append(feature)
+            serialized_frame = frame.SerializeToString()
+            writer.write(serialized_frame)
+            logging.info("Tfrecord saved...")
+
+        # Close the writer
+        writer.close()
 
         # plot_pointcloud_on_map(map_features, point_clouds, cluster_labels)

@@ -1,8 +1,10 @@
+import os
 import matplotlib.pyplot as plt
 import tensorflow as tf
 import numpy as np
 import cv2
 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 if not tf.executing_eagerly():
   tf.compat.v1.enable_eager_execution()
 

@@ -1,6 +1,6 @@
 import rospy
-from nav_msgs.msg import Odometry
-from geometry_msgs.msg import Point, Quaternion
+from nav_msgs.msg import Odometry, Path
+from geometry_msgs.msg import PoseStamped, Point, Quaternion
 from visualization_msgs.msg import Marker
 from std_msgs.msg import ColorRGBA
 from scipy.spatial.transform import Rotation as R
@@ -110,6 +110,44 @@ def publish_multiple_poses_to_topic(topic, labeled_poses, header):
 
     rospy.loginfo("Published multiple labeled poses to topic")
 
+def publish_path(topic, poses, header):
+    """
+    Publish a path to a ROS topic in RViz.
+
+    Parameters:
+        topic (str): The ROS topic to publish the path to.
+        poses (list): List of poses, where each pose is [x, y, z, roll, pitch, yaw].
+        header (str): Frame ID for the path message.
+    Returns:
+        - None
+    """
+    
+    # Set up the path publisher
+    path_pub = rospy.Publisher(topic, Path, queue_size=10)
+    
+    # Create the Path message
+    path_msg = Path()
+    path_msg.header = header
+    
+    # Convert each pose in the input list to a PoseStamped message
+    for pose in poses:
+        pose_stamped = PoseStamped()
+        pose_stamped.header = header
+        
+        # Set the position
+        pose_stamped.pose.position = Point(*pose[:3])
+        
+        # Convert Euler angles to quaternion for orientation
+        rotation = R.from_euler('xyz', pose[3:])
+        quaternion = rotation.as_quat()
+        pose_stamped.pose.orientation = Quaternion(*quaternion)
+        
+        # Add the PoseStamped message to the path
+        path_msg.poses.append(pose_stamped)
+    
+    # Publish the path
+    path_pub.publish(path_msg)
+    rospy.loginfo("Path published with {} poses".format(len(poses)))
 
 def publish_image_to_topic(topic, image, header):
     """

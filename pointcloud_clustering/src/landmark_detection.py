@@ -8,12 +8,12 @@ import sys
 import cv2
 import numpy as np
 
+# Import tensorflow before transformers with logs deactivated to avoid printing tf logs
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
 import tensorflow as tf
 if not tf.executing_eagerly():
     tf.compat.v1.enable_eager_execution()
-
-# Import tensorflow before transformers with logs deactivated to avoid printing tf logs
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import torch
 import torchvision.transforms as T
@@ -138,7 +138,7 @@ def image_overlay(image, segmented_image):
 
 
 def process_image_service(req, model, feature_extractor):
-    rospy.loginfo("Image received for processing")
+    rospy.logdebug("Image received for processing")
 
     # Convert ROS Image message to OpenCV image
     bridge = CvBridge()
@@ -175,7 +175,7 @@ def process_image_service(req, model, feature_extractor):
 if __name__ == "__main__":
     # Initialize ROS node
     rospy.init_node('landmark_detection', anonymous=True)
-    rospy.loginfo("Landmark detection server initialized correctly")
+    rospy.logdebug("Landmark detection server initialized correctly")
     # Load the model and feature extractor from Hugging Face
     model_name = "nvidia/segformer-b0-finetuned-cityscapes-1024-1024"
     model = SegformerForSemanticSegmentation.from_pretrained(model_name)
@@ -184,6 +184,6 @@ if __name__ == "__main__":
 
     # Create service
     service = rospy.Service('landmark_detection', landmark_detection_srv,  lambda req: process_image_service(req, model, feature_extractor))
-    rospy.loginfo("Service 'landmark_detection' is ready")
+    rospy.logdebug("Service 'landmark_detection' is ready")
 
     rospy.spin()

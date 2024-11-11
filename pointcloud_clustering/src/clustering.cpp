@@ -136,7 +136,7 @@ void PointCloudProcessor::readConfig(const std::string &filename) {
 
 pcl::PointCloud<pcl::PointXYZ>::Ptr PointCloudProcessor::pointcloudCrop(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud)
 {
-    ROS_INFO("Cropping received pointcloud");
+    ROS_DEBUG("Cropping received pointcloud");
     pcl::PointCloud<pcl::PointXYZ>::Ptr cropCloud(new pcl::PointCloud<pcl::PointXYZ>);
 
     for (int k = 0; k < inputCloud->points.size(); k++)
@@ -165,7 +165,7 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr PointCloudProcessor::pointcloudCrop(pcl::Poi
 
 pcl::PointCloud<pcl::PointXYZ>::Ptr PointCloudProcessor::pointcloudDownsample(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud)
 {
-    ROS_INFO("Downsampling received pointcloud");
+    ROS_DEBUG("Downsampling received pointcloud");
     pcl::PointCloud<pcl::PointXYZ>::Ptr dsCloud(new pcl::PointCloud<pcl::PointXYZ>);
 
     pcl::VoxelGrid<pcl::PointXYZ> vg;
@@ -186,7 +186,7 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr PointCloudProcessor::pointcloudDownsample(pc
 
 pcl::PointCloud<pcl::PointXYZ>::Ptr PointCloudProcessor::pointcloudExtractGround(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud)
 {
-    ROS_INFO("Extracting ground from received pointcloud");
+    ROS_DEBUG("Extracting ground from received pointcloud");
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloudNoGround(new pcl::PointCloud<pcl::PointXYZ>());
 
     float theta;
@@ -259,7 +259,7 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr PointCloudProcessor::pointcloudExtractGround
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr PointCloudProcessor::euclideanClustering(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud)
 {
-    ROS_INFO("Clustering received pointcloud");
+    ROS_DEBUG("Clustering received pointcloud");
     std::vector<pcl::PointIndices> clusterIndices;
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr clusteredCloud(new pcl::PointCloud<pcl::PointXYZRGB>);
 
@@ -323,7 +323,7 @@ bool PointCloudProcessor::processPointCloudService(pointcloud_clustering::cluste
 {
     std::lock_guard<std::mutex> lock(mtx_);
     frame_id_ = req.pointcloud.header.frame_id;
-    ROS_INFO("PointCloud received: %s", frame_id_.c_str());
+    ROS_DEBUG("PointCloud received: %s", frame_id_.c_str());
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloudCropped(new pcl::PointCloud<pcl::PointXYZ>);
@@ -366,7 +366,7 @@ bool PointCloudProcessor::processPointCloudService(pointcloud_clustering::cluste
     res.clustered_pointcloud.header.frame_id = "base_link";
     res.clustered_pointcloud.header.stamp = ros::Time::now();
 
-    ROS_INFO("Server response completed");
+    ROS_DEBUG("Server response completed");
 
     return true;
 }
@@ -379,7 +379,7 @@ int main(int argc, char **argv)
     // Current working directory
     char cwd[PATH_MAX];
     if (getcwd(cwd, sizeof(cwd)) != NULL) {
-        ROS_INFO("Current working directory: %s", cwd);
+        ROS_DEBUG("Current working directory: %s", cwd);
     } else {
         ROS_ERROR("Error getting current working directory");
     }
@@ -392,7 +392,7 @@ int main(int argc, char **argv)
     try {
         PointCloudProcessor processor(configFilePath);
         ros::ServiceServer service = nh.advertiseService("process_pointcloud", &PointCloudProcessor::processPointCloudService, &processor);
-        ROS_INFO("Service clustering initialized correctly");
+        ROS_DEBUG("Service clustering initialized correctly");
 
         ros::spin();
     } catch (const std::exception &e) {

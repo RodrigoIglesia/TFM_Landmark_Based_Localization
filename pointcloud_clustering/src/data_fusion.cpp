@@ -90,54 +90,22 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     R_(4, 4) = config_.sigma_obs_pitch * config_.sigma_obs_pitch;
     R_(5, 5) = config_.sigma_obs_yaw * config_.sigma_obs_yaw;
 
-    // Carga del mapa desde un archivo JSON (suponiendo que el archivo JSON esté en mapFilePath)
-    std::ifstream inputFile(mapFilePath);
-    if (!inputFile.is_open()) {
-        throw std::runtime_error("Cannot open map file: " + mapFilePath);
-    }
-
-    nlohmann::json jsonData;
-    inputFile >> jsonData;
-
-    for (const auto& item : jsonData) {
-        if (item.contains("stopSign")) {
-            auto stopSign = item["stopSign"];
-            pointcloud_clustering::observationRPY map_aux;
-            map_aux.position.x = stopSign["position"]["x"].get<double>() - config_.easting_ref;
-            map_aux.position.y = stopSign["position"]["y"].get<double>() - config_.northing_ref;
-            map_aux.position.z = stopSign["position"]["z"].get<double>();  // Z coordinate from the JSON
-            map_aux.position.roll = 0.0;
-            map_aux.position.pitch = 0.0;
-            map_aux.position.yaw = 0.0;
-            map_.push_back(map_aux);
-        }
-    }
-    inputFile.close();
-
-
-    // // Carga del mapa desde un archivo CSV (suponiendo que el archivo CSV esté en mapFilePath)
+    // // Carga del mapa desde un archivo JSON (suponiendo que el archivo JSON esté en mapFilePath)
     // std::ifstream inputFile(mapFilePath);
     // if (!inputFile.is_open()) {
     //     throw std::runtime_error("Cannot open map file: " + mapFilePath);
     // }
 
-    // while (inputFile) {
-    //     std::string s;
-    //     if (!std::getline(inputFile, s)) break;
-    //     if (s[0] != '#') {
-    //         std::istringstream ss(s);
-    //         std::vector<double> record;
+    // nlohmann::json jsonData;
+    // inputFile >> jsonData;
 
-    //         while (ss) {
-    //             std::string line;
-    //             if (!std::getline(ss, line, ','))
-    //                 break;
-    //             record.push_back(std::stof(line));
-    //         }
+    // for (const auto& item : jsonData) {
+    //     if (item.contains("stopSign")) {
+    //         auto stopSign = item["stopSign"];
     //         pointcloud_clustering::observationRPY map_aux;
-    //         map_aux.position.x = record[0] - config_.easting_ref;
-    //         map_aux.position.y = record[1] - config_.northing_ref;
-    //         map_aux.position.z = -1.8;  // Valor fijo
+    //         map_aux.position.x = stopSign["position"]["x"].get<double>() - config_.easting_ref;
+    //         map_aux.position.y = stopSign["position"]["y"].get<double>() - config_.northing_ref;
+    //         map_aux.position.z = stopSign["position"]["z"].get<double>();  // Z coordinate from the JSON
     //         map_aux.position.roll = 0.0;
     //         map_aux.position.pitch = 0.0;
     //         map_aux.position.yaw = 0.0;
@@ -145,6 +113,38 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     //     }
     // }
     // inputFile.close();
+
+
+    // Carga del mapa desde un archivo CSV (suponiendo que el archivo CSV esté en mapFilePath)
+    std::ifstream inputFile(mapFilePath);
+    if (!inputFile.is_open()) {
+        throw std::runtime_error("Cannot open map file: " + mapFilePath);
+    }
+
+    while (inputFile) {
+        std::string s;
+        if (!std::getline(inputFile, s)) break;
+        if (s[0] != '#') {
+            std::istringstream ss(s);
+            std::vector<double> record;
+
+            while (ss) {
+                std::string line;
+                if (!std::getline(ss, line, ','))
+                    break;
+                record.push_back(std::stof(line));
+            }
+            pointcloud_clustering::observationRPY map_aux;
+            map_aux.position.x = record[0] - config_.easting_ref;
+            map_aux.position.y = record[1] - config_.northing_ref;
+            map_aux.position.z = -1.8;  // Valor fijo
+            map_aux.position.roll = 0.0;
+            map_aux.position.pitch = 0.0;
+            map_aux.position.yaw = 0.0;
+            map_.push_back(map_aux);
+        }
+    }
+    inputFile.close();
 }
 
 void DataFusion::readConfig(const std::string &filename) {
@@ -278,7 +278,7 @@ int main(int argc, char **argv)
     // Current working directory
     char cwd[PATH_MAX];
     if (getcwd(cwd, sizeof(cwd)) != NULL) {
-        ROS_INFO("Current working directory: %s", cwd);
+        ROS_DEBUG("Current working directory: %s", cwd);
     } else {
         ROS_ERROR("Error getting current working directory");
     }
@@ -298,7 +298,7 @@ int main(int argc, char **argv)
     try {
         DataFusion df(configFilePath, mapFilePath);
         ros::ServiceServer service = nh.advertiseService("data_fusion", &DataFusion::dataFusionService, &df);
-        ROS_INFO("Service Data Fusion initialized correctly");
+        ROS_DEBUG("Service Data Fusion initialized correctly");
 
         ros::spin();
     } catch (const std::exception &e) {

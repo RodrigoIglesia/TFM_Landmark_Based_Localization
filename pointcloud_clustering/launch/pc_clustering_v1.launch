@@ -4,7 +4,7 @@
   <node pkg="pointcloud_clustering" type="clustering" name="clustering" output="screen"/>
     <param name="config_file_path" value="$(find pointcloud_clustering)/config/config.conf"/>
   <node pkg="pointcloud_clustering" type="landmark_detection.py" name="landmark_detection" output="screen"/>
-  <!-- <node pkg="pointcloud_clustering" type="data_fusion" name="data_fusion" output="screen"/>
+  <node pkg="pointcloud_clustering" type="data_fusion" name="data_fusion" output="screen"/>
     <param name="data_fusion_config_file_path" value="$(find pointcloud_clustering)/config/data_fusion_config.conf"/>
-    <param name="data_fusion_map_file_path" value="$(find pointcloud_clustering)/map/map.json"/> -->
+    <param name="data_fusion_map_file_path" value="$(find pointcloud_clustering)/map/signs_map_features_individual_files_training_segment-10072140764565668044_4060_000_4080_000_with_camera_labels.csv"/>
 </launch>

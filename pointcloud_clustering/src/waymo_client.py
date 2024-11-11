@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """
-    This node reads a point cloud from Waymo Open Dataset, converts it to PCL, and sends it to various service servers for processing.
+This is the main service of LandmarkBsedLocalization project
+Is in charge of parsing several data from waymo open dataset and send it to different services to process it
+- Odometry > reads position information of the vehicle on each frame and applies a gaussian noise to simulate odometry error
+- Pointcloud > reads an input pointcloud and sends it pointcloud clustering service to obtain clustered landmards
+- Landmark detection > reads de central camera image form WOD and sends it to the image analysis process to obtain semantic segmentations of landmarks
+- Data association > Associates pointcloud clustering and image analysis information to get a real representation of the landmarks
+- Data fusion > sends to the data fusion process Odometry pose and Landmark poses > receives the corrected pose of the vehicle
+
 """
-# TODO: Incremental position computed is not being plotted correctly in RVIZ, it plots a straight line
 import os
 import sys
 import numpy as np
@@ -11,20 +17,17 @@ import pathlib
 import struct
 import ctypes
 import rospy
-import open3d as o3d
 from shapely.geometry import Polygon
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial import ConvexHull
-from std_msgs.msg import Header, ColorRGBA
-from visualization_msgs.msg import Marker
+from std_msgs.msg import Header
 import sensor_msgs.point_cloud2 as pc2
 from sensor_msgs.msg import PointCloud2, PointField, Image
 from geometry_msgs.msg import PoseStamped, PoseArray, Point, Quaternion
-from nav_msgs.msg import Path, Odometry
-from pointcloud_clustering.msg import CameraProj, positionRPY
 from pointcloud_clustering.srv import clustering_srv, clustering_srvRequest, landmark_detection_srv, landmark_detection_srvRequest, data_fusion_srv, data_fusion_srvRequest
 from cv_bridge import CvBridge
 import cv2
+import csv
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorflow as tf
@@ -61,8 +64,18 @@ class WaymoClient:
         self.image_height = None
         self.image_width = None
         # Positioning
-        self.odometry_pose = None
-        self.corrected_pose = None
+        self.position_noise_cumulative = [0, 0, 0]
+        self.orientation_noise_cumulative = [0, 0, 0]
+        self.relative_pose = []
+        self.odometry_path = []
+        self.relative_path = []
+        self.odometry_pose = []
+        self.corrected_pose = []
+        self.corrected_path = []
+        self.odometry_pose_msg = PoseStamped()
+        self.landmark_poses_msg = PoseArray()
+        self.initial_transform_matrix = None
+        self.transform_matrix = None
 
         rospy.loginfo("Waiting for server processes...")
         # Wait until POINTCLOUD CLUSTERING service is UP AND RUNNING
@@ -77,9 +90,74 @@ class WaymoClient:
         self.landmark_detection_client = rospy.ServiceProxy('landmark_detection', landmark_detection_srv)
         rospy.loginfo("Landmark service is running")
 
-        # rospy.wait_for_service('data_fusion')
-        # self.data_fusion_client = rospy.ServiceProxy('data_fusion', data_fusion_srv)
-        # rospy.loginfo("Data Fusion service is running")
+        rospy.wait_for_service('data_fusion')
+        self.data_fusion_client = rospy.ServiceProxy('data_fusion', data_fusion_srv)
+        rospy.loginfo("Data Fusion service is running")
+
+
+    def _get_pose(self, T):
+        position = T[:3, 3]
+        R_matrix = T[:3, :3]
+        rotation = R.from_matrix(R_matrix)
+        roll, pitch, yaw = rotation.as_euler('xyz', degrees=False)
+
+        return [position[0], position[1], position[2], roll, pitch, yaw]
+
+
+    def _normalize_angle(self, angle):
+        """ Normalize the angle to be within the range [-π, π] """
+        return (angle + np.pi) % (2 * np.pi) - np.pi
+
+
+    def process_odometry(self, position_noise_std=0.6, orientation_noise_std=0.01):
+        """
+        Get incremental pose of the vehicle with cumulative noise.
+        """
+
+        # Extract the transform matrix for the current frame
+        self.transform_matrix = np.array(self.frame.pose.transform).reshape(4, 4)
+        
+        # Initialize the initial frame as the origin if not already done
+        if self.initial_transform_matrix is None:
+            self.initial_transform_matrix = self.transform_matrix
+        
+        # Compute the relative pose: relative_pose = initial_transform_matrix^-1 * transform_matrix
+        relative_transform = np.linalg.inv(self.initial_transform_matrix) @ self.transform_matrix
+        self.relative_pose = self._get_pose(relative_transform)
+        rospy.loginfo(f"Vehicle relative (real) pose: {self.relative_pose}")
+        self.relative_path.append(self.relative_pose)
+
+        # Generar ruido gaussiano y acumularlo en las variables de ruido acumulado
+        self.position_noise_cumulative = [
+            self.position_noise_cumulative[i] + np.random.normal(0, position_noise_std)
+            for i in range(3)
+        ]
+        self.orientation_noise_cumulative = [
+            self.orientation_noise_cumulative[i] + np.random.normal(0, orientation_noise_std)
+            for i in range(3)
+        ]
+
+        # Añadir el ruido acumulado a la pose relativa para obtener la odometría con ruido
+        noisy_position = [
+            self.relative_pose[i] + self.position_noise_cumulative[i] for i in range(3)
+        ]
+        noisy_orientation = [
+            self.relative_pose[i+3] + self.orientation_noise_cumulative[i] for i in range(3)
+        ]
+
+        # Actualizar la odometría con los valores ruidosos acumulativos
+        self.odometry_pose = noisy_position + noisy_orientation
+        rospy.loginfo(f"Vehicle odometry Pose (with cumulative noise): {self.odometry_pose}")
+        self.odometry_path.append(self.odometry_pose)
+
+
+    def process_map(self):
+        """
+        This method extracts the map information from the scene
+        """
+        # TODO: Map extractor dentro de Waymo Client
+        pass
+
 
     def init_camera_params(self):
         camera_intrinsic = np.array(self.frame.context.camera_calibrations[0].intrinsic)
@@ -117,9 +195,9 @@ class WaymoClient:
                 rospy.loginfo("Calling pointcloud clustering service...")
                 response = self.pointcloud_clustering_client(request)
                 clustered_pointcloud = response.clustered_pointcloud
-                rospy.loginfo("Pointcloud received")
+                rospy.logdebug("Pointcloud received")
                 self.pointcloud, self.cluster_labels = self.pointcloud_processor.respmsg_to_pointcloud(clustered_pointcloud)
-                rospy.loginfo("Pointcloud message decoded")
+                rospy.logdebug("Pointcloud message decoded")
 
             except rospy.ServiceException as e:
                 rospy.logerr(f"Service call failed: {e}")
@@ -129,7 +207,7 @@ class WaymoClient:
             self.clustered_pointcloud = {tuple(label): self.pointcloud[np.all(self.cluster_labels == label, axis=1), :] for label in unique_labels}
 
         else:
-            rospy.loginfo("No pointcloud in frame")
+            rospy.logdebug("No pointcloud in frame")
 
 
     def process_image(self):
@@ -143,14 +221,14 @@ class WaymoClient:
                 rospy.loginfo("Calling landmark detection service...")
                 response = self.landmark_detection_client(request)
                 image_detection = response.processed_image
-                rospy.loginfo("Detection received")
+                rospy.logdebug("Detection received")
                 self.processed_image = self.camera_processor.respmsg_to_image(image_detection)
                 self.image_height, self.image_width, _ = self.processed_image.shape
-                rospy.loginfo("Image message decoded")
+                rospy.logdebug("Image message decoded")
             except rospy.ServiceException as e:
                 rospy.logerr(f"Service call failed: {e}")
         else:
-            rospy.loginfo("No image in frame")
+            rospy.logdebug("No image in frame")
 
 
     def __vehicle_to_camera(self, pointcloud, transform):
@@ -180,7 +258,7 @@ class WaymoClient:
         Returns: cluster labels dictionary, projected on camera frame --> {label: cluster}
         """
         if self.pointcloud.size == 0 or self.processed_image is None:
-            rospy.logwarn("No pointcloud or processed image available for projection")
+            rospy.logerr("No pointcloud or processed image available for projection")
             return
 
         point_cloud_cam = self.__vehicle_to_camera(self.pointcloud, self.extrinsic_matrix_inv)
@@ -192,7 +270,7 @@ class WaymoClient:
         P = np.hstack((self.intrinsic_matrix, np.zeros((3, 1))))
         point_cloud_image = np.dot(P, point_cloud_cam_hom.T).T
         point_cloud_image = point_cloud_image[:, :2] / point_cloud_image[:, 2:]
-        rospy.loginfo("Pointcloud projected from 3D vehicle frame to 3D camera frame")
+        rospy.logdebug("Pointcloud projected from 3D vehicle frame to 3D camera frame")
 
         filtered_indices = (
             (point_cloud_image[:, 0] >= 0) & (point_cloud_image[:, 0] < self.image_width) &
@@ -200,7 +278,7 @@ class WaymoClient:
         )
         point_cloud_image = point_cloud_image[filtered_indices]
         filtered_labels = positive_labels[filtered_indices]
-        rospy.loginfo("Pointcloud projected from 3D camera frame to 2D image frame")
+        rospy.logdebug("Pointcloud projected from 3D camera frame to 2D image frame")
 
         # Apply convex hull for each cluster
         # Generate clusters based on filtered labels
@@ -240,7 +318,7 @@ class WaymoClient:
         This method computes the IoU between the clusters projections and the segmentation masks
         Filters the projections and stores only cluster projections that intersect with segmentation masks
         """
-        rospy.loginfo("Getting associations...")
+        rospy.logdebug("Getting associations...")
 
         # Convert processed image to grayscale
         processed_image = cv2.cvtColor(self.processed_image, cv2.COLOR_RGB2GRAY)
@@ -303,7 +381,7 @@ class WaymoClient:
             # Get pose in global frame
             # Convert the centroid to homogeneous coordinates
             landmark_pose_hom = np.hstack((landmark_pose[:3], [1]))
-            landmark_global_hom = np.dot(self.incremental_odometry_extractor.transform_matrix, landmark_pose_hom)
+            landmark_global_hom = np.dot(self.transform_matrix, landmark_pose_hom)
             landmark_global = landmark_global_hom[:3]
 
             # Rotation
@@ -321,7 +399,7 @@ class WaymoClient:
             
             landmark_rotation_matrix = np.dot(R_z, np.dot(R_y, R_x))
             # Transform the orientation using the rotation matrix
-            global_rotation_matrix = np.dot(self.incremental_odometry_extractor.transform_matrix[:3,:3], landmark_rotation_matrix)
+            global_rotation_matrix = np.dot(self.transform_matrix[:3,:3], landmark_rotation_matrix)
 
             # Convert the global rotation matrix back to euler angles
             sy = math.sqrt(global_rotation_matrix[0, 0] ** 2 + global_rotation_matrix[1, 0] ** 2)
@@ -346,103 +424,53 @@ class WaymoClient:
         ekf_request = data_fusion_srvRequest()
         
         # Populate the request with incremental odometry pose
-        self.incremental_odometry_extractor.process_odometry()
-        self.odometry_pose = self.incremental_odometry_extractor.inc_odom
-        ekf_request.odometry = self.incremental_odometry_extractor.inc_odom_msg
+        self.odometry_pose_msg.pose.position = Point(*self.odometry_pose[:3])
+
+        # Convert Euler angles to quaternion for ROS message
+        rotation = R.from_euler('xyz', self.odometry_pose[3:])
+        quaternion = rotation.as_quat()
+        self.odometry_pose_msg.pose.orientation = Quaternion(*quaternion)
+        ekf_request.odometry = self.odometry_pose_msg
 
         # Populate the request with landmark poses
-        landmark_poses = PoseArray()
         for label, pose in self.clusters_poses.items():
             landmark_pose = PoseStamped()
             landmark_pose.pose.position.x = pose[0]
             landmark_pose.pose.position.y = pose[1]
             landmark_pose.pose.position.z = pose[2]
-            quaternion = R.from_euler('xyz', pose[3:]).as_quat()
+            rnion = R.from_euler('xyz', pose[3:]).as_quat()
             landmark_pose.pose.orientation.x = quaternion[0]
             landmark_pose.pose.orientation.y = quaternion[1]
             landmark_pose.pose.orientation.z = quaternion[2]
             landmark_pose.pose.orientation.w = quaternion[3]
-            landmark_poses.poses.append(landmark_pose.pose)
-        ekf_request.observations = landmark_poses
+            self.landmark_poses_msg.poses.append(landmark_pose.pose)
+
+        ekf_request.observations = self.landmark_poses_msg
 
         # Call the EKF service
         try:
             rospy.loginfo("Calling EKF service...")
             ekf_response = self.data_fusion_client(ekf_request)
-            rospy.loginfo("EKF service call successful")
+            rospy.logdebug("EKF service call successful")
             
             # Handle the response to get the corrected pose
-            self.corrected_pose = ekf_response.corrected_position
-            rospy.loginfo(f"Corrected Pose: {self.corrected_pose}")
+            position_rpy = ekf_response.corrected_position
+
+            self.corrected_pose = [
+                position_rpy.x, 
+                position_rpy.y, 
+                position_rpy.z, 
+                position_rpy.roll, 
+                position_rpy.pitch, 
+                position_rpy.yaw
+            ]
+            rospy.loginfo(f"Corrected EKF Pose: {self.corrected_pose}")
+
+            # Add the corrected pose to a path array
+            self.corrected_path.append(self.corrected_pose)
 
         except rospy.ServiceException as e:
             rospy.logerr(f"EKF service call failed: {e}")
-
-
-class IncrementalOdometryExtractor(WaymoClient):
-    def __init__(self, frame):
-        super().__init__(frame, None)
-        self.transform_matrix = []
-        self.initial_transform_matrix = None
-        self.relative_pose = [] # Odometry pose
-        self.noisy_relative_pose = [] # Odometry pose with gaussian noise added
-
-    def get_pose(self, T):
-        position = T[:3, 3]
-        R_matrix = T[:3, :3]
-        rotation = R.from_matrix(R_matrix)
-        roll, pitch, yaw = rotation.as_euler('xyz', degrees=False)
-
-        return [position[0], position[1], position[2], roll, pitch, yaw]
-
-    def normalize_angle(self, angle):
-        """ Normalize the angle to be within the range [-π, π] """
-        return (angle + np.pi) % (2 * np.pi) - np.pi
-
-    def process_odometry(self, position_noise_std=0.01, orientation_noise_std=0.01): #TODO: valores de ruido por configuración
-        """
-        Get incremental pose of the vehicle
-        """
-
-        # Extract the transform matrix for the current frame
-        self.transform_matrix = np.array(frame.pose.transform).reshape(4, 4)
-        
-        # Initialize the initial frame as the origin if not already done
-        if self.initial_transform_matrix is None:
-            self.initial_transform_matrix = self.transform_matrix
-        
-        # Compute the relative pose: relative_pose = initial_transform_matrix^-1 * transform_matrix
-        relative_transform = np.linalg.inv(self.initial_transform_matrix) @ self.transform_matrix
-        
-        # Get the relative pose (position and orientation in Euler angles) for the current frame
-        self.relative_pose = self.get_pose(relative_transform)
-        # Add Gaussian noise to the position (x, y, z) and orientation (roll, pitch, yaw)
-        noisy_position = [
-            self.relative_pose[0] + np.random.normal(0, position_noise_std),
-            self.relative_pose[1] + np.random.normal(0, position_noise_std),
-            self.relative_pose[2] + np.random.normal(0, position_noise_std)
-        ]
-        noisy_orientation = [
-            self.relative_pose[3] + np.random.normal(0, orientation_noise_std),  # roll
-            self.relative_pose[4] + np.random.normal(0, orientation_noise_std),  # pitch
-            self.relative_pose[5] + np.random.normal(0, orientation_noise_std)   # yaw
-        ]
-
-        # Update the relative_pose with noisy values
-        self.noisy_relative_pose = noisy_position + noisy_orientation
-        print("Noisy Relative Pose:", self.noisy_relative_pose)
-
-
-
-        self.transform_matrix = np.array(self.frame.pose.transform).reshape(4, 4)
-        if self.initial_transform_matrix is None:
-            self.initial_transform_matrix = self.transform_matrix
-        # Compute the relative pose: relative_pose = initial_transform_matrix^-1 * transform_matrix
-        relative_transform = np.linalg.inv(self.initial_transform_matrix) @ self.transform_matrix
-        
-        # Get the relative pose (position and orientation in Euler angles) for the current frame
-        self.relative_pose = self.get_pose(relative_transform)
-        rospy.loginfo(f"Vehicle relative Pose: {self.relative_pose}")
 
 
 class PointCloudProcessor(WaymoClient):
@@ -499,6 +527,7 @@ class PointCloudProcessor(WaymoClient):
 
         return pointcloud, cluster_labels
 
+
 class CameraProcessor(WaymoClient):
     def __init__(self, frame):
         super().__init__(frame, None)
@@ -539,14 +568,13 @@ if __name__ == "__main__":
     rate = rospy.Rate(1/4)
 
     # Read dataset
-    dataset_path = os.path.join(src_dir, "dataset/waymo_test_scene2")
+    dataset_path = os.path.join(src_dir, "dataset/final_tests_scene")
     tfrecord_list = list(sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
 
     # Initialize classes outside the loop
     wc = None
     pointcloud_processor = None
     camera_processor = None
-    incremental_odometry_extractor = None
 
     ##############################################################################################
     ## Dataset Parsing
@@ -557,9 +585,12 @@ if __name__ == "__main__":
             rospy.loginfo(f"Scene {scene_index}: {scene_name} processing: {scene_path}")
             frame_n = 0  # Scene frames counter
 
-            ## Evaluation > position and orientation vectors to store vehicles poses
-            initial_pose = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], dtype=np.float64) # Quaternion initialized to no rotation
-            accumulated_pose = np.copy(initial_pose)
+            # Reset odometry cumulative error every scene
+            #TODO Odometría simulada, en caso de tener odometría con error real > eliminar
+            if wc is not None:
+                wc.position_noise_cumulative = [0, 0, 0]
+                wc.orientation_noise_cumulative = [0, 0, 0]
+
             for frame in load_frame(scene_path):
                 if frame is None:
                     rospy.logerr("Error reading frame")
@@ -572,26 +603,24 @@ if __name__ == "__main__":
                     pointcloud_processor = PointCloudProcessor(frame)
                 if camera_processor is None:
                     camera_processor = CameraProcessor(frame)
-                if incremental_odometry_extractor is None:
-                    incremental_odometry_extractor = IncrementalOdometryExtractor(frame)
+
 
                 # Update frame for each class
                 wc.frame = frame
                 pointcloud_processor.frame = frame
                 camera_processor.frame = frame
-                incremental_odometry_extractor.frame = frame
 
                 # Set class references in wc
                 wc.pointcloud_processor = pointcloud_processor
                 wc.camera_processor = camera_processor
-                wc.incremental_odometry_extractor = incremental_odometry_extractor
 
                 ##############################################################################################
                 ## Procesing Services
                 ##############################################################################################
 
-                rospy.loginfo("Calling processing services")
+                rospy.logdebug("Calling processing services")
                 frame_n += 1
+
                 """ 
                 PROCESS ODOMETRY --> GET INCREMENTAL VEHICLE POSITION ON EACH FRAME
                 Odometry service also get the transformation matrix of the vehicle
@@ -599,8 +628,8 @@ if __name__ == "__main__":
                 """
 
                 # Obtain odometry increment (in frame 0 will be 0)
-                wc.incremental_odometry_extractor.process_odometry()
-                relative_pose = np.array(wc.incremental_odometry_extractor.relative_pose)
+                wc.process_odometry()
+                relative_pose = np.array(wc.odometry_pose)
 
                 # DEBUG -> send incremental odometry to publish in RVIZ
                 text = f"Frame: ({frame_n})\n" \
@@ -610,23 +639,27 @@ if __name__ == "__main__":
                 header.frame_id = "base_link"
                 header.stamp = rospy.Time.now()
                 publish_incremental_pose_to_topic("vehicle_pose", relative_pose, text, header)
+                
+                # DEBUG -> Publish vehicle path
+                vehicle_path = np.array(wc.odometry_path)
+                publish_path("vehicle_path", vehicle_path, header)
 
                 """
                 POINTCLOUD CLUSTERING PROCESS
                 """
-                rospy.loginfo("Pointcloud processing service")
+                rospy.logdebug("Pointcloud processing service")
                 wc.pointcloud_processor.pointcloud_msg.header.frame_id = f"base_link_{scene_name}"
                 wc.pointcloud_processor.pointcloud_msg.header.stamp = rospy.Time.now()
                 wc.process_pointcloud()
                 if wc.pointcloud.size < 0:
                     rospy.logerr("Pointcloud received is empty")
                     continue
-                rospy.loginfo("Processed Pointcloud received")
+                rospy.logdebug("Processed Pointcloud received")
 
                 """
                 LANDMARK DETECTION PROCESS
                 """
-                rospy.loginfo("Landmark detection processing service")
+                rospy.logdebug("Landmark detection processing service")
                 wc.camera_processor.camera_msg.header.frame_id = f"base_link_{scene_name}"
                 wc.camera_processor.camera_msg.header.stamp = rospy.Time.now()
                 wc.process_image()
@@ -636,9 +669,10 @@ if __name__ == "__main__":
 
                 """
                 DATA ASSOCIATION > PROJECT POINTCLOUD ON IMAGE AND FILTER CLUSTERS
-                This process 
+                This process obtains the poses of the detected landmarks referred to the vehicle's pose.
+                In this version, this process is carried out by the client service.
                 """
-                rospy.loginfo("Data association process")
+                rospy.logdebug("Data association process")
                 # Pointcloud - Image projection
                 wc.project_pointcloud_on_image()
                 
@@ -662,5 +696,57 @@ if __name__ == "__main__":
                 header.stamp = rospy.Time.now()
                 publish_multiple_poses_to_topic("landmark_poses", wc.clusters_poses, header)
 
+
+                """
+                DATA FUSION > CORRECT ODOMETRY POSITION WITH LANDMARK OBSERVATIONS
+                """
+                rospy.logdebug("Data Fusion processing service")
+                wc.odometry_pose_msg.header.frame_id = f"base_link_{scene_name}"
+                wc.odometry_pose_msg.header.stamp = rospy.Time.now()
+                wc.landmark_poses_msg.header.frame_id = f"base_link_{scene_name}"
+                wc.landmark_poses_msg.header.stamp = rospy.Time.now()
+                wc.process_EKF()
+
+                if wc.corrected_pose is None:
+                    rospy.logerr("Not EKF correction received")
+                    continue
+
+                corrected_pose = wc.corrected_pose
+
+                # DEBUG - Publish corrected EKF pose and path
+                text = f"Frame: ({frame_n})\n" \
+                                    f"Corrected Pos: ({corrected_pose[0]:.2f}, {corrected_pose[1]:.2f}, {corrected_pose[2]:.2f})\n" \
+                                    f"Corrected Orientation: ({corrected_pose[3]:.2f}, {corrected_pose[4]:.2f}, {corrected_pose[5]:.2f})"
+                header = Header()
+                header.frame_id = "base_link"
+                header.stamp = rospy.Time.now()
+                publish_incremental_pose_to_topic("corrected_vehicle_pose", corrected_pose, text, header)
                 
+                # DEBUG -> Publish vehicle path
+                vehicle_corrected_path = np.array(wc.corrected_path)
+                publish_path("corrected_vehicle_path", vehicle_corrected_path, header)
+
+
                 rate.sleep()
+
+            ## Avter finishing the frames of a determined scene, save the logged data to a csv
+            with open('results/poses_' + str(scene_name) + '.csv', 'w', newline='') as csvfile:
+                csv_writer = csv.writer(csvfile)
+
+                # Write header
+                header = [
+                    'real_x', 'real_y', 'real_z', 'real_roll', 'real_pitch', 'real_yaw',
+                    'odometry_x', 'odometry_y', 'odometry_z', 'odometry_roll', 'odometry_pitch', 'odometry_yaw',
+                    'corrected_x', 'corrected_y', 'corrected_z', 'corrected_roll', 'corrected_pitch', 'corrected_yaw'
+                ]
+                csv_writer.writerow(header)
+
+                # Write each pose set per frame
+                for real_pose, odometry_pose, corrected_pose in zip(wc.relative_path, wc.odometry_path, wc.corrected_path):
+                    row = (
+                        real_pose +           # real_x, real_y, real_z, real_roll, real_pitch, real_yaw
+                        odometry_pose +       # odometry_x, odometry_y, odometry_z, odometry_roll, odometry_pitch, odometry_yaw
+                        corrected_pose        # corrected_x, corrected_y, corrected_z, corrected_roll, corrected_pitch, corrected_yaw
+                    )
+                    csv_writer.writerow(row)
+                rospy.loginfo(f"Scene {scene_name} data saved to CSV file")

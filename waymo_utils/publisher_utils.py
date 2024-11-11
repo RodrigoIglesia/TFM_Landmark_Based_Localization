@@ -53,7 +53,7 @@ def publish_incremental_pose_to_topic(topic, pose, text, header):
 
     # Publish the marker
     pose_text_pub.publish(text_marker)
-    rospy.loginfo("New incremental pose published")
+    rospy.logdebug("New incremental pose published")
 
 def publish_multiple_poses_to_topic(topic, labeled_poses, header):
     """
@@ -108,7 +108,7 @@ def publish_multiple_poses_to_topic(topic, labeled_poses, header):
         # Publish the marker individually
         pose_text_pub.publish(text_marker)
 
-    rospy.loginfo("Published multiple labeled poses to topic")
+    rospy.logdebug("Published multiple labeled poses to topic")
 
 def publish_path(topic, poses, header):
     """
@@ -147,7 +147,7 @@ def publish_path(topic, poses, header):
     
     # Publish the path
     path_pub.publish(path_msg)
-    rospy.loginfo("Path published with {} poses".format(len(poses)))
+    rospy.logdebug("Path published with {} poses".format(len(poses)))
 
 def publish_image_to_topic(topic, image, header):
     """

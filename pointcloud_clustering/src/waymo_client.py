@@ -585,6 +585,19 @@ if __name__ == "__main__":
             rospy.loginfo(f"Scene {scene_index}: {scene_name} processing: {scene_path}")
             frame_n = 0  # Scene frames counter
 
+            # Initialize CSV file and write header at the beginning of each scene
+            csv_file_path = os.path.join(src_dir, f'results/poses_{scene_name}.csv')
+            with open(csv_file_path, 'w', newline='') as csvfile:
+                csv_writer = csv.writer(csvfile)
+                
+                # Write header once at the beginning
+                header = [
+                    'frame', 'real_x', 'real_y', 'real_z', 'real_roll', 'real_pitch', 'real_yaw',
+                    'odometry_x', 'odometry_y', 'odometry_z', 'odometry_roll', 'odometry_pitch', 'odometry_yaw',
+                    'corrected_x', 'corrected_y', 'corrected_z', 'corrected_roll', 'corrected_pitch', 'corrected_yaw'
+                ]
+                csv_writer.writerow(header)
+
             # Reset odometry cumulative error every scene
             #TODO Odometría simulada, en caso de tener odometría con error real > eliminar
             if wc is not None:
@@ -726,27 +739,12 @@ if __name__ == "__main__":
                 vehicle_corrected_path = np.array(wc.corrected_path)
                 publish_path("corrected_vehicle_path", vehicle_corrected_path, header)
 
+                # Append pose data for the current frame to CSV
+                with open(csv_file_path, 'a', newline='') as csvfile:
+                    csv_writer = csv.writer(csvfile)
+                    row = [frame_n] + wc.relative_pose + wc.odometry_pose + corrected_pose
+                    csv_writer.writerow(row)
+                    rospy.loginfo(f"Frame {frame_n} data appended to CSV")
+
 
                 rate.sleep()
-
-            ## Avter finishing the frames of a determined scene, save the logged data to a csv
-            with open('results/poses_' + str(scene_name) + '.csv', 'w', newline='') as csvfile:
-                csv_writer = csv.writer(csvfile)
-
-                # Write header
-                header = [
-                    'real_x', 'real_y', 'real_z', 'real_roll', 'real_pitch', 'real_yaw',
-                    'odometry_x', 'odometry_y', 'odometry_z', 'odometry_roll', 'odometry_pitch', 'odometry_yaw',
-                    'corrected_x', 'corrected_y', 'corrected_z', 'corrected_roll', 'corrected_pitch', 'corrected_yaw'
-                ]
-                csv_writer.writerow(header)
-
-                # Write each pose set per frame
-                for real_pose, odometry_pose, corrected_pose in zip(wc.relative_path, wc.odometry_path, wc.corrected_path):
-                    row = (
-                        real_pose +           # real_x, real_y, real_z, real_roll, real_pitch, real_yaw
-                        odometry_pose +       # odometry_x, odometry_y, odometry_z, odometry_roll, odometry_pitch, odometry_yaw
-                        corrected_pose        # corrected_x, corrected_y, corrected_z, corrected_roll, corrected_pitch, corrected_yaw
-                    )
-                    csv_writer.writerow(row)
-                rospy.loginfo(f"Scene {scene_name} data saved to CSV file")

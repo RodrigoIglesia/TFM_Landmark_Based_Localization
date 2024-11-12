@@ -3,6 +3,7 @@ import sys
 import pathlib
 import numpy as np
 import open3d as o3d
+import csv  # Necesario para leer el CSV
 from scipy.spatial.transform import Rotation as R
 
 # Add project root to python path
@@ -71,6 +72,18 @@ def concatenate_pcd_returns(pcd_return_1, pcd_return_2):
     points_cp_concat = np.concatenate(points_cp + points_cp_ri2, axis=0)
     return points_concat, points_cp_concat
 
+# Ruta del CSV con los elementos verticales
+csv_path = os.path.join(src_dir, "pointcloud_clustering/map/signs_map_features_individual_files_training_segment-10072140764565668044_4060_000_4080_000_with_camera_labels.csv")
+
+# Leer los datos del CSV sin usar pandas
+vertical_elements = []
+with open(csv_path, newline='') as csvfile:
+    reader = csv.reader(csvfile)
+    for row in reader:
+        x, y = float(row[0]), float(row[1])
+        # Agregar las coordenadas z, roll, pitch y yaw constantes
+        vertical_elements.append([x, y, -1.8, 0.0, 0.0, 0.0])
+
 # Read dataset
 dataset_path = os.path.join(src_dir, "dataset/final_tests_scene")
 tfrecord_list = list(sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
@@ -129,28 +142,23 @@ for scene_index, scene_path in enumerate(tfrecord_list):
         prev_noisy_point = noisy_point
         frame_n += 1
 
-        # Obtain the point cloud for the first frame
+        # Obtener la nube de puntos para el primer frame
         if frame_n == 1:
-            # Parse range image and convert to point cloud
             range_images, camera_projections, segmentation_labels, range_image_top_pose = frame_utils.parse_range_image_and_camera_projection(frame)
 
-            # Get points labeled for first and second return
             def _range_image_to_pcd(ri_index=0):
                 points, points_cp = frame_utils.convert_range_image_to_point_cloud(
                     frame, range_images, camera_projections, range_image_top_pose, ri_index=ri_index)
                 return points, points_cp
 
-            # First and second lidar returns
             points_return1 = _range_image_to_pcd()
             points_return2 = _range_image_to_pcd(1)
 
-            # Combine both returns for a denser point cloud
             pointcloud, points_cp = concatenate_pcd_returns(points_return1, points_return2)
             pcd = o3d.geometry.PointCloud()
             pcd.points = o3d.utility.Vector3dVector(pointcloud)
-            pcd.paint_uniform_color([0.5, 0.5, 0.5])  # Optional: set color for visibility
+            pcd.paint_uniform_color([0.5, 0.5, 0.5])
 
-            # Add point cloud to the visualizer
             vis.add_geometry(pcd)
             opt = vis.get_render_option()
             opt.point_size = 1.0
@@ -167,8 +175,13 @@ for scene_index, scene_path in enumerate(tfrecord_list):
     noisy_line_set.paint_uniform_color([1, 0, 0])  # Red for noisy path
     vis.add_geometry(noisy_line_set)
 
+    # Añadir ejes de coordenadas para cada elemento vertical
+    for element in vertical_elements:
+        element_position = element[:3]  # x, y, z
+        axis_element = o3d.geometry.TriangleMesh.create_coordinate_frame(size=axis_length, origin=element_position)
+        vis.add_geometry(axis_element)
+
     # Run the visualization
     vis.run()
     vis.clear_geometries()
     vis.destroy_window()
-

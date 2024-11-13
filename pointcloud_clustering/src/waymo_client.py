@@ -433,7 +433,7 @@ class WaymoClient:
         ekf_request.odometry = self.odometry_pose_msg
 
         # Populate the request with landmark poses
-        for label, pose in self.clusters_poses.items():
+        for label, pose in self.clusters_poses_global.items():
             landmark_pose = PoseStamped()
             landmark_pose.pose.position.x = pose[0]
             landmark_pose.pose.position.y = pose[1]

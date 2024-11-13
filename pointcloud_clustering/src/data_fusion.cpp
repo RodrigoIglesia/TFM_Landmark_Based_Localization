@@ -60,15 +60,84 @@ private:
 
     Config config_;
     std::string frame_id_;
-    Matrix6f P_;
-    Matrix6f Q_;
-    Matrix6f R_;
-    std::vector<pointcloud_clustering::observationRPY> map_;
+
 };
 
 DataFusion::DataFusion(const std::string& configFilePath, const std::string& mapFilePath) {
+    /*
+    Initialization Method
+    */
     ros::NodeHandle nh;
     readConfig(configFilePath);
+
+    // EKF initialization
+    pointcloud_clustering::positionRPY positionZero;
+    pointcloud_clustering::positionRPY positionEKF;
+    pointcloud_clustering::positionRPY incOdomEKF;
+    pointcloud_clustering::positionRPY incOdomEKFPrev;  
+    pointcloud_clustering::positionRPY positionPredEKF;
+    pointcloud_clustering::positionRPY positionCorrEKF;
+    pointcloud_clustering::positionRPY sigma_odom;
+    pointcloud_clustering::positionRPY sigma_obs;
+
+    tf::TransformBroadcaster br;
+    tf::StampedTransform transform_ekf(tf::Transform::getIdentity(), initTime, "map", "ekf"); // Initialization;
+    tf::Quaternion quat;
+    bool tfEKF;
+
+    // Pose initialization
+    poseZero.pose.position.x = 0.0;
+    poseZero.pose.position.y = 0.0;
+    poseZero.pose.position.z = 0.0;
+    poseZero.pose.orientation.x = 0.0;
+    poseZero.pose.orientation.y = 0.0;
+    poseZero.pose.orientation.z = 0.0;
+    poseZero.pose.orientation.w = 1.0;
+    poseZero.header.stamp = initTime;
+    poseZero.header.frame_id = "map";
+    
+    posePredEKF.pose.pose = poseZero.pose; // posePredEKF init
+    posePredEKF.header = poseZero.header;
+    poseCorrEKF.pose.pose = poseZero.pose; // poseCorrEKF init
+    poseCorrEKF.header = poseZero.header;
+    incOdomPrev = poseZero; // incOdomPrev init
+    incOdom = poseZero; // incOdom init
+    incOdom2 = poseZero; // incOdom2 init
+    incOdom2Prev = poseZero; // incOdom2Prev init
+        
+    positionZero.x = 0.0;
+    positionZero.y = 0.0;
+    positionZero.z = 0.0;
+    positionZero.roll = 0.0;
+    positionZero.pitch = 0.0;
+    positionZero.yaw = 0.0;
+
+    Matrix <float, 4, 6> B; // Binding matrix for EKF
+    B << 1, 0, 0, 0, 0, 0, // x
+    0, 1, 0, 0, 0, 0, // y
+//       0, 0, 1, 0, 0, 0, // z
+    0, 0, 0, 1, 0, 0, // roll
+    0, 0, 0, 0, 1, 0; // pitch
+//       0, 0, 0, 0, 0, 1; // yaw  ------> Binding matrix: we store the components of elements in which we're interested (optional)
+
+    int B_rows = B.rows();
+    Matrix6f P_;
+    Matrix6f Q_;
+    Matrix6f R_;
+    Matrix6f Fx, Fu;
+    std::vector<pointcloud_clustering::observationRPY> map_;
+
+    positionEKF.x       = _config.x_init;
+    positionEKF.y       = _config.y_init;
+    positionEKF.z       = _config.z_init;
+    positionEKF.roll    = _config.roll_init;
+    positionEKF.pitch   = _config.pitch_init;
+    positionEKF.yaw     = _config.yaw_init;
+    positionEKF.yaw = positionEKF.yaw*3.141592/180.0;
+    incOdomEKF = positionZero;  // incOdomEKF init
+    incOdomEKFPrev = positionZero; // incOdomEKFPrev init
+    positionPredEKF = positionZero; // positionPredEKF init
+    positionCorrEKF = positionZero; // positionCorrEKF init
 
     // Inicializa las matrices P, Q y R con valores por defecto
     P_ = Matrix6f::Zero();
@@ -89,30 +158,6 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     R_(3, 3) = config_.sigma_obs_roll * config_.sigma_obs_roll;
     R_(4, 4) = config_.sigma_obs_pitch * config_.sigma_obs_pitch;
     R_(5, 5) = config_.sigma_obs_yaw * config_.sigma_obs_yaw;
-
-    // // Carga del mapa desde un archivo JSON (suponiendo que el archivo JSON esté en mapFilePath)
-    // std::ifstream inputFile(mapFilePath);
-    // if (!inputFile.is_open()) {
-    //     throw std::runtime_error("Cannot open map file: " + mapFilePath);
-    // }
-
-    // nlohmann::json jsonData;
-    // inputFile >> jsonData;
-
-    // for (const auto& item : jsonData) {
-    //     if (item.contains("stopSign")) {
-    //         auto stopSign = item["stopSign"];
-    //         pointcloud_clustering::observationRPY map_aux;
-    //         map_aux.position.x = stopSign["position"]["x"].get<double>() - config_.easting_ref;
-    //         map_aux.position.y = stopSign["position"]["y"].get<double>() - config_.northing_ref;
-    //         map_aux.position.z = stopSign["position"]["z"].get<double>();  // Z coordinate from the JSON
-    //         map_aux.position.roll = 0.0;
-    //         map_aux.position.pitch = 0.0;
-    //         map_aux.position.yaw = 0.0;
-    //         map_.push_back(map_aux);
-    //     }
-    // }
-    // inputFile.close();
 
 
     // Carga del mapa desde un archivo CSV (suponiendo que el archivo CSV esté en mapFilePath)
@@ -142,6 +187,15 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
             map_aux.position.pitch = 0.0;
             map_aux.position.yaw = 0.0;
             map_.push_back(map_aux);
+
+            map_element.pose.position.x = record[0] - easting_ref;
+            map_element.pose.position.y = record[1] - northing_ref;
+            map_element.pose.position.z = -1.8;
+            map_element.pose.orientation.x = 0.0;
+            map_element.pose.orientation.y = 0.0;
+            map_element.pose.orientation.z = 0.0;
+            map_element.pose.orientation.w = 1.0;
+            map_elements.poses.push_back(map_element.pose);
         }
     }
     inputFile.close();

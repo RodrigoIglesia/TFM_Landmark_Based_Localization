@@ -235,7 +235,6 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
 
     std::vector<pointcloud_clustering::observationRPY> map_;
 
-    incOdomEKF = positionZero;  // incOdomEKF init
     incOdomEKFPrev = positionZero; // incOdomEKFPrev init
     positionPredEKF = positionZero; // positionPredEKF init
     positionCorrEKF = positionZero; // positionCorrEKF init
@@ -330,8 +329,8 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     }
     inputFile.close();
     int mapSize = map.size();
-    std::cout << "Loaded " << mapSize << " elements:" << std::endl;
-    std::cout << map_elements << std::endl;
+    ROS_DEBUG("Loaded %d map elements", mapSize);
+
 
     /* MAIN PROCESS*/
     /* 1. Predicción de la posición*/
@@ -342,7 +341,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     
     quat.setRPY(0.0, 0.0, -positionPredEKF.yaw);
     tf::quaternionTFToMsg(quat, posePredEKF.pose.pose.orientation);
-    std::cout << "PosePred:" << std::endl << posePredEKF.pose.pose << std::endl;
+    // std::cout << "PosePred:" << std::endl << posePredEKF.pose.pose << std::endl;
     
     // Actualización de la matriz de covarianza de predicción
     Fx = J1_n(positionCorrEKF, incOdomEKF);
@@ -416,10 +415,10 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
                 S_ij = H_x_ij*P*H_x_ij.transpose() + H_z_ij*R*H_z_ij.transpose();                   
                 if(sqrt(mahalanobisDistance(h_ij, S_ij)) < mahalanobisDistanceThreshold && sqrt(mahalanobisDistance(h_ij, S_ij)) < minMahalanobis) //Theres is a match, but it must be the minimum value of all possible matches
                 {
-                    if(match)
-                    std::cout << "***************************************REMATCH! ["<< i <<"]["<< j <<"]***************************************" << std::endl;
-                    else
-                    std::cout << "***************************************MATCH! ["<< i <<"]["<< j <<"]***************************************" << std::endl;
+                    // if(match)
+                    // std::cout << "***************************************REMATCH! ["<< i <<"]["<< j <<"]***************************************" << std::endl;
+                    // else
+                    // std::cout << "***************************************MATCH! ["<< i <<"]["<< j <<"]***************************************" << std::endl;
                     
                     match = true;
                     i_min = i;
@@ -440,14 +439,14 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
 
         if(M > 0) // There has been at least 1 match (M=1)
         {
-            std::cout << "i_vec: ";
-            for(int i=0; i<i_vec.size(); i++)
-            std::cout <<  i_vec[i]  << " ";
-            std::cout << std::endl;
-            std::cout << "j_vec: ";
-            for(int i=0; i<j_vec.size(); i++)
-            std::cout <<  j_vec[i]  << " ";
-            std::cout << std::endl;
+            // std::cout << "i_vec: ";
+            // for(int i=0; i<i_vec.size(); i++)
+            //     std::cout <<  i_vec[i]  << " ";
+            // std::cout << std::endl;
+            // std::cout << "j_vec: ";
+            // for(int i=0; i<j_vec.size(); i++)
+            //     std::cout <<  j_vec[i]  << " ";
+            // std::cout << std::endl;
 
             MatrixXf h_i(B_rows, 1);            h_i = h_i.Zero(B_rows, 1);   // -------> h_ij for a valid association between observation_i and map_j
             MatrixXf h_k(M*B_rows, 1);          h_k = h_k.Zero(M*B_rows, 1); // -------> All vectors h_i stacked, corresponding to valid matches between an observed element and an element in the map
@@ -498,7 +497,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     else
         quat_msg.setRPY(0.0, 0.0, -positionPredEKF.yaw);
     tf::quaternionTFToMsg(quat_msg, poseCorrEKF.pose.pose.orientation); // set quaternion in msg from tf::Quaternion
-    std::cout << "poseCorrEKF: " << std::endl << poseCorrEKF.pose.pose << std::endl;
+    // std::cout << "poseCorrEKF: " << std::endl << poseCorrEKF.pose.pose << std::endl;
 
     transform_ekf.setOrigin(tf::Vector3(poseCorrEKF.pose.pose.position.x, poseCorrEKF.pose.pose.position.y, poseCorrEKF.pose.pose.position.z));
     transform_ekf.setRotation(quat_msg);

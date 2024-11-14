@@ -131,10 +131,10 @@ int main (int argc, char** argv)
   posePredEKF.header = poseZero.header;
   poseCorrEKF.pose.pose = poseZero.pose; // poseCorrEKF init
   poseCorrEKF.header = poseZero.header;
-  incOdomPrev = poseZero; // incOdomPrev init
-  incOdom = poseZero; // incOdom init
-  incOdom2 = poseZero; // incOdom2 init
-  incOdom2Prev = poseZero; // incOdom2Prev init
+  // incOdomPrev = poseZero; // incOdomPrev init
+  // incOdom = poseZero; // incOdom init
+  // incOdom2 = poseZero; // incOdom2 init
+  // incOdom2Prev = poseZero; // incOdom2Prev init
     
   positionZero.x = 0.0;
   positionZero.y = 0.0;
@@ -241,7 +241,7 @@ int main (int argc, char** argv)
           record.push_back(std::stof(line));
         }
         catch (const std::invalid_argument e) {
-          std::cout << "NaN found in file " << " line " << l+1 << std::endl;
+          // std::cout << "NaN found in file " << " line " << l+1 << std::endl;
           e.what();
         }
       }
@@ -290,8 +290,8 @@ int main (int argc, char** argv)
   }
   map_elements.header.frame_id = "map";
   int mapSize = map.size();
-  std::cout << "Loaded " << mapSize << " elements:" << std::endl;
-  std::cout << map_elements << std::endl;
+  // std::cout << "Loaded " << mapSize << " elements:" << std::endl;
+  // std::cout << map_elements << std::endl;
   
   R(0, 0) = sigma_obs.x*sigma_obs.x;
   R(1, 1) = sigma_obs.y*sigma_obs.y;
@@ -300,8 +300,8 @@ int main (int argc, char** argv)
   R(4, 4) = sigma_obs.pitch*sigma_obs.pitch;
   R(5, 5) = sigma_obs.yaw*sigma_obs.yaw;
   
-  std::cout << "R:" << std::endl;
-  std::cout << R << std::endl;
+  // std::cout << "R:" << std::endl;
+  // std::cout << R << std::endl;
     
   Q(0, 0) = sigma_odom.x*sigma_odom.x;
   Q(1, 1) = sigma_odom.y*sigma_odom.y;
@@ -323,8 +323,8 @@ int main (int argc, char** argv)
   ros::param::get("PFactor", PFactor);
   P = P*PFactor;
   
-  std::cout << "Q:" << std::endl;
-  std::cout << Q << std::endl;
+  // std::cout << "Q:" << std::endl;
+  // std::cout << Q << std::endl;
 
   float textScale;
   bool logfile;
@@ -381,7 +381,7 @@ int main (int argc, char** argv)
     quat.setRPY(0.0, 0.0, -positionPredEKF.yaw);
     tf::quaternionTFToMsg(quat, posePredEKF.pose.pose.orientation);
     pub_ekfPred.publish(posePredEKF);
-    std::cout << "PosePred:" << std::endl << posePredEKF.pose.pose << std::endl;
+    // std::cout << "PosePred:" << std::endl << posePredEKF.pose.pose << std::endl;
     
     pub_ekfPosition.publish(positionPredEKF);
     
@@ -454,9 +454,9 @@ int main (int argc, char** argv)
           if(sqrt(mahalanobisDistance(h_ij, S_ij)) < mahalanobisDistanceThreshold && sqrt(mahalanobisDistance(h_ij, S_ij)) < minMahalanobis) //Theres is a match, but it must be the minimum value of all possible matches
           {
             if(match)
-              std::cout << "***************************************REMATCH! ["<< i <<"]["<< j <<"]***************************************" << std::endl;
+              // std::cout << "***************************************REMATCH! ["<< i <<"]["<< j <<"]***************************************" << std::endl;
             else
-              std::cout << "***************************************MATCH! ["<< i <<"]["<< j <<"]***************************************" << std::endl;
+              // std::cout << "***************************************MATCH! ["<< i <<"]["<< j <<"]***************************************" << std::endl;
               
             match = true;
             i_min = i;
@@ -498,14 +498,14 @@ int main (int argc, char** argv)
       
       if(M > 0) // There has been at least 1 match (M=1)
       {
-        std::cout << "i_vec: ";
+        // std::cout << "i_vec: ";
         for(int i=0; i<i_vec.size(); i++)
-          std::cout <<  i_vec[i]  << " ";
-        std::cout << std::endl;
-        std::cout << "j_vec: ";
+        //   std::cout <<  i_vec[i]  << " ";
+        // std::cout << std::endl;
+        // std::cout << "j_vec: ";
         for(int i=0; i<j_vec.size(); i++)
-          std::cout <<  j_vec[i]  << " ";
-        std::cout << std::endl;
+        //   std::cout <<  j_vec[i]  << " ";
+        // std::cout << std::endl;
 
         MatrixXf h_i(B_rows, 1);            h_i = h_i.Zero(B_rows, 1);   // -------> h_ij for a valid association between observation_i and map_j
         MatrixXf h_k(M*B_rows, 1);          h_k = h_k.Zero(M*B_rows, 1); // -------> All vectors h_i stacked, corresponding to valid matches between an observed element and an element in the map

@@ -74,6 +74,7 @@ class WaymoClient:
         self.corrected_path = []
         self.odometry_pose_msg = PoseStamped()
         self.landmark_poses_msg = PoseArray()
+        self.landmark_poses_msg_BL = PoseArray()
         self.initial_transform_matrix = None
         self.transform_matrix = None
 
@@ -432,7 +433,7 @@ class WaymoClient:
         self.odometry_pose_msg.pose.orientation = Quaternion(*quaternion)
         ekf_request.odometry = self.odometry_pose_msg
 
-        # Populate the request with landmark poses
+        # Populate the request with landmark poses in global frame
         for label, pose in self.clusters_poses_global.items():
             landmark_pose = PoseStamped()
             landmark_pose.pose.position.x = pose[0]
@@ -445,7 +446,22 @@ class WaymoClient:
             landmark_pose.pose.orientation.w = quaternion[3]
             self.landmark_poses_msg.poses.append(landmark_pose.pose)
 
-        ekf_request.observations = self.landmark_poses_msg
+        ekf_request.verticalElements = self.landmark_poses_msg
+
+        # Populate the request with landmark poses in Base Line frame
+        for label, pose in self.clusters_poses.items():
+            landmark_pose_BL = PoseStamped()
+            landmark_pose_BL.pose.position.x = pose[0]
+            landmark_pose_BL.pose.position.y = pose[1]
+            landmark_pose_BL.pose.position.z = pose[2]
+            rnion = R.from_euler('xyz', pose[3:]).as_quat()
+            landmark_pose_BL.pose.orientation.x = quaternion[0]
+            landmark_pose_BL.pose.orientation.y = quaternion[1]
+            landmark_pose_BL.pose.orientation.z = quaternion[2]
+            landmark_pose_BL.pose.orientation.w = quaternion[3]
+            self.landmark_poses_msg_BL.poses.append(landmark_pose.pose)
+
+        ekf_request.verticalElements_BL = self.landmark_poses_msg_BL
 
         # Call the EKF service
         try:

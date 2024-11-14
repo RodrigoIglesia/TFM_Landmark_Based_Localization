@@ -593,6 +593,8 @@ int main (int argc, char** argv)
     ekfPoint.z = poseCorrEKF.pose.pose.position.z;
     ekfStrip.points.push_back(ekfPoint);
     pub_ekfStrip.publish(ekfStrip);
+    //TODO: RODRIGO >> EKF REFACTORING POR AQUÍ
+    //
 
     tf::Quaternion quat_msg;
     if (M<2) // If there are two or more matches, rotate to correct yaw; otherwise, correct only (x,y) position according to odometry 

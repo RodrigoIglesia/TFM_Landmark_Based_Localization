@@ -447,17 +447,10 @@ int main (int argc, char** argv)
       {
         for (int j=0; j<mapSize; j++)
         {
-//**/      std::cout << "observations[" << i << "]:" << std::endl << observations[i] << std::endl;
-//**/      std::cout << "map[" << j << "]:" << std::endl << map[j] << std::endl;
           h_ij = B*RPY2Vec(Comp(Inv(map[j].position), Comp(positionPredEKF, observations_BL[i].position)));
-//**/      std::cout << "h_ij: " << std::endl << h_ij << std::endl;
           H_x_ij = B*J2_n(Inv(map[j].position), Comp(positionPredEKF, observations_BL[i].position))*J1_n(positionPredEKF, observations_BL[i].position);
-//**/      std::cout << "H_x_ij: " << std::endl << H_x_ij << std::endl;
           H_z_ij = B*J2_n(Inv(map[j].position), Comp(positionPredEKF, observations_BL[i].position))*J2_n(positionPredEKF, observations_BL[i].position);
-//**/      std::cout << "H_z_ij: " << std::endl << H_z_ij << std::endl;
           S_ij = H_x_ij*P*H_x_ij.transpose() + H_z_ij*R*H_z_ij.transpose();                   
-//**/      std::cout << "S_ij: " << std::endl << S_ij << std::endl;
-//**/      std::cout << "mahalanobisDistance[" << i << "][" << j << "]: " << sqrt(mahalanobisDistance(h_ij, S_ij)) << std::endl;
           if(sqrt(mahalanobisDistance(h_ij, S_ij)) < mahalanobisDistanceThreshold && sqrt(mahalanobisDistance(h_ij, S_ij)) < minMahalanobis) //Theres is a match, but it must be the minimum value of all possible matches
           {
             if(match)
@@ -526,12 +519,7 @@ int main (int argc, char** argv)
         
         for(int i=0; i<M; i++)
         {
-//**/      std::cout << "h_i = B*RPY2Vec(Comp(Inv(map[" << j_vec[i] << "].position), Comp(positionPredEKF, observations_BL[" << i_vec[i] << "].position)))" << std::endl;
-//**/      std::cout << "map[" << j_vec[i] << "].position: " << std::endl << map[j_vec[i]].position << std::endl;
-//**/      std::cout << "Inv(map[" << j_vec[i] << "].position): " << std::endl << Inv(map[j_vec[i]].position) << std::endl;
-//**/      std::cout << "positionPredEKF: " << std::endl << positionPredEKF << std::endl;
 //**/      std::cout << "observations_BL[" << i_vec[i] << "].position: " << std::endl << observations_BL[i_vec[i]].position << std::endl;
-//**/      std::cout << "Comp(positionPredEKF, observations_BL[" << i_vec[i] << "].position): " << std::endl << Comp(positionPredEKF, observations_BL[i_vec[i]].position) << std::endl;
           h_i = B*RPY2Vec(Comp(Inv(map[j_vec[i]].position), Comp(positionPredEKF, observations_BL[i_vec[i]].position))); // ----> Observations as seen from base_link
           h_k.block(i*B_rows, 0, B_rows, 1) = h_i;
 //**/      std::cout << "h_i: " << std::endl << h_i << std::endl;

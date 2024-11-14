@@ -26,7 +26,8 @@
 #include <iostream>
 #include "custom_functions.h"
 
-struct Config {
+struct Config
+{
     float x_init;
     float y_init;
     float z_init;
@@ -48,9 +49,18 @@ struct Config {
     float sigma_obs_pitch;
     float sigma_obs_yaw;
     float mahalanobisDistanceThreshold;
+    float QFactor;
+    float P00_init;
+    float P11_init;
+    float P22_init;
+    float P33_init;
+    float P44_init;
+    float P55_init;
+    float PFactor;
 };
 
-class DataFusion {
+class DataFusion
+{
 public:
     DataFusion(const std::string& configFilePath, const std::string& mapFilePath);
     bool dataFusionService(pointcloud_clustering::data_fusion_srv::Request &req,
@@ -60,19 +70,92 @@ private:
 
     Config config_;
     std::string frame_id_;
+    std::string mapFilePath;
 
 };
 
-DataFusion::DataFusion(const std::string& configFilePath, const std::string& mapFilePath) {
+DataFusion::DataFusion(const std::string& configFilePath, const std::string& mapFilePath)
+: mapFilePath(mapFilePath)
+{
     /*
-    Initialization Method
+    Class constructor
     */
     ros::NodeHandle nh;
     readConfig(configFilePath);
+}
+
+void DataFusion::readConfig(const std::string &filename)
+{
+    namespace po = boost::program_options;
+    po::options_description config("Configuration");
+    config.add_options()
+        ("data_fusion.x_init", po::value<float>(&config_.x_init)->default_value(0.0), "Initial X")
+        ("data_fusion.y_init", po::value<float>(&config_.y_init)->default_value(0.0), "Initial Y")
+        ("data_fusion.z_init", po::value<float>(&config_.z_init)->default_value(0.0), "Initial Z")
+        ("data_fusion.roll_init", po::value<float>(&config_.roll_init)->default_value(0.0), "Initial ROLL")
+        ("data_fusion.pitch_init", po::value<float>(&config_.pitch_init)->default_value(0.0), "Initial PITCH")
+        ("data_fusion.yaw_init", po::value<float>(&config_.yaw_init)->default_value(0.0), "Initial YAW")
+        ("data_fusion.easting_ref", po::value<float>(&config_.easting_ref)->default_value(0.0), "Easting reference")
+        ("data_fusion.northing_ref", po::value<float>(&config_.northing_ref)->default_value(0.0), "Northing reference")
+        ("data_fusion.sigma_odom_x", po::value<float>(&config_.sigma_odom_x)->default_value(0.0), "Odometry sigma X")
+        ("data_fusion.sigma_odom_y", po::value<float>(&config_.sigma_odom_y)->default_value(0.0), "Odometry sigma Y")
+        ("data_fusion.sigma_odom_z", po::value<float>(&config_.sigma_odom_z)->default_value(0.0), "Odometry sigma Z")
+        ("data_fusion.sigma_odom_roll", po::value<float>(&config_.sigma_odom_roll)->default_value(0.0), "Odometry sigma ROLL")
+        ("data_fusion.sigma_odom_pitch", po::value<float>(&config_.sigma_odom_pitch)->default_value(0.0), "Odometry sigma PITCH")
+        ("data_fusion.sigma_odom_yaw", po::value<float>(&config_.sigma_odom_yaw)->default_value(0.0), "Odometry sigma YAW")
+        ("data_fusion.sigma_obs_x", po::value<float>(&config_.sigma_obs_x)->default_value(0.0), "Observation sigma X")
+        ("data_fusion.sigma_obs_y", po::value<float>(&config_.sigma_obs_y)->default_value(0.0), "Observation sigma Y")
+        ("data_fusion.sigma_obs_z", po::value<float>(&config_.sigma_obs_z)->default_value(0.0), "Observation sigma Z")
+        ("data_fusion.sigma_obs_roll", po::value<float>(&config_.sigma_obs_roll)->default_value(0.0), "Observation sigma ROLL")
+        ("data_fusion.sigma_obs_pitch", po::value<float>(&config_.sigma_obs_pitch)->default_value(0.0), "Observation sigma PITCH")
+        ("data_fusion.sigma_obs_yaw", po::value<float>(&config_.sigma_obs_yaw)->default_value(0.0), "Observation sigma YAW")
+        ("data_fusion.mahalanobisDistanceThreshold", po::value<float>(&config_.mahalanobisDistanceThreshold)->default_value(0.0), "Mahalanobis distance threshold")
+        ("data_fusion.QFactor", po::value<float>(&config_.QFactor)->default_value(0.00015), "Q Factor")
+        ("data_fusion.P00_init", po::value<float>(&config_.P00_init)->default_value(0.1), "P00 init")
+        ("data_fusion.P11_init", po::value<float>(&config_.P11_init)->default_value(0.1), "P11 init")
+        ("data_fusion.P22_init", po::value<float>(&config_.P22_init)->default_value(1.0), "P22 init")
+        ("data_fusion.P33_init", po::value<float>(&config_.P33_init)->default_value(1.0), "P33 init")
+        ("data_fusion.P44_init", po::value<float>(&config_.P44_init)->default_value(1.0), "P44 init")
+        ("data_fusion.P55_init", po::value<float>(&config_.P55_init)->default_value(0.1), "P55 init")
+        ("data_fusion.PFactor", po::value<float>(&config_.PFactor)->default_value(0.0001), "P Factor");
+
+
+    po::variables_map vm;
+    std::ifstream ifs(filename.c_str());
+    if (!ifs) {
+        throw std::runtime_error("Cannot open config file: " + filename);
+    }
+    po::store(po::parse_config_file(ifs, config), vm);
+    po::notify(vm);
+}
+
+bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Request &req, pointcloud_clustering::data_fusion_srv::Response &res)
+{
+    /* 
+    MAIN FUNCTION
+    Receives the request and generates a response
+    */
+
+    /* EKF INITIALIZATION*/
+    // Input values
+    geometry_msgs::PoseStamped incOdom;
+    geometry_msgs::PoseArray verticalElements;
+    geometry_msgs::PoseArray verticalElements_BL;
+    pointcloud_clustering::positionRPY incPositionOdom;
+    // Receive input values
+    incOdom = req.odometry;
+    verticalElements = req.verticalElements;
+    verticalElements_BL = req.verticalElements_BL;
 
     // EKF initialization
-    pointcloud_clustering::positionRPY poseZero;
-    pointcloud_clustering::positionRPY posePredEKF;
+    geometry_msgs::PoseStamped poseZero;
+
+    geometry_msgs::PoseWithCovarianceStamped posePredEKF;
+    geometry_msgs::PoseWithCovarianceStamped poseCorrEKF;
+    geometry_msgs::PoseStamped incOdom2;
+    geometry_msgs::PoseStamped incOdom2Prev;
+    geometry_msgs::PoseStamped incOdomPrev;
+
     pointcloud_clustering::positionRPY positionZero;
     pointcloud_clustering::positionRPY positionEKF;
     pointcloud_clustering::positionRPY incOdomEKF;
@@ -81,6 +164,8 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     pointcloud_clustering::positionRPY positionCorrEKF;
     pointcloud_clustering::positionRPY sigma_odom;
     pointcloud_clustering::positionRPY sigma_obs;
+
+    ros::Time initTime = ros::Time::now();
 
     tf::TransformBroadcaster br;
     tf::StampedTransform transform_ekf(tf::Transform::getIdentity(), initTime, "map", "ekf"); // Initialization;
@@ -143,10 +228,8 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     Matrix <float, 4, 6> B; // Binding matrix for EKF
     B << 1, 0, 0, 0, 0, 0, // x
     0, 1, 0, 0, 0, 0, // y
-//       0, 0, 1, 0, 0, 0, // z
     0, 0, 0, 1, 0, 0, // roll
     0, 0, 0, 0, 1, 0; // pitch
-//       0, 0, 0, 0, 0, 1; // yaw  ------> Binding matrix: we store the components of elements in which we're interested (optional)
 
     int B_rows = B.rows();
 
@@ -196,10 +279,20 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     float mahalanobisDistanceThreshold;
     mahalanobisDistanceThreshold = config_.mahalanobisDistanceThreshold;
 
+    int aux;
+    double theta, thetaPrev;
+    thetaPrev = config_.yaw_init;
+    thetaPrev = thetaPrev*3.141592/180.0;
+    theta = thetaPrev;
 
     // Carga del mapa desde un archivo CSV (suponiendo que el archivo CSV esté en mapFilePath)
+    std::vector<pointcloud_clustering::observationRPY> map; // fill with VE positions in document
+    geometry_msgs::PoseArray map_elements;
+    geometry_msgs::PoseStamped map_element;
+    pointcloud_clustering::observationRPY map_aux;
     std::ifstream inputFile(mapFilePath);
-    if (!inputFile.is_open()) {
+    if (!inputFile.is_open())
+    {
         throw std::runtime_error("Cannot open map file: " + mapFilePath);
     }
 
@@ -236,69 +329,11 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
         }
     }
     inputFile.close();
-}
+    int mapSize = map.size();
+    std::cout << "Loaded " << mapSize << " elements:" << std::endl;
+    std::cout << map_elements << std::endl;
 
-void DataFusion::readConfig(const std::string &filename) {
-    namespace po = boost::program_options;
-    po::options_description config("Configuration");
-    config.add_options()
-        ("data_fusion.x_init", po::value<float>(&config_.x_init)->default_value(0.0), "Initial X")
-        ("data_fusion.y_init", po::value<float>(&config_.y_init)->default_value(0.0), "Initial Y")
-        ("data_fusion.z_init", po::value<float>(&config_.z_init)->default_value(0.0), "Initial Z")
-        ("data_fusion.roll_init", po::value<float>(&config_.roll_init)->default_value(0.0), "Initial ROLL")
-        ("data_fusion.pitch_init", po::value<float>(&config_.pitch_init)->default_value(0.0), "Initial PITCH")
-        ("data_fusion.yaw_init", po::value<float>(&config_.yaw_init)->default_value(0.0), "Initial YAW")
-        ("data_fusion.easting_ref", po::value<float>(&config_.easting_ref)->default_value(0.0), "Easting reference")
-        ("data_fusion.northing_ref", po::value<float>(&config_.northing_ref)->default_value(0.0), "Northing reference")
-        ("data_fusion.sigma_odom_x", po::value<float>(&config_.sigma_odom_x)->default_value(0.0), "Odometry sigma X")
-        ("data_fusion.sigma_odom_y", po::value<float>(&config_.sigma_odom_y)->default_value(0.0), "Odometry sigma Y")
-        ("data_fusion.sigma_odom_z", po::value<float>(&config_.sigma_odom_z)->default_value(0.0), "Odometry sigma Z")
-        ("data_fusion.sigma_odom_roll", po::value<float>(&config_.sigma_odom_roll)->default_value(0.0), "Odometry sigma ROLL")
-        ("data_fusion.sigma_odom_pitch", po::value<float>(&config_.sigma_odom_pitch)->default_value(0.0), "Odometry sigma PITCH")
-        ("data_fusion.sigma_odom_yaw", po::value<float>(&config_.sigma_odom_yaw)->default_value(0.0), "Odometry sigma YAW")
-        ("data_fusion.sigma_obs_x", po::value<float>(&config_.sigma_obs_x)->default_value(0.0), "Observation sigma X")
-        ("data_fusion.sigma_obs_y", po::value<float>(&config_.sigma_obs_y)->default_value(0.0), "Observation sigma Y")
-        ("data_fusion.sigma_obs_z", po::value<float>(&config_.sigma_obs_z)->default_value(0.0), "Observation sigma Z")
-        ("data_fusion.sigma_obs_roll", po::value<float>(&config_.sigma_obs_roll)->default_value(0.0), "Observation sigma ROLL")
-        ("data_fusion.sigma_obs_pitch", po::value<float>(&config_.sigma_obs_pitch)->default_value(0.0), "Observation sigma PITCH")
-        ("data_fusion.sigma_obs_yaw", po::value<float>(&config_.sigma_obs_yaw)->default_value(0.0), "Observation sigma YAW")
-        ("data_fusion.mahalanobisDistanceThreshold", po::value<float>(&config_.mahalanobisDistanceThreshold)->default_value(0.0), "Mahalanobis distance threshold");
-        ("data_fusion.QFactor", po::value<float>(&config_.QFactor)->default_value(0.00015), "Q Factor");
-        ("data_fusion.P00_init", po::value<float>(&config_.P00_init)->default_value(0.1), "P00 init");
-        ("data_fusion.P11_init", po::value<float>(&config_.P11_init)->default_value(0.1), "P11 init");
-        ("data_fusion.P22_init", po::value<float>(&config_.P22_init)->default_value(1.0), "P22 init");
-        ("data_fusion.P33_init", po::value<float>(&config_.P33_init)->default_value(1.0), "P33 init");
-        ("data_fusion.P44_init", po::value<float>(&config_.P44_init)->default_value(1.0), "P44 init");
-        ("data_fusion.P55_init", po::value<float>(&config_.P55_init)->default_value(0.1), "P55 init");
-        ("data_fusion.PFactor", po::value<float>(&config_.PFactor)->default_value(0.0001), "P Factor");
-
-
-    po::variables_map vm;
-    std::ifstream ifs(filename.c_str());
-    if (!ifs) {
-        throw std::runtime_error("Cannot open config file: " + filename);
-    }
-    po::store(po::parse_config_file(ifs, config), vm);
-    po::notify(vm);
-}
-
-bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Request &req,
-                                  pointcloud_clustering::data_fusion_srv::Response &res) {
-
-    // Obtener la odometría y los elementos verticales del request
-    geometry_msgs::PoseStamped odometry = req.odometry;
-    geometry_msgs::PoseArray verticalElements = req.verticalElements;
-    geometry_msgs::PoseArray verticalElements_BL = req.verticalElements_BL;
-
-    // Convertir la odometría en el formato interno
-    pointcloud_clustering::positionRPY incOdomEKF;
-    incOdomEKF.x = odometry.pose.position.x;
-    incOdomEKF.y = odometry.pose.position.y;
-    incOdomEKF.z = odometry.pose.position.z;
-    tf::Quaternion quat;
-    tf::quaternionMsgToTF(odometry.pose.orientation, quat);
-    tf::Matrix3x3(quat).getRPY(incOdomEKF.roll, incOdomEKF.pitch, incOdomEKF.yaw);
-
+    /* MAIN PROCESS*/
     /* 1. Predicción de la posición*/
     positionPredEKF = Comp(positionCorrEKF, incOdomEKF);
     posePredEKF.pose.pose.position.x = positionPredEKF.x;
@@ -307,7 +342,6 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     
     quat.setRPY(0.0, 0.0, -positionPredEKF.yaw);
     tf::quaternionTFToMsg(quat, posePredEKF.pose.pose.orientation);
-    pub_ekfPred.publish(posePredEKF);
     std::cout << "PosePred:" << std::endl << posePredEKF.pose.pose << std::endl;
     
     // Actualización de la matriz de covarianza de predicción
@@ -322,7 +356,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     std::vector<pointcloud_clustering::observationRPY> observations_BL;
 
     for (int i=0; i<verticalElements.poses.size(); i++) // read geometry_msgs::PoseArray and store as std::vector<observationRPY>
-        {
+    {
         pointcloud_clustering::observationRPY obs_aux; // ------------------------> Frame id: "map"
         tf::Quaternion quat_aux;
         obs_aux.position.x = verticalElements.poses[i].position.x;
@@ -349,187 +383,146 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
 
         observations.push_back(obs_aux);
         observations_BL.push_back(obs_aux_BL);
-        }
+    }
 
-        MatrixXf h_ij(B_rows*obsSize*mapSize, 1);  h_ij = h_ij.Zero(obsSize*mapSize, 1);
-        MatrixXf H_x_ij(B_rows, 6);
-        H_x_ij = H_x_ij.Zero(B_rows, 6);
-        MatrixXf H_z_ij(B_rows, 6);
-        H_z_ij = H_z_ij.Zero(B_rows, 6);
-        MatrixXf S_ij(B_rows, B_rows);
-        S_ij = S_ij.Zero(B_rows, B_rows);
+    int obsSize = observations.size();
+    int M;
 
-        if(obsSize > 0)
+    MatrixXf h_ij(B_rows*obsSize*mapSize, 1);  h_ij = h_ij.Zero(obsSize*mapSize, 1);
+    MatrixXf H_x_ij(B_rows, 6);
+    H_x_ij = H_x_ij.Zero(B_rows, 6);
+    MatrixXf H_z_ij(B_rows, 6);
+    H_z_ij = H_z_ij.Zero(B_rows, 6);
+    MatrixXf S_ij(B_rows, B_rows);
+    S_ij = S_ij.Zero(B_rows, B_rows);
+
+    if(obsSize > 0)
+    {
+        bool match = false;
+        int i_min = -1;
+        int j_min = -1;
+        std::vector<int> i_vec;
+        std::vector<int> j_vec;
+
+        float minMahalanobis = mahalanobisDistanceThreshold;
+
+        for (int i=0; i<obsSize; i++) // Compare all observations with all the elements of the map. If mahalanobisDistance < mahalanobisDistanceThreshold between i-th observation and j-th element, there is a match
         {
-            bool match = false;
-            int i_min = -1;
-            int j_min = -1;
-            std::vector<int> i_vec;
-            std::vector<int> j_vec;
-
-            float minMahalanobis = mahalanobisDistanceThreshold;
-
-            for (int i=0; i<obsSize; i++) // Compare all observations with all the elements of the map. If mahalanobisDistance < mahalanobisDistanceThreshold between i-th observation and j-th element, there is a match
+            for (int j=0; j<mapSize; j++)
             {
-                for (int j=0; j<mapSize; j++)
+                h_ij = B*RPY2Vec(Comp(Inv(map[j].position), Comp(positionPredEKF, observations_BL[i].position)));
+                H_x_ij = B*J2_n(Inv(map[j].position), Comp(positionPredEKF, observations_BL[i].position))*J1_n(positionPredEKF, observations_BL[i].position);
+                H_z_ij = B*J2_n(Inv(map[j].position), Comp(positionPredEKF, observations_BL[i].position))*J2_n(positionPredEKF, observations_BL[i].position);
+                S_ij = H_x_ij*P*H_x_ij.transpose() + H_z_ij*R*H_z_ij.transpose();                   
+                if(sqrt(mahalanobisDistance(h_ij, S_ij)) < mahalanobisDistanceThreshold && sqrt(mahalanobisDistance(h_ij, S_ij)) < minMahalanobis) //Theres is a match, but it must be the minimum value of all possible matches
                 {
-                    h_ij = B*RPY2Vec(Comp(Inv(map[j].position), Comp(positionPredEKF, observations_BL[i].position)));
-                    H_x_ij = B*J2_n(Inv(map[j].position), Comp(positionPredEKF, observations_BL[i].position))*J1_n(positionPredEKF, observations_BL[i].position);
-                    H_z_ij = B*J2_n(Inv(map[j].position), Comp(positionPredEKF, observations_BL[i].position))*J2_n(positionPredEKF, observations_BL[i].position);
-                    S_ij = H_x_ij*P*H_x_ij.transpose() + H_z_ij*R*H_z_ij.transpose();                   
-                    if(sqrt(mahalanobisDistance(h_ij, S_ij)) < mahalanobisDistanceThreshold && sqrt(mahalanobisDistance(h_ij, S_ij)) < minMahalanobis) //Theres is a match, but it must be the minimum value of all possible matches
-                    {
-                        if(match)
-                        std::cout << "***************************************REMATCH! ["<< i <<"]["<< j <<"]***************************************" << std::endl;
-                        else
-                        std::cout << "***************************************MATCH! ["<< i <<"]["<< j <<"]***************************************" << std::endl;
-                        
-                        match = true;
-                        i_min = i;
-                        j_min = j;
-                        minMahalanobis = sqrt(mahalanobisDistance(h_ij, S_ij));
-                    }
-                }
-                if (match)
-                {
-                    i_vec.push_back(i_min);
-                    j_vec.push_back(j_min);
+                    if(match)
+                    std::cout << "***************************************REMATCH! ["<< i <<"]["<< j <<"]***************************************" << std::endl;
+                    else
+                    std::cout << "***************************************MATCH! ["<< i <<"]["<< j <<"]***************************************" << std::endl;
                     
-                    obs_match.pose.position.x = observations[i].position.x;
-                    obs_match.pose.position.y = observations[i].position.y;
-                    obs_match.pose.position.z = 1.0;
-                    std::stringstream label;
-                    obs_match.header.frame_id = "map";
-                    obs_match.ns = "obs_match_display";
-                    obs_match.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
-                    obs_match.action = visualization_msgs::Marker::ADD;
-                    obs_match.color.a = 1.0;
-                    obs_match.color.r = 1.0f;
-                    obs_match.color.g = 1.0f;
-                    obs_match.color.b = 1.0f;
-                    label << "Match: [" << i_min << "][" << j_min << "]" << std::endl << "Mahalanobis: " << minMahalanobis;
-                    obs_match.id = i;
-                    obs_match.text = label.str();
-                    obs_match.scale.z = textScale;
-                    obs_matches.markers.push_back(obs_match);
-
-                    match = false;
+                    match = true;
+                    i_min = i;
+                    j_min = j;
+                    minMahalanobis = sqrt(mahalanobisDistance(h_ij, S_ij));
                 }
-                minMahalanobis = mahalanobisDistanceThreshold;
             }
-            M = i_vec.size();
-
-            if(M > 0) // There has been at least 1 match (M=1)
+            if (match)
             {
-                std::cout << "i_vec: ";
-                for(int i=0; i<i_vec.size(); i++)
-                std::cout <<  i_vec[i]  << " ";
-                std::cout << std::endl;
-                std::cout << "j_vec: ";
-                for(int i=0; i<j_vec.size(); i++)
-                std::cout <<  j_vec[i]  << " ";
-                std::cout << std::endl;
+                i_vec.push_back(i_min);
+                j_vec.push_back(j_min);
 
-                MatrixXf h_i(B_rows, 1);            h_i = h_i.Zero(B_rows, 1);   // -------> h_ij for a valid association between observation_i and map_j
-                MatrixXf h_k(M*B_rows, 1);          h_k = h_k.Zero(M*B_rows, 1); // -------> All vectors h_i stacked, corresponding to valid matches between an observed element and an element in the map
-                MatrixXf H_x_i(B_rows, 6);          H_x_i = H_x_i.Zero(B_rows, 6);        // -------> H_ij for a valid association
-                MatrixXf H_x_k(M*B_rows, 6);        H_x_k = H_x_k.Zero(M*B_rows, 6);
-                MatrixXf H_z_i(B_rows, 6);          H_z_i = H_z_i.Zero(B_rows, 6);
-                MatrixXf H_z_k(M*B_rows, M*6);      H_z_k = H_z_k.Zero(M*B_rows, M*6);
-                MatrixXf R_k(M*6, M*6);             R_k = R_k.Zero(M*6, M*6);
-                MatrixXf S_k(M*B_rows, M*B_rows);   S_k = S_k.Zero(M*B_rows, M*B_rows);
-                MatrixXf W(6, M*B_rows);            W = W.Zero(6, M*B_rows);
-
-                for(int i=0; i<M; i++)
-                {
-                    h_i = B*RPY2Vec(Comp(Inv(map[j_vec[i]].position), Comp(positionPredEKF, observations_BL[i_vec[i]].position))); // ----> Observations as seen from base_link
-                    h_k.block(i*B_rows, 0, B_rows, 1) = h_i;
-                    H_x_i = B*J2_n(Inv(map[j_vec[i]].position), Comp(positionPredEKF, observations_BL[i_vec[i]].position))*J1_n(positionPredEKF, observations_BL[i_vec[i]].position);
-                    H_x_k.block(i*B_rows, 0, B_rows, 6) = H_x_i; 
-                    H_z_i = B*J2_n(Inv(map[j_vec[i]].position), Comp(positionPredEKF, observations_BL[i_vec[i]].position))*J2_n(positionPredEKF, observations_BL[i_vec[i]].position);
-                    H_z_k.block(i*B_rows, i*6, B_rows, 6) = H_z_i;
-
-                    R_k.block(i*6, i*6, 6, 6) = R;
-                }
-                S_k = H_x_k*P*H_x_k.transpose() + H_z_k*R_k*H_z_k.transpose();
-                W = P*H_x_k.transpose()*S_k.inverse();
-                positionCorrEKF = vec2RPY(RPY2Vec(positionPredEKF) - W*h_k);
-                P = (Matrix6f::Identity() - W*H_x_k)*P;
+                match = false;
             }
-            else // vertical elements found but no matches
-                positionCorrEKF = positionPredEKF;
+            minMahalanobis = mahalanobisDistanceThreshold;
         }
-        else // no vertical elements found
-            positionCorrEKF = positionPredEKF;
-        
-        poseCorrEKF.pose.pose.position.x = positionCorrEKF.x;
-        poseCorrEKF.pose.pose.position.y = positionCorrEKF.y;
-        poseCorrEKF.pose.pose.position.z = 0.0; //-------------> Ignored
-        for(int i=0; i<6; i++)
+        M = i_vec.size();
+
+        if(M > 0) // There has been at least 1 match (M=1)
         {
-            for(int j=0; j<6; j++)
-                poseCorrEKF.pose.covariance[i+j] = P(i, j);
-        }
-        poseCorrEKF.header.frame_id = "map";
-        poseCorrEKF.header.stamp = ros::Time::now();
+            std::cout << "i_vec: ";
+            for(int i=0; i<i_vec.size(); i++)
+            std::cout <<  i_vec[i]  << " ";
+            std::cout << std::endl;
+            std::cout << "j_vec: ";
+            for(int i=0; i<j_vec.size(); i++)
+            std::cout <<  j_vec[i]  << " ";
+            std::cout << std::endl;
 
+            MatrixXf h_i(B_rows, 1);            h_i = h_i.Zero(B_rows, 1);   // -------> h_ij for a valid association between observation_i and map_j
+            MatrixXf h_k(M*B_rows, 1);          h_k = h_k.Zero(M*B_rows, 1); // -------> All vectors h_i stacked, corresponding to valid matches between an observed element and an element in the map
+            MatrixXf H_x_i(B_rows, 6);          H_x_i = H_x_i.Zero(B_rows, 6);        // -------> H_ij for a valid association
+            MatrixXf H_x_k(M*B_rows, 6);        H_x_k = H_x_k.Zero(M*B_rows, 6);
+            MatrixXf H_z_i(B_rows, 6);          H_z_i = H_z_i.Zero(B_rows, 6);
+            MatrixXf H_z_k(M*B_rows, M*6);      H_z_k = H_z_k.Zero(M*B_rows, M*6);
+            MatrixXf R_k(M*6, M*6);             R_k = R_k.Zero(M*6, M*6);
+            MatrixXf S_k(M*B_rows, M*B_rows);   S_k = S_k.Zero(M*B_rows, M*B_rows);
+            MatrixXf W(6, M*B_rows);            W = W.Zero(6, M*B_rows);
 
+            for(int i=0; i<M; i++)
+            {
+                h_i = B*RPY2Vec(Comp(Inv(map[j_vec[i]].position), Comp(positionPredEKF, observations_BL[i_vec[i]].position))); // ----> Observations as seen from base_link
+                h_k.block(i*B_rows, 0, B_rows, 1) = h_i;
+                H_x_i = B*J2_n(Inv(map[j_vec[i]].position), Comp(positionPredEKF, observations_BL[i_vec[i]].position))*J1_n(positionPredEKF, observations_BL[i_vec[i]].position);
+                H_x_k.block(i*B_rows, 0, B_rows, 6) = H_x_i; 
+                H_z_i = B*J2_n(Inv(map[j_vec[i]].position), Comp(positionPredEKF, observations_BL[i_vec[i]].position))*J2_n(positionPredEKF, observations_BL[i_vec[i]].position);
+                H_z_k.block(i*B_rows, i*6, B_rows, 6) = H_z_i;
 
-    // Actualización utilizando las observaciones
-    std::vector<pointcloud_clustering::observationRPY> obs_list;
-    for (const auto& pose : observations.poses) {
-        pointcloud_clustering::observationRPY obs;
-        obs.position.x = pose.position.x;
-        obs.position.y = pose.position.y;
-        obs.position.z = pose.position.z;
-        tf::Quaternion obs_quat;
-        tf::quaternionMsgToTF(pose.orientation, obs_quat);
-        tf::Matrix3x3(obs_quat).getRPY(obs.position.roll, obs.position.pitch, obs.position.yaw);
-        obs_list.push_back(obs);
-    }
-
-    int M = 0;
-    std::vector<int> i_vec, j_vec;
-
-    for (size_t i = 0; i < obs_list.size(); ++i) {
-        for (size_t j = 0; j < map_.size(); ++j) {
-            auto h_ij = RPY2Vec(Comp(Inv(map_[j].position), Comp(positionPredEKF, obs_list[i].position)));
-            auto H_x_ij = J2_n(Inv(map_[j].position), Comp(positionPredEKF, obs_list[i].position)) * J1_n(positionPredEKF, obs_list[i].position);
-            auto H_z_ij = J2_n(Inv(map_[j].position), Comp(positionPredEKF, obs_list[i].position)) * J2_n(positionPredEKF, obs_list[i].position);
-            Matrix6f S_ij = H_x_ij * P_ * H_x_ij.transpose() + H_z_ij * R_ * H_z_ij.transpose();
-            float mahalanobis = sqrt(mahalanobisDistance(h_ij, S_ij));
-            if (mahalanobis < mahalanobisDistanceThreshold) {
-                i_vec.push_back(i);
-                j_vec.push_back(j);
-                ++M;
+                R_k.block(i*6, i*6, 6, 6) = R;
             }
+            S_k = H_x_k*P*H_x_k.transpose() + H_z_k*R_k*H_z_k.transpose();
+            W = P*H_x_k.transpose()*S_k.inverse();
+            positionCorrEKF = vec2RPY(RPY2Vec(positionPredEKF) - W*h_k);
+            P = (Matrix6f::Identity() - W*H_x_k)*P;
         }
+        else // vertical elements found but no matches
+            positionCorrEKF = positionPredEKF;
     }
-
-    if (M > 0) {
-        MatrixXf h_k = MatrixXf::Zero(M * 6, 1);
-        MatrixXf H_x_k = MatrixXf::Zero(M * 6, 6);
-        MatrixXf H_z_k = MatrixXf::Zero(M * 6, M * 6);
-        MatrixXf R_k = MatrixXf::Zero(M * 6, M * 6);
-
-        for (int m = 0; m < M; ++m) {
-            auto h_i = RPY2Vec(Comp(Inv(map_[j_vec[m]].position), Comp(positionPredEKF, obs_list[i_vec[m]].position)));
-            auto H_x_i = J2_n(Inv(map_[j_vec[m]].position), Comp(positionPredEKF, obs_list[i_vec[m]].position)) * J1_n(positionPredEKF, obs_list[i_vec[m]].position);
-            auto H_z_i = J2_n(Inv(map_[j_vec[m]].position), Comp(positionPredEKF, obs_list[i_vec[m]].position)) * J2_n(positionPredEKF, obs_list[i_vec[m]].position);
-            h_k.block(m * 6, 0, 6, 1) = h_i;
-            H_x_k.block(m * 6, 0, 6, 6) = H_x_i;
-            H_z_k.block(m * 6, m * 6, 6, 6) = H_z_i;
-            R_k.block(m * 6, m * 6, 6, 6) = R_;
-        }
-
-        auto S_k = H_x_k * P_ * H_x_k.transpose() + H_z_k * R_k * H_z_k.transpose();
-        auto W = P_ * H_x_k.transpose() * S_k.inverse();
-        positionCorrEKF = vec2RPY(RPY2Vec(positionPredEKF) - W * h_k);
-        P_ = (Matrix6f::Identity() - W * H_x_k) * P_;
-    } else {
+    else // no vertical elements found
         positionCorrEKF = positionPredEKF;
+    
+    poseCorrEKF.pose.pose.position.x = positionCorrEKF.x;
+    poseCorrEKF.pose.pose.position.y = positionCorrEKF.y;
+    poseCorrEKF.pose.pose.position.z = 0.0; //-------------> Ignored
+    for(int i=0; i<6; i++)
+    {
+        for(int j=0; j<6; j++)
+            poseCorrEKF.pose.covariance[i+j] = P(i, j);
     }
+    poseCorrEKF.header.frame_id = "map";
+    poseCorrEKF.header.stamp = ros::Time::now();
 
+    tf::Quaternion quat_msg;
+    if (M<2) // If there are two or more matches, rotate to correct yaw; otherwise, correct only (x,y) position according to odometry 
+        quat_msg.setRPY(0.0, 0.0, -positionCorrEKF.yaw);
+    else
+        quat_msg.setRPY(0.0, 0.0, -positionPredEKF.yaw);
+    tf::quaternionTFToMsg(quat_msg, poseCorrEKF.pose.pose.orientation); // set quaternion in msg from tf::Quaternion
+    std::cout << "poseCorrEKF: " << std::endl << poseCorrEKF.pose.pose << std::endl;
+
+    transform_ekf.setOrigin(tf::Vector3(poseCorrEKF.pose.pose.position.x, poseCorrEKF.pose.pose.position.y, poseCorrEKF.pose.pose.position.z));
+    transform_ekf.setRotation(quat_msg);
+
+    br.sendTransform(tf::StampedTransform(transform_ekf, ros::Time::now(), "map", "ekf"));
+
+    if(tfEKF)
+        br.sendTransform(tf::StampedTransform(tf::Transform::getIdentity(), ros::Time::now(), "ekf", "base_link")); // -------> Plug /base_link to /ekf frame
+
+    if (incOdom.header.stamp < incOdomPrev.header.stamp)// FIXME debugging -------> To be consistent with loop-playing
+    {
+        transform_ekf = tf::StampedTransform(tf::Transform::getIdentity(), initTime, "map", "ekf");
+        positionEKF = positionZero;
+        incOdomPrev = poseZero;
+        thetaPrev = 0.0;
+        theta = 0.0;
+    }
+    else
+    {
+        positionEKF = positionCorrEKF;
+        positionEKF.yaw = positionPredEKF.yaw; //FIXME
+        incOdomPrev = incOdom;
+        thetaPrev = theta;
+    }
     // Preparar la respuesta
     res.corrected_position = positionCorrEKF;
 

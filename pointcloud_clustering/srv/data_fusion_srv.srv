@@ -1,4 +1,4 @@
-geometry_msgs/PoseStamped odometry
+pointcloud_clustering/positionRPY odometry
 geometry_msgs/PoseArray verticalElements
 geometry_msgs/PoseArray verticalElements_BL
 ---

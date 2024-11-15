@@ -22,6 +22,7 @@ from scipy.spatial.transform import Rotation as R
 from scipy.spatial import ConvexHull
 from std_msgs.msg import Header
 import sensor_msgs.point_cloud2 as pc2
+from pointcloud_clustering.msg import positionRPY
 from sensor_msgs.msg import PointCloud2, PointField, Image
 from geometry_msgs.msg import PoseStamped, PoseArray, Point, Quaternion
 from pointcloud_clustering.srv import clustering_srv, clustering_srvRequest, landmark_detection_srv, landmark_detection_srvRequest, data_fusion_srv, data_fusion_srvRequest
@@ -72,7 +73,7 @@ class WaymoClient:
         self.odometry_pose = []
         self.corrected_pose = []
         self.corrected_path = []
-        self.odometry_pose_msg = PoseStamped()
+        self.odometry_pose_msg = positionRPY()
         self.landmark_poses_msg = PoseArray()
         self.landmark_poses_msg_BL = PoseArray()
         self.initial_transform_matrix = None
@@ -425,12 +426,15 @@ class WaymoClient:
         ekf_request = data_fusion_srvRequest()
         
         # Populate the request with incremental odometry pose
-        self.odometry_pose_msg.pose.position = Point(*self.odometry_pose[:3])
+        self.odometry_pose_msg.x = self.odometry_pose[0]
+        self.odometry_pose_msg.z = self.odometry_pose[1]
+        self.odometry_pose_msg.x = self.odometry_pose[2]
 
         # Convert Euler angles to quaternion for ROS message
-        rotation = R.from_euler('xyz', self.odometry_pose[3:])
-        quaternion = rotation.as_quat()
-        self.odometry_pose_msg.pose.orientation = Quaternion(*quaternion)
+        self.odometry_pose_msg.roll     = self.odometry_pose[3]
+        self.odometry_pose_msg.pitch    = self.odometry_pose[4]
+        self.odometry_pose_msg.yaw      = self.odometry_pose[5]
+        self.odometry_pose_msg.stamp = rospy.Time.now()
         ekf_request.odometry = self.odometry_pose_msg
 
         # Populate the request with landmark poses in global frame
@@ -439,7 +443,7 @@ class WaymoClient:
             landmark_pose.pose.position.x = pose[0]
             landmark_pose.pose.position.y = pose[1]
             landmark_pose.pose.position.z = pose[2]
-            rnion = R.from_euler('xyz', pose[3:]).as_quat()
+            quaternion = R.from_euler('xyz', pose[3:]).as_quat()
             landmark_pose.pose.orientation.x = quaternion[0]
             landmark_pose.pose.orientation.y = quaternion[1]
             landmark_pose.pose.orientation.z = quaternion[2]
@@ -649,6 +653,7 @@ if __name__ == "__main__":
 
                 rospy.logdebug("Calling processing services")
                 frame_n += 1
+                rospy.loginfo(f"\n New Frame {frame_n} \n")
 
                 """ 
                 PROCESS ODOMETRY --> GET INCREMENTAL VEHICLE POSITION ON EACH FRAME
@@ -730,8 +735,6 @@ if __name__ == "__main__":
                 DATA FUSION > CORRECT ODOMETRY POSITION WITH LANDMARK OBSERVATIONS
                 """
                 rospy.logdebug("Data Fusion processing service")
-                wc.odometry_pose_msg.header.frame_id = f"base_link_{scene_name}"
-                wc.odometry_pose_msg.header.stamp = rospy.Time.now()
                 wc.landmark_poses_msg.header.frame_id = f"base_link_{scene_name}"
                 wc.landmark_poses_msg.header.stamp = rospy.Time.now()
                 wc.process_EKF()

@@ -138,27 +138,27 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
 
     /* EKF INITIALIZATION*/
     // Input values
-    geometry_msgs::PoseStamped incOdom;
+    pointcloud_clustering::positionRPY incOdomEKF;
     geometry_msgs::PoseArray verticalElements;
     geometry_msgs::PoseArray verticalElements_BL;
     pointcloud_clustering::positionRPY incPositionOdom;
     // Receive input values
-    incOdom = req.odometry;
-    verticalElements = req.verticalElements;
-    verticalElements_BL = req.verticalElements_BL;
+    incOdomEKF = req.odometry; // Vehicle odometry pose
+    ROS_INFO("Incremental odometry: x=%.2f, y=%.2f, z=%.2f, roll=%.2f, pitch=%.2f, yaw=%.2f, stamp=%f", 
+         incOdomEKF.x, incOdomEKF.y, incOdomEKF.z, 
+         incOdomEKF.roll, incOdomEKF.pitch, incOdomEKF.yaw, 
+         incOdomEKF.stamp.toSec());
+    verticalElements = req.verticalElements; // Detected vertical elements in global frame
+    verticalElements_BL = req.verticalElements_BL; // Detected vertical elements in vehicle frame
 
     // EKF initialization
     geometry_msgs::PoseStamped poseZero;
 
     geometry_msgs::PoseWithCovarianceStamped posePredEKF;
     geometry_msgs::PoseWithCovarianceStamped poseCorrEKF;
-    geometry_msgs::PoseStamped incOdom2;
-    geometry_msgs::PoseStamped incOdom2Prev;
-    geometry_msgs::PoseStamped incOdomPrev;
 
     pointcloud_clustering::positionRPY positionZero;
     pointcloud_clustering::positionRPY positionEKF;
-    pointcloud_clustering::positionRPY incOdomEKF;
     pointcloud_clustering::positionRPY incOdomEKFPrev;  
     pointcloud_clustering::positionRPY positionPredEKF;
     pointcloud_clustering::positionRPY positionCorrEKF;
@@ -187,10 +187,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     posePredEKF.header = poseZero.header;
     poseCorrEKF.pose.pose = poseZero.pose; // poseCorrEKF init
     poseCorrEKF.header = poseZero.header;
-    incOdomPrev = poseZero; // incOdomPrev init
-    incOdom = poseZero; // incOdom init
-    incOdom2 = poseZero; // incOdom2 init
-    incOdom2Prev = poseZero; // incOdom2Prev init
+
 
     positionZero.x = 0.0;
     positionZero.y = 0.0;
@@ -331,8 +328,9 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     int mapSize = map.size();
     ROS_DEBUG("Loaded %d map elements", mapSize);
 
-
+    ///////////////////////////////////////////////////////
     /* MAIN PROCESS*/
+    ///////////////////////////////////////////////////////
     /* 1. Predicción de la posición*/
     positionPredEKF = Comp(positionCorrEKF, incOdomEKF);
     posePredEKF.pose.pose.position.x = positionPredEKF.x;
@@ -507,21 +505,6 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     if(tfEKF)
         br.sendTransform(tf::StampedTransform(tf::Transform::getIdentity(), ros::Time::now(), "ekf", "base_link")); // -------> Plug /base_link to /ekf frame
 
-    if (incOdom.header.stamp < incOdomPrev.header.stamp)// FIXME debugging -------> To be consistent with loop-playing
-    {
-        transform_ekf = tf::StampedTransform(tf::Transform::getIdentity(), initTime, "map", "ekf");
-        positionEKF = positionZero;
-        incOdomPrev = poseZero;
-        thetaPrev = 0.0;
-        theta = 0.0;
-    }
-    else
-    {
-        positionEKF = positionCorrEKF;
-        positionEKF.yaw = positionPredEKF.yaw; //FIXME
-        incOdomPrev = incOdom;
-        thetaPrev = theta;
-    }
     // Preparar la respuesta
     res.corrected_position = positionCorrEKF;
 

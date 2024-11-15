@@ -144,7 +144,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     pointcloud_clustering::positionRPY incPositionOdom;
     // Receive input values
     incOdomEKF = req.odometry; // Vehicle odometry pose
-    ROS_INFO("Incremental odometry: x=%.2f, y=%.2f, z=%.2f, roll=%.2f, pitch=%.2f, yaw=%.2f, stamp=%f", 
+    ROS_INFO("EKF Incremental odometry received: [%.2f, %.2f, %.2f, %.2f, %.2f, %.2f, %f]", 
          incOdomEKF.x, incOdomEKF.y, incOdomEKF.z, 
          incOdomEKF.roll, incOdomEKF.pitch, incOdomEKF.yaw, 
          incOdomEKF.stamp.toSec());

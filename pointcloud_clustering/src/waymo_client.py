@@ -111,7 +111,7 @@ class WaymoClient:
         return (angle + np.pi) % (2 * np.pi) - np.pi
 
 
-    def process_odometry(self, position_noise_std=0.6, orientation_noise_std=0.01):
+    def process_odometry(self, position_noise_std=0.01, orientation_noise_std=0.01):
         """
         Get incremental pose of the vehicle with cumulative noise.
         """
@@ -151,14 +151,6 @@ class WaymoClient:
         self.odometry_pose = noisy_position + noisy_orientation
         rospy.loginfo(f"Vehicle odometry Pose (with cumulative noise): {self.odometry_pose}")
         self.odometry_path.append(self.odometry_pose)
-
-
-    def process_map(self):
-        """
-        This method extracts the map information from the scene
-        """
-        # TODO: Map extractor dentro de Waymo Client
-        pass
 
 
     def init_camera_params(self):
@@ -426,16 +418,17 @@ class WaymoClient:
         ekf_request = data_fusion_srvRequest()
         
         # Populate the request with incremental odometry pose
-        self.odometry_pose_msg.x = self.odometry_pose[0]
-        self.odometry_pose_msg.z = self.odometry_pose[1]
-        self.odometry_pose_msg.x = self.odometry_pose[2]
-
-        # Convert Euler angles to quaternion for ROS message
+        self.odometry_pose_msg.x        = self.odometry_pose[0]
+        self.odometry_pose_msg.z        = self.odometry_pose[1]
+        self.odometry_pose_msg.y        = self.odometry_pose[2]
         self.odometry_pose_msg.roll     = self.odometry_pose[3]
         self.odometry_pose_msg.pitch    = self.odometry_pose[4]
         self.odometry_pose_msg.yaw      = self.odometry_pose[5]
-        self.odometry_pose_msg.stamp = rospy.Time.now()
+        self.odometry_pose_msg.stamp    = rospy.Time.now()
         ekf_request.odometry = self.odometry_pose_msg
+        
+        rospy.loginfo(f"Waymo Client Incremental odometry sent: [{self.odometry_pose[0]}, {self.odometry_pose[1]}, {self.odometry_pose[2]}, {self.odometry_pose[3]}, {self.odometry_pose[4]}, {self.odometry_pose[5]}, {rospy.Time.now()}]")
+        rospy.loginfo(f"Waymo Client Incremental odometry sent in message: [{self.odometry_pose_msg.x}, {self.odometry_pose_msg.y}, {self.odometry_pose_msg.z}, {self.odometry_pose_msg.roll}, {self.odometry_pose_msg.pitch}, {self.odometry_pose_msg.yaw}, {self.odometry_pose_msg.stamp}]")
 
         # Populate the request with landmark poses in global frame
         for label, pose in self.clusters_poses_global.items():
@@ -677,6 +670,9 @@ if __name__ == "__main__":
                 # DEBUG -> Publish vehicle path
                 vehicle_path = np.array(wc.odometry_path)
                 publish_path("vehicle_path", vehicle_path, header)
+
+                vehicle_real_path = np.array(wc.relative_path)
+                publish_path("vehicle_real_path", vehicle_real_path, header)
 
                 """
                 POINTCLOUD CLUSTERING PROCESS

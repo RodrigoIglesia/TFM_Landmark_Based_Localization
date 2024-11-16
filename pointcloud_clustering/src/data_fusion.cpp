@@ -78,7 +78,7 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
 : mapFilePath(mapFilePath)
 {
     /*
-    Class constructor
+    DataFusion Class constructor
     */
     ros::NodeHandle nh;
     readConfig(configFilePath);
@@ -137,14 +137,14 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     */
 
     /* EKF INITIALIZATION*/
-    // Input values
+    // Request Input values
     pointcloud_clustering::positionRPY incOdomEKF;
     geometry_msgs::PoseArray verticalElements;
     geometry_msgs::PoseArray verticalElements_BL;
     pointcloud_clustering::positionRPY incPositionOdom;
     // Receive input values
     incOdomEKF = req.odometry; // Vehicle odometry pose
-    ROS_INFO("EKF Incremental odometry received: [%.2f, %.2f, %.2f, %.2f, %.2f, %.2f, %f]", 
+    ROS_INFO("EKF Incremental odometry received: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %f]", 
          incOdomEKF.x, incOdomEKF.y, incOdomEKF.z, 
          incOdomEKF.roll, incOdomEKF.pitch, incOdomEKF.yaw, 
          incOdomEKF.stamp.toSec());
@@ -236,7 +236,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     positionPredEKF = positionZero; // positionPredEKF init
     positionCorrEKF = positionZero; // positionCorrEKF init
 
-    // Inicializa las matrices P, Q y R con valores por defecto
+    // Initialize P, R and Q matrix
     Matrix6f P = P.Zero(); // Kalman covariance matrix
     Matrix6f R = R.Zero(); // Observation covariance matrix -> sigma_obs
     Matrix6f Q = Q.Zero(); // Odometry covariance matrix -> sigma_odom
@@ -281,7 +281,9 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     thetaPrev = thetaPrev*3.141592/180.0;
     theta = thetaPrev;
 
-    // Carga del mapa desde un archivo CSV (suponiendo que el archivo CSV esté en mapFilePath)
+    /*
+    Load CSV map with landmark known coordinates in the scene
+    */
     std::vector<pointcloud_clustering::observationRPY> map; // fill with VE positions in document
     geometry_msgs::PoseArray map_elements;
     geometry_msgs::PoseStamped map_element;
@@ -331,21 +333,17 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     ///////////////////////////////////////////////////////
     /* MAIN PROCESS*/
     ///////////////////////////////////////////////////////
-    /* 1. Predicción de la posición*/
+    /* 1. Pose Prediction*/
     positionPredEKF = Comp(positionCorrEKF, incOdomEKF);
-    posePredEKF.pose.pose.position.x = positionPredEKF.x;
-    posePredEKF.pose.pose.position.y = positionPredEKF.y;
-    posePredEKF.pose.pose.position.z = positionPredEKF.z;
+    ROS_DEBUG("EKF Pose Predicted: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %f]", 
+         positionPredEKF.x, positionPredEKF.y, positionPredEKF.z, 
+         positionPredEKF.roll, positionPredEKF.pitch, positionPredEKF.yaw);
     
-    quat.setRPY(0.0, 0.0, -positionPredEKF.yaw);
-    tf::quaternionTFToMsg(quat, posePredEKF.pose.pose.orientation);
-    // std::cout << "PosePred:" << std::endl << posePredEKF.pose.pose << std::endl;
-    
-    // Actualización de la matriz de covarianza de predicción
+    // Position covariance matrix update
     Fx = J1_n(positionCorrEKF, incOdomEKF);
     Fu = J2_n(positionCorrEKF, incOdomEKF);
 
-    // Covarianza del estado
+    // State coveriance
     P = Fx*P*Fx.transpose() + Fu*Q*Fu.transpose();
 
     /* 2. Actualización con las observaciones*/

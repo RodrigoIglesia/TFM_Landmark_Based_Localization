@@ -63,8 +63,8 @@ class DataFusion
 {
 public:
     DataFusion(const std::string& configFilePath, const std::string& mapFilePath);
-    bool dataFusionService(pointcloud_clustering::data_fusion_srv::Request &req,
-                                  pointcloud_clustering::data_fusion_srv::Response &res);
+    bool dataFusionService(pointcloud_clustering::data_fusion_srv::Request &req, pointcloud_clustering::data_fusion_srv::Response &res);
+    std::vector<pointcloud_clustering::observationRPY> processPoseArray(const geometry_msgs::PoseArray& poseArray);
 private:
     void readConfig(const std::string &filename);
 
@@ -128,6 +128,40 @@ void DataFusion::readConfig(const std::string &filename)
     po::store(po::parse_config_file(ifs, config), vm);
     po::notify(vm);
 }
+
+
+std::vector<pointcloud_clustering::observationRPY> DataFusion::processPoseArray(const geometry_msgs::PoseArray& poseArray)
+{
+    /*
+    Method to parse an array of poses and convert it to Roll-Pitch-Yaw format
+    */
+    std::vector<pointcloud_clustering::observationRPY> observations;
+
+    for (const auto& pose : poseArray.poses) {
+        pointcloud_clustering::observationRPY obs;
+        tf::Quaternion quat;
+
+        // Extract position
+        obs.position.x = pose.position.x;
+        obs.position.y = pose.position.y;
+        obs.position.z = pose.position.z;
+
+        // Convert quaternion to roll-pitch-yaw
+        quat.setX(pose.orientation.x);
+        quat.setY(pose.orientation.y);
+        quat.setZ(pose.orientation.z);
+        quat.setW(pose.orientation.w);
+
+        tf::Matrix3x3 quaternionToRPY(quat);
+        quaternionToRPY.getEulerYPR(obs.position.yaw, obs.position.pitch, obs.position.roll);
+
+        // Add to observations vector
+        observations.push_back(obs);
+    }
+
+    return observations;
+}
+
 
 bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Request &req, pointcloud_clustering::data_fusion_srv::Response &res)
 {
@@ -288,54 +322,88 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     geometry_msgs::PoseArray map_elements;
     geometry_msgs::PoseStamped map_element;
     pointcloud_clustering::observationRPY map_aux;
-    std::ifstream inputFile(mapFilePath);
+    visualization_msgs::MarkerArray map_ids;
+    visualization_msgs::Marker map_id;
+    std::ifstream inputFile(mapFilePath.c_str());
     if (!inputFile.is_open())
     {
         throw std::runtime_error("Cannot open map file: " + mapFilePath);
     }
 
+    int l = 0;
     while (inputFile) {
         std::string s;
         if (!std::getline(inputFile, s)) break;
         if (s[0] != '#') {
-            std::istringstream ss(s);
-            std::vector<double> record;
+        std::istringstream ss(s);
+        std::vector<double> record;
 
-            while (ss) {
-                std::string line;
-                if (!std::getline(ss, line, ','))
-                    break;
-                record.push_back(std::stof(line));
+        while (ss) {
+            std::string line;
+            if (!std::getline(ss, line, ','))
+            break;
+            try {
+            record.push_back(std::stof(line));
             }
-            pointcloud_clustering::observationRPY map_aux;
-            map_aux.position.x = record[0] - config_.easting_ref;
-            map_aux.position.y = record[1] - config_.northing_ref;
-            map_aux.position.z = -1.8;  // Valor fijo
-            map_aux.position.roll = 0.0;
-            map_aux.position.pitch = 0.0;
-            map_aux.position.yaw = 0.0;
-            map_.push_back(map_aux);
-
-            map_element.pose.position.x = record[0] - easting_ref;
-            map_element.pose.position.y = record[1] - northing_ref;
-            map_element.pose.position.z = -1.8;
-            map_element.pose.orientation.x = 0.0;
-            map_element.pose.orientation.y = 0.0;
-            map_element.pose.orientation.z = 0.0;
-            map_element.pose.orientation.w = 1.0;
-            map_elements.poses.push_back(map_element.pose);
+            catch (const std::invalid_argument e) {
+            // std::cout << "NaN found in file " << " line " << l+1 << std::endl;
+            e.what();
+            }
         }
+        map_aux.position.x = record[0] - easting_ref;
+        map_aux.position.y = record[1] - northing_ref;
+        map_aux.position.z = -1.8;
+        map_aux.position.roll = 0.0;
+        map_aux.position.pitch = 0.0;
+        map_aux.position.yaw = 0.0;
+        map.push_back(map_aux);
+        
+        map_element.pose.position.x = record[0] - easting_ref;
+        map_element.pose.position.y = record[1] - northing_ref;
+        map_element.pose.position.z = -1.8;
+        map_element.pose.orientation.x = 0.0;
+        map_element.pose.orientation.y = 0.0;
+        map_element.pose.orientation.z = 0.0;
+        map_element.pose.orientation.w = 1.0;
+        map_elements.poses.push_back(map_element.pose);
+        
+        std::stringstream label;
+        map_id.header.frame_id = "map";
+        map_id.ns = "map_id_display";
+        map_id.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
+        map_id.action = visualization_msgs::Marker::ADD;
+        map_id.color.a = 1.0;
+        map_id.color.r = 1.0f;
+        map_id.color.g = 1.0f;
+        map_id.color.b = 1.0f;
+        map_id.pose.position.x = record[0] - easting_ref;
+        map_id.pose.position.y = record[1] - northing_ref;
+        map_id.pose.position.z = 1.0;
+        map_id.pose.orientation.w = 1.0;
+        label << "ID: " << l;
+        map_id.id = l;
+        map_id.text = label.str();
+        map_id.scale.z = 1.5;
+        
+        map_ids.markers.push_back(map_id);
+        }
+        l++;
     }
-    inputFile.close();
+
+    if (!inputFile.eof()) {
+        std::cerr << "Could not read file " << "\n";
+    }
+    map_elements.header.frame_id = "map";
     int mapSize = map.size();
     ROS_DEBUG("Loaded %d map elements", mapSize);
 
     ///////////////////////////////////////////////////////
     /* MAIN PROCESS*/
     ///////////////////////////////////////////////////////
+
     /* 1. Pose Prediction*/
     positionPredEKF = Comp(positionCorrEKF, incOdomEKF);
-    ROS_DEBUG("EKF Pose Predicted: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %f]", 
+    ROS_DEBUG("EKF Pose Predicted: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]", 
          positionPredEKF.x, positionPredEKF.y, positionPredEKF.z, 
          positionPredEKF.roll, positionPredEKF.pitch, positionPredEKF.yaw);
     
@@ -346,43 +414,29 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     // State coveriance
     P = Fx*P*Fx.transpose() + Fu*Q*Fu.transpose();
 
-    /* 2. Actualización con las observaciones*/
-    std::vector<pointcloud_clustering::observationRPY> observations;
-    std::vector<pointcloud_clustering::observationRPY> observations_BL;
-
-    for (int i=0; i<verticalElements.poses.size(); i++) // read geometry_msgs::PoseArray and store as std::vector<observationRPY>
-    {
-        pointcloud_clustering::observationRPY obs_aux; // ------------------------> Frame id: "map"
-        tf::Quaternion quat_aux;
-        obs_aux.position.x = verticalElements.poses[i].position.x;
-        obs_aux.position.y = verticalElements.poses[i].position.y;
-        obs_aux.position.z = verticalElements.poses[i].position.z;
-        quat_aux.setX(verticalElements.poses[i].orientation.x);
-        quat_aux.setY(verticalElements.poses[i].orientation.y);
-        quat_aux.setZ(verticalElements.poses[i].orientation.z);
-        quat_aux.setW(verticalElements.poses[i].orientation.w);
-        tf::Matrix3x3 quaternionToYPR_aux(quat_aux);
-        quaternionToYPR_aux.getEulerYPR(obs_aux.position.yaw, obs_aux.position.pitch, obs_aux.position.roll);
-        
-        pointcloud_clustering::observationRPY obs_aux_BL; // -----------------------> Frame id: "base_link"
-        tf::Quaternion quat_aux_BL;
-        obs_aux_BL.position.x = verticalElements_BL.poses[i].position.x;
-        obs_aux_BL.position.y = verticalElements_BL.poses[i].position.y;
-        obs_aux_BL.position.z = verticalElements_BL.poses[i].position.z;
-        quat_aux_BL.setX(verticalElements_BL.poses[i].orientation.x);
-        quat_aux_BL.setY(verticalElements_BL.poses[i].orientation.y);
-        quat_aux_BL.setZ(verticalElements_BL.poses[i].orientation.z);
-        quat_aux_BL.setW(verticalElements_BL.poses[i].orientation.w);
-        tf::Matrix3x3 quaternionToYPR_aux_BL(quat_aux_BL);
-        quaternionToYPR_aux_BL.getEulerYPR(obs_aux_BL.position.yaw, obs_aux_BL.position.pitch, obs_aux_BL.position.roll);
-
-        observations.push_back(obs_aux);
-        observations_BL.push_back(obs_aux_BL);
-    }
+    /* 2. Update with observations*/
+    // Transform observations to Roll-Pitch-Yaw format
+    std::vector<pointcloud_clustering::observationRPY> observations = processPoseArray(verticalElements);;
+    std::vector<pointcloud_clustering::observationRPY> observations_BL = processPoseArray(verticalElements_BL);
 
     int obsSize = observations.size();
     int M;
 
+    // Initialize matrices for EKF observation model and data association
+    // - h_ij: Vector to store innovation (residual) values for all observation-map pairs.
+    //         Dimensions: (B_rows * obsSize * mapSize) x 1
+    //         Where:
+    //           B_rows - Number of components of interest (e.g., x, y, yaw)
+    //           obsSize - Number of observations (sensor data)
+    //           mapSize - Number of elements in the map
+    // - H_x_ij: Matrix to store partial derivatives of the observation model with respect to the state vector.
+    //           Dimensions: B_rows x 6
+    //           Where:
+    //             6 - Dimension of the state vector (e.g., x, y, z, roll, pitch, yaw)
+    // - H_z_ij: Matrix to store partial derivatives of the observation model with respect to the observation vector.
+    //           Dimensions: B_rows x 6
+    // - S_ij: Matrix to represent the covariance of the innovation (residual) for a specific observation-map pair.
+    //         Dimensions: B_rows x B_rows
     MatrixXf h_ij(B_rows*obsSize*mapSize, 1);  h_ij = h_ij.Zero(obsSize*mapSize, 1);
     MatrixXf H_x_ij(B_rows, 6);
     H_x_ij = H_x_ij.Zero(B_rows, 6);
@@ -393,6 +447,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
 
     if(obsSize > 0)
     {
+        // If observations are received, compare them with the elements in the map
         bool match = false;
         int i_min = -1;
         int j_min = -1;
@@ -401,21 +456,29 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
 
         float minMahalanobis = mahalanobisDistanceThreshold;
 
-        for (int i=0; i<obsSize; i++) // Compare all observations with all the elements of the map. If mahalanobisDistance < mahalanobisDistanceThreshold between i-th observation and j-th element, there is a match
+        // Compare all observations with all the elements of the map. If mahalanobisDistance < mahalanobisDistanceThreshold between i-th observation and j-th element, there is a match
+        //TODO: find a more efficent way of doing Match search
+        for (int i=0; i<obsSize; i++)
         {
+            // Loop over observations
             for (int j=0; j<mapSize; j++)
             {
+                // For each observation, loop over map elements
+                // Innovation vector > difference beteewn observation and map element
                 h_ij = B*RPY2Vec(Comp(Inv(map[j].position), Comp(positionPredEKF, observations_BL[i].position)));
-                H_x_ij = B*J2_n(Inv(map[j].position), Comp(positionPredEKF, observations_BL[i].position))*J1_n(positionPredEKF, observations_BL[i].position);
-                H_z_ij = B*J2_n(Inv(map[j].position), Comp(positionPredEKF, observations_BL[i].position))*J2_n(positionPredEKF, observations_BL[i].position);
-                S_ij = H_x_ij*P*H_x_ij.transpose() + H_z_ij*R*H_z_ij.transpose();                   
-                if(sqrt(mahalanobisDistance(h_ij, S_ij)) < mahalanobisDistanceThreshold && sqrt(mahalanobisDistance(h_ij, S_ij)) < minMahalanobis) //Theres is a match, but it must be the minimum value of all possible matches
+
+                // Jacobians
+                //TODO: Changed observations to global frame to match map coordinates > review
+                H_x_ij = B*J2_n(Inv(map[j].position), Comp(positionPredEKF, observations[i].position))*J1_n(positionPredEKF, observations[i].position);
+                H_z_ij = B*J2_n(Inv(map[j].position), Comp(positionPredEKF, observations[i].position))*J2_n(positionPredEKF, observations[i].position);
+
+                // Innovation covariance
+                S_ij = H_x_ij*P*H_x_ij.transpose() + H_z_ij*R*H_z_ij.transpose();
+
+                // MATCH > If the Mahalanobis distance is below a predefined threshold (mahalanobisDistanceThreshold)
+                // and smaller than the current minimum distance (minMahalanobis), the observation and map element are marked as a potential match.
+                if(sqrt(mahalanobisDistance(h_ij, S_ij)) < mahalanobisDistanceThreshold && sqrt(mahalanobisDistance(h_ij, S_ij)) < minMahalanobis)
                 {
-                    // if(match)
-                    // std::cout << "***************************************REMATCH! ["<< i <<"]["<< j <<"]***************************************" << std::endl;
-                    // else
-                    // std::cout << "***************************************MATCH! ["<< i <<"]["<< j <<"]***************************************" << std::endl;
-                    
                     match = true;
                     i_min = i;
                     j_min = j;
@@ -424,26 +487,30 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
             }
             if (match)
             {
+                ROS_DEBUG("Observation %d matched with Map Element %d. Min Mahalanobis Distance: %f", i_min, j_min, minMahalanobis);
+                // Add match indices to the vectors
                 i_vec.push_back(i_min);
                 j_vec.push_back(j_min);
 
-                match = false;
+                match = false; // Reset match flag after all map elements are parsed for 1 observation
             }
             minMahalanobis = mahalanobisDistanceThreshold;
         }
+        // Number of matches for the frame (Observations -- Map)
         M = i_vec.size();
 
-        if(M > 0) // There has been at least 1 match (M=1)
+        if(M > 0)
         {
-            // std::cout << "i_vec: ";
-            // for(int i=0; i<i_vec.size(); i++)
-            //     std::cout <<  i_vec[i]  << " ";
-            // std::cout << std::endl;
-            // std::cout << "j_vec: ";
-            // for(int i=0; i<j_vec.size(); i++)
-            //     std::cout <<  j_vec[i]  << " ";
-            // std::cout << std::endl;
+            // At least one valid match exists
+            ROS_DEBUG("%d Matches found in the frame, proceed with the update step", M);
+            for(int i=0; i<i_vec.size(); i++)
+                ROS_DEBUG("Match i: %d", i_vec[i]);
+            ROS_DEBUG(" ");
+            for(int i=0; i<j_vec.size(); i++)
+                ROS_DEBUG("Match j: %d", j_vec[i]);
+            ROS_DEBUG(" ");
 
+            // Initialize matrices for correction
             MatrixXf h_i(B_rows, 1);            h_i = h_i.Zero(B_rows, 1);   // -------> h_ij for a valid association between observation_i and map_j
             MatrixXf h_k(M*B_rows, 1);          h_k = h_k.Zero(M*B_rows, 1); // -------> All vectors h_i stacked, corresponding to valid matches between an observed element and an element in the map
             MatrixXf H_x_i(B_rows, 6);          H_x_i = H_x_i.Zero(B_rows, 6);        // -------> H_ij for a valid association
@@ -454,46 +521,95 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
             MatrixXf S_k(M*B_rows, M*B_rows);   S_k = S_k.Zero(M*B_rows, M*B_rows);
             MatrixXf W(6, M*B_rows);            W = W.Zero(6, M*B_rows);
 
+            /* 3. UPDATE*/
+            // Loop ovear each match and update matrices
             for(int i=0; i<M; i++)
             {
+                // Update innovation vector
                 h_i = B*RPY2Vec(Comp(Inv(map[j_vec[i]].position), Comp(positionPredEKF, observations_BL[i_vec[i]].position))); // ----> Observations as seen from base_link
                 h_k.block(i*B_rows, 0, B_rows, 1) = h_i;
+                // Compute the Jacobian of the observation model with respect to the state
                 H_x_i = B*J2_n(Inv(map[j_vec[i]].position), Comp(positionPredEKF, observations_BL[i_vec[i]].position))*J1_n(positionPredEKF, observations_BL[i_vec[i]].position);
-                H_x_k.block(i*B_rows, 0, B_rows, 6) = H_x_i; 
+                H_x_k.block(i*B_rows, 0, B_rows, 6) = H_x_i;
+                // Compute the Jacobian of the observation model with respect to the observation
                 H_z_i = B*J2_n(Inv(map[j_vec[i]].position), Comp(positionPredEKF, observations_BL[i_vec[i]].position))*J2_n(positionPredEKF, observations_BL[i_vec[i]].position);
                 H_z_k.block(i*B_rows, i*6, B_rows, 6) = H_z_i;
-
+                // Add observation noise covariance for this match
                 R_k.block(i*6, i*6, 6, 6) = R;
             }
+            // Compute innovation covarizance
             S_k = H_x_k*P*H_x_k.transpose() + H_z_k*R_k*H_z_k.transpose();
+            // Compute Kalman Gain
             W = P*H_x_k.transpose()*S_k.inverse();
-            positionCorrEKF = vec2RPY(RPY2Vec(positionPredEKF) - W*h_k);
-            P = (Matrix6f::Identity() - W*H_x_k)*P;
-        }
-        else // vertical elements found but no matches
-            positionCorrEKF = positionPredEKF;
-    }
-    else // no vertical elements found
-        positionCorrEKF = positionPredEKF;
-    
-    poseCorrEKF.pose.pose.position.x = positionCorrEKF.x;
-    poseCorrEKF.pose.pose.position.y = positionCorrEKF.y;
-    poseCorrEKF.pose.pose.position.z = 0.0; //-------------> Ignored
-    for(int i=0; i<6; i++)
-    {
-        for(int j=0; j<6; j++)
-            poseCorrEKF.pose.covariance[i+j] = P(i, j);
-    }
-    poseCorrEKF.header.frame_id = "map";
-    poseCorrEKF.header.stamp = ros::Time::now();
 
+            // UPDATE State estimation
+            positionCorrEKF = vec2RPY(RPY2Vec(positionPredEKF) - W*h_k);
+            P = (Matrix6f::Identity() - W*H_x_k)*P; // State covariance
+
+            ROS_DEBUG("EKF Corrected Position >> Vertical Elements and matces are found: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]",
+             positionCorrEKF.x, positionCorrEKF.y, positionCorrEKF.z, positionCorrEKF.roll, positionCorrEKF.pitch, positionCorrEKF.yaw);
+        }
+        else 
+            // vertical elements found but no matches
+            positionCorrEKF = positionPredEKF;
+            ROS_DEBUG("EKF Corrected Position >> Vertical elements found but No matches: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]",
+             positionCorrEKF.x, positionCorrEKF.y, positionCorrEKF.z, positionCorrEKF.roll, positionCorrEKF.pitch, positionCorrEKF.yaw);
+    }
+    else
+        // no vertical elements found
+        positionCorrEKF = positionPredEKF;
+        ROS_DEBUG("EKF Corrected Position >> No vertical elements found: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]",
+                positionCorrEKF.x, positionCorrEKF.y, positionCorrEKF.z, positionCorrEKF.roll, positionCorrEKF.pitch, positionCorrEKF.yaw);
+
+    
+    //TODO: This code is only used to represent the corrected pose in a ROS message with covariance >> This information should be returned by the service
+    // Populate the corrected position to a corrected pose in a ROS message format
+    // The ROS message has the covariance of each element of the corrected pose to show the uncertainity of the prediction
+    // poseCorrEKF.pose.pose.position.x = positionCorrEKF.x;
+    // poseCorrEKF.pose.pose.position.y = positionCorrEKF.y;
+    // poseCorrEKF.pose.pose.position.z = 0.0; //-------------> Ignored
+    // for(int i=0; i<6; i++)
+    // {
+    //     for(int j=0; j<6; j++)
+    //         poseCorrEKF.pose.covariance[i+j] = P(i, j);
+    // }
+    // poseCorrEKF.header.frame_id = "map";
+    // poseCorrEKF.header.stamp = ros::Time::now();
+
+    /*
+    Correct orientation of the predicted pose by the EKF
+    */
+   // Determine the robot's corrected orientation based on the number of matches (M)
+    // If fewer than 2 matches are found, rely on odometry for yaw correction (positionCorrEKF.yaw)
+    // If 2 or more matches exist, use the predicted yaw (positionPredEKF.yaw) for orientation correction
     tf::Quaternion quat_msg;
-    if (M<2) // If there are two or more matches, rotate to correct yaw; otherwise, correct only (x,y) position according to odometry 
+    if (M < 2) // If there are two or more matches, rotate to correct yaw; otherwise, correct only (x,y) position according to odometry 
         quat_msg.setRPY(0.0, 0.0, -positionCorrEKF.yaw);
     else
         quat_msg.setRPY(0.0, 0.0, -positionPredEKF.yaw);
+    
+    // Convert the corrected quaternion to a ROS-compatible format and assign it to poseCorrEKF
+    // The quaternion represents the robot's corrected orientation
     tf::quaternionTFToMsg(quat_msg, poseCorrEKF.pose.pose.orientation); // set quaternion in msg from tf::Quaternion
-    // std::cout << "poseCorrEKF: " << std::endl << poseCorrEKF.pose.pose << std::endl;
+    ROS_DEBUG("PoseWithCovarianceStamped: position: [x: %f, y: %f, z: %f], orientation: [x: %f, y: %f, z: %f, w: %f]",
+          poseCorrEKF.pose.pose.position.x,
+          poseCorrEKF.pose.pose.position.y,
+          poseCorrEKF.pose.pose.position.z,
+          poseCorrEKF.pose.pose.orientation.x,
+          poseCorrEKF.pose.pose.orientation.y,
+          poseCorrEKF.pose.pose.orientation.z,
+          poseCorrEKF.pose.pose.orientation.w);
+
+    ROS_DEBUG("Covariance matrix:");
+    for (int i = 0; i < 6; i++) {
+        ROS_DEBUG("[%f, %f, %f, %f, %f, %f]",
+                poseCorrEKF.pose.covariance[i * 6 + 0],
+                poseCorrEKF.pose.covariance[i * 6 + 1],
+                poseCorrEKF.pose.covariance[i * 6 + 2],
+                poseCorrEKF.pose.covariance[i * 6 + 3],
+                poseCorrEKF.pose.covariance[i * 6 + 4],
+                poseCorrEKF.pose.covariance[i * 6 + 5]);
+    }
 
     transform_ekf.setOrigin(tf::Vector3(poseCorrEKF.pose.pose.position.x, poseCorrEKF.pose.pose.position.y, poseCorrEKF.pose.pose.position.z));
     transform_ekf.setRotation(quat_msg);

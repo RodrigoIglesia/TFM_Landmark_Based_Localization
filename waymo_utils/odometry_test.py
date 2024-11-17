@@ -116,30 +116,30 @@ for scene_index, scene_path in enumerate(tfrecord_list):
         if frame is None:
             continue
 
-        relative_pose, noisy_relative_pose, transform_matrix, initial_transform_matrix = process_odometry(frame, position_noise_cumulative, orientation_noise_cumulative, initial_transform_matrix)
-        print(relative_pose)
+        # relative_pose, noisy_relative_pose, transform_matrix, initial_transform_matrix = process_odometry(frame, position_noise_cumulative, orientation_noise_cumulative, initial_transform_matrix)
+        # print(relative_pose)
 
-        point = [relative_pose[0], relative_pose[1], relative_pose[2]]
-        points.append(point)
+        # point = [relative_pose[0], relative_pose[1], relative_pose[2]]
+        # points.append(point)
 
-        noisy_point = [noisy_relative_pose[0], noisy_relative_pose[1], noisy_relative_pose[2]]
-        noisy_points.append(noisy_point)
+        # noisy_point = [noisy_relative_pose[0], noisy_relative_pose[1], noisy_relative_pose[2]]
+        # noisy_points.append(noisy_point)
 
-        # Create an axis for the pose
-        R_matrix = transform_matrix[:3, :3]
-        pose_translation = point
-        axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=axis_length, origin=pose_translation)
-        axis.rotate(R_matrix, center=pose_translation)
-        vis.add_geometry(axis)
+        # # Create an axis for the pose
+        # R_matrix = transform_matrix[:3, :3]
+        # pose_translation = point
+        # axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=axis_length, origin=pose_translation)
+        # axis.rotate(R_matrix, center=pose_translation)
+        # vis.add_geometry(axis)
 
-        # Connect the current point to the previous one to show the path
-        if prev_point is not None:
-            lines.append([len(points) - 2, len(points) - 1])
-        if prev_noisy_point is not None:
-            noisy_lines.append([len(noisy_points) - 2, len(noisy_points) - 1])
+        # # Connect the current point to the previous one to show the path
+        # if prev_point is not None:
+        #     lines.append([len(points) - 2, len(points) - 1])
+        # if prev_noisy_point is not None:
+        #     noisy_lines.append([len(noisy_points) - 2, len(noisy_points) - 1])
 
-        prev_point = point
-        prev_noisy_point = noisy_point
+        # prev_point = point
+        # prev_noisy_point = noisy_point
         frame_n += 1
 
         # Obtener la nube de puntos para el primer frame
@@ -155,25 +155,29 @@ for scene_index, scene_path in enumerate(tfrecord_list):
             points_return2 = _range_image_to_pcd(1)
 
             pointcloud, points_cp = concatenate_pcd_returns(points_return1, points_return2)
+            transform = np.reshape(np.array(frame.pose.transform), [4, 4])
+            points_homogeneous = np.hstack((pointcloud, np.ones((pointcloud.shape[0], 1))))
+            global_points = np.dot(transform, points_homogeneous.T).T
+            global_points = global_points[:, :3]
             pcd = o3d.geometry.PointCloud()
-            pcd.points = o3d.utility.Vector3dVector(pointcloud)
+            pcd.points = o3d.utility.Vector3dVector(global_points)
             pcd.paint_uniform_color([0.5, 0.5, 0.5])
 
             vis.add_geometry(pcd)
             opt = vis.get_render_option()
             opt.point_size = 1.0
 
-    # Convert points and lines to Open3D format
-    points_o3d = o3d.utility.Vector3dVector(points)
-    line_set.points = points_o3d
-    line_set.lines = o3d.utility.Vector2iVector(lines)
-    line_set.paint_uniform_color([0, 0, 1])  # Optional: set color for path lines
-    vis.add_geometry(line_set)
+    # # Convert points and lines to Open3D format
+    # points_o3d = o3d.utility.Vector3dVector(points)
+    # line_set.points = points_o3d
+    # line_set.lines = o3d.utility.Vector2iVector(lines)
+    # line_set.paint_uniform_color([0, 0, 1])  # Optional: set color for path lines
+    # vis.add_geometry(line_set)
 
-    noisy_line_set.points = o3d.utility.Vector3dVector(noisy_points)
-    noisy_line_set.lines = o3d.utility.Vector2iVector(noisy_lines)
-    noisy_line_set.paint_uniform_color([1, 0, 0])  # Red for noisy path
-    vis.add_geometry(noisy_line_set)
+    # noisy_line_set.points = o3d.utility.Vector3dVector(noisy_points)
+    # noisy_line_set.lines = o3d.utility.Vector2iVector(noisy_lines)
+    # noisy_line_set.paint_uniform_color([1, 0, 0])  # Red for noisy path
+    # vis.add_geometry(noisy_line_set)
 
     # Añadir ejes de coordenadas para cada elemento vertical
     for element in vertical_elements:

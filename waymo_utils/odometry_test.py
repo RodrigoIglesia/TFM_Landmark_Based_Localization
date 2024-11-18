@@ -80,9 +80,9 @@ vertical_elements = []
 with open(csv_path, newline='') as csvfile:
     reader = csv.reader(csvfile)
     for row in reader:
-        x, y = float(row[0]), float(row[1])
+        x, y, z = float(row[0]), float(row[1]), float(row[2])
         # Agregar las coordenadas z, roll, pitch y yaw constantes
-        vertical_elements.append([x, y, -1.8, 0.0, 0.0, 0.0])
+        vertical_elements.append([x, y, z, 0.0, 0.0, 0.0])
 
 # Read dataset
 dataset_path = os.path.join(src_dir, "dataset/final_tests_scene")
@@ -95,7 +95,7 @@ lines = []
 noisy_lines = []
 line_set = o3d.geometry.LineSet()
 noisy_line_set = o3d.geometry.LineSet()
-axis_length = 0.05  # Axis length for visualization
+axis_length = 0.5  # Axis length for visualization
 
 for scene_index, scene_path in enumerate(tfrecord_list):
     # Prepare Open3D visualization
@@ -143,29 +143,30 @@ for scene_index, scene_path in enumerate(tfrecord_list):
         frame_n += 1
 
         # Obtener la nube de puntos para el primer frame
-        if frame_n == 1:
-            range_images, camera_projections, segmentation_labels, range_image_top_pose = frame_utils.parse_range_image_and_camera_projection(frame)
+        if frame_n != 10:
+            continue
+        range_images, camera_projections, segmentation_labels, range_image_top_pose = frame_utils.parse_range_image_and_camera_projection(frame)
 
-            def _range_image_to_pcd(ri_index=0):
-                points, points_cp = frame_utils.convert_range_image_to_point_cloud(
-                    frame, range_images, camera_projections, range_image_top_pose, ri_index=ri_index)
-                return points, points_cp
+        def _range_image_to_pcd(ri_index=0):
+            points, points_cp = frame_utils.convert_range_image_to_point_cloud(
+                frame, range_images, camera_projections, range_image_top_pose, ri_index=ri_index)
+            return points, points_cp
 
-            points_return1 = _range_image_to_pcd()
-            points_return2 = _range_image_to_pcd(1)
+        points_return1 = _range_image_to_pcd()
+        points_return2 = _range_image_to_pcd(1)
 
-            pointcloud, points_cp = concatenate_pcd_returns(points_return1, points_return2)
-            transform = np.reshape(np.array(frame.pose.transform), [4, 4])
-            points_homogeneous = np.hstack((pointcloud, np.ones((pointcloud.shape[0], 1))))
-            global_points = np.dot(transform, points_homogeneous.T).T
-            global_points = global_points[:, :3]
-            pcd = o3d.geometry.PointCloud()
-            pcd.points = o3d.utility.Vector3dVector(global_points)
-            pcd.paint_uniform_color([0.5, 0.5, 0.5])
+        pointcloud, points_cp = concatenate_pcd_returns(points_return1, points_return2)
+        transform = np.reshape(np.array(frame.pose.transform), [4, 4])
+        points_homogeneous = np.hstack((pointcloud, np.ones((pointcloud.shape[0], 1))))
+        global_points = np.dot(transform, points_homogeneous.T).T
+        global_points = global_points[:, :3]
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(global_points)
+        pcd.paint_uniform_color([0.5, 0.5, 0.5])
 
-            vis.add_geometry(pcd)
-            opt = vis.get_render_option()
-            opt.point_size = 1.0
+        vis.add_geometry(pcd)
+        opt = vis.get_render_option()
+        opt.point_size = 1.0
 
     # # Convert points and lines to Open3D format
     # points_o3d = o3d.utility.Vector3dVector(points)
@@ -181,6 +182,7 @@ for scene_index, scene_path in enumerate(tfrecord_list):
 
     # Añadir ejes de coordenadas para cada elemento vertical
     for element in vertical_elements:
+        print(element)
         element_position = element[:3]  # x, y, z
         axis_element = o3d.geometry.TriangleMesh.create_coordinate_frame(size=axis_length, origin=element_position)
         vis.add_geometry(axis_element)

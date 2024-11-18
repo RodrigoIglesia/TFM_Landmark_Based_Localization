@@ -188,15 +188,18 @@ def filter_lidar_data(point_clouds, segmentation_labels, labels_to_keep):
     filtered_points = []
     filtered_labels = []
     for lidar_data in combined_data:
-        point = lidar_data[0]
-        label = lidar_data[1]
-        if (label[0] != 0) and ((label[1] != 0) and (label[1] in labels_to_keep)):
-        # if (not np.any(label == 0)):
-            filtered_points.append(np.array(point))
-            filtered_labels.append(np.array(label))
-        else: continue
+        filtered_lidar_point = []
+        filtered_lidar_label = []
+        for point, label in zip(lidar_data[0], lidar_data[1]):
+            if (not np.any(label == 0) and (label[1] in labels_to_keep)):
+            # if (not np.any(label == 0)):
+                filtered_lidar_point.append(point)
+                filtered_lidar_label.append(label)
+            else: continue
+        filtered_points.append(np.array(filtered_lidar_point))
+        filtered_labels.append(np.array(filtered_lidar_label))
 
-    return np.array(filtered_points), np.array(filtered_labels)
+    return filtered_points, filtered_labels
 
 
 def cluster_pointcloud(point_cloud):

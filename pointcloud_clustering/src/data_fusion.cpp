@@ -72,6 +72,10 @@ private:
     std::string frame_id_;
     std::string mapFilePath;
 
+    // Debug publishers -> publisher to debug processing results in RVIZ topics
+    ros::Publisher observation_pub_;
+    ros::Publisher map_element_pub_;
+
 };
 
 DataFusion::DataFusion(const std::string& configFilePath, const std::string& mapFilePath)
@@ -81,6 +85,8 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     DataFusion Class constructor
     */
     ros::NodeHandle nh;
+    observation_pub_ = nh.advertise<sensor_msgs::PointCloud2>("observation", 1);
+    map_element_pub_ = nh.advertise<sensor_msgs::PointCloud2>("map_element", 1);
     readConfig(configFilePath);
 }
 
@@ -335,57 +341,57 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
         std::string s;
         if (!std::getline(inputFile, s)) break;
         if (s[0] != '#') {
-        std::istringstream ss(s);
-        std::vector<double> record;
+            std::istringstream ss(s);
+            std::vector<double> record;
 
-        while (ss) {
-            std::string line;
-            if (!std::getline(ss, line, ','))
-            break;
-            try {
-            record.push_back(std::stof(line));
+            while (ss) {
+                std::string line;
+                if (!std::getline(ss, line, ','))
+                break;
+                try {
+                record.push_back(std::stof(line));
+                }
+                catch (const std::invalid_argument e) {
+                // std::cout << "NaN found in file " << " line " << l+1 << std::endl;
+                e.what();
+                }
             }
-            catch (const std::invalid_argument e) {
-            // std::cout << "NaN found in file " << " line " << l+1 << std::endl;
-            e.what();
-            }
-        }
-        map_aux.position.x = record[0] - easting_ref;
-        map_aux.position.y = record[1] - northing_ref;
-        map_aux.position.z = -1.8;
-        map_aux.position.roll = 0.0;
-        map_aux.position.pitch = 0.0;
-        map_aux.position.yaw = 0.0;
-        map.push_back(map_aux);
-        
-        map_element.pose.position.x = record[0] - easting_ref;
-        map_element.pose.position.y = record[1] - northing_ref;
-        map_element.pose.position.z = -1.8;
-        map_element.pose.orientation.x = 0.0;
-        map_element.pose.orientation.y = 0.0;
-        map_element.pose.orientation.z = 0.0;
-        map_element.pose.orientation.w = 1.0;
-        map_elements.poses.push_back(map_element.pose);
-        
-        std::stringstream label;
-        map_id.header.frame_id = "map";
-        map_id.ns = "map_id_display";
-        map_id.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
-        map_id.action = visualization_msgs::Marker::ADD;
-        map_id.color.a = 1.0;
-        map_id.color.r = 1.0f;
-        map_id.color.g = 1.0f;
-        map_id.color.b = 1.0f;
-        map_id.pose.position.x = record[0] - easting_ref;
-        map_id.pose.position.y = record[1] - northing_ref;
-        map_id.pose.position.z = 1.0;
-        map_id.pose.orientation.w = 1.0;
-        label << "ID: " << l;
-        map_id.id = l;
-        map_id.text = label.str();
-        map_id.scale.z = 1.5;
-        
-        map_ids.markers.push_back(map_id);
+            map_aux.position.x = record[0];
+            map_aux.position.y = record[1];
+            map_aux.position.z = record[2];
+            map_aux.position.roll = 0.0;
+            map_aux.position.pitch = 0.0;
+            map_aux.position.yaw = 0.0;
+            map.push_back(map_aux);
+            
+            map_element.pose.position.x = record[0];
+            map_element.pose.position.y = record[1];
+            map_element.pose.position.z = record[2];
+            map_element.pose.orientation.x = 0.0;
+            map_element.pose.orientation.y = 0.0;
+            map_element.pose.orientation.z = 0.0;
+            map_element.pose.orientation.w = 1.0;
+            map_elements.poses.push_back(map_element.pose);
+            
+            std::stringstream label;
+            map_id.header.frame_id = "map";
+            map_id.ns = "map_id_display";
+            map_id.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
+            map_id.action = visualization_msgs::Marker::ADD;
+            map_id.color.a = 1.0;
+            map_id.color.r = 1.0f;
+            map_id.color.g = 1.0f;
+            map_id.color.b = 1.0f;
+            map_id.pose.position.x = record[0];
+            map_id.pose.position.y = record[1];
+            map_id.pose.position.z = record[2];
+            map_id.pose.orientation.w = 1.0;
+            label << "ID: " << l;
+            map_id.id = l;
+            map_id.text = label.str();
+            map_id.scale.z = 1.5;
+            
+            map_ids.markers.push_back(map_id);
         }
         l++;
     }
@@ -416,11 +422,14 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
 
     /* 2. Update with observations*/
     // Transform observations to Roll-Pitch-Yaw format
-    std::vector<pointcloud_clustering::observationRPY> observations = processPoseArray(verticalElements);;
+    std::vector<pointcloud_clustering::observationRPY> observations = processPoseArray(verticalElements);
     std::vector<pointcloud_clustering::observationRPY> observations_BL = processPoseArray(verticalElements_BL);
 
-    int obsSize = observations.size();
-    int M;
+    int obsSize = observations.size(); // Number of observations
+    ROS_DEBUG("Number of observations received: %d", obsSize);
+
+
+    int M; // Number of matches Observations - Vertical Elements in map
 
     // Initialize matrices for EKF observation model and data association
     // - h_ij: Vector to store innovation (residual) values for all observation-map pairs.
@@ -549,32 +558,36 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
             ROS_DEBUG("EKF Corrected Position >> Vertical Elements and matces are found: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]",
              positionCorrEKF.x, positionCorrEKF.y, positionCorrEKF.z, positionCorrEKF.roll, positionCorrEKF.pitch, positionCorrEKF.yaw);
         }
-        else 
+        else
+        {
             // vertical elements found but no matches
             positionCorrEKF = positionPredEKF;
             ROS_DEBUG("EKF Corrected Position >> Vertical elements found but No matches: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]",
              positionCorrEKF.x, positionCorrEKF.y, positionCorrEKF.z, positionCorrEKF.roll, positionCorrEKF.pitch, positionCorrEKF.yaw);
+        }
     }
     else
+    {
         // no vertical elements found
         positionCorrEKF = positionPredEKF;
         ROS_DEBUG("EKF Corrected Position >> No vertical elements found: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]",
                 positionCorrEKF.x, positionCorrEKF.y, positionCorrEKF.z, positionCorrEKF.roll, positionCorrEKF.pitch, positionCorrEKF.yaw);
+    }
 
     
     //TODO: This code is only used to represent the corrected pose in a ROS message with covariance >> This information should be returned by the service
     // Populate the corrected position to a corrected pose in a ROS message format
     // The ROS message has the covariance of each element of the corrected pose to show the uncertainity of the prediction
-    // poseCorrEKF.pose.pose.position.x = positionCorrEKF.x;
-    // poseCorrEKF.pose.pose.position.y = positionCorrEKF.y;
-    // poseCorrEKF.pose.pose.position.z = 0.0; //-------------> Ignored
-    // for(int i=0; i<6; i++)
-    // {
-    //     for(int j=0; j<6; j++)
-    //         poseCorrEKF.pose.covariance[i+j] = P(i, j);
-    // }
-    // poseCorrEKF.header.frame_id = "map";
-    // poseCorrEKF.header.stamp = ros::Time::now();
+    poseCorrEKF.pose.pose.position.x = positionCorrEKF.x;
+    poseCorrEKF.pose.pose.position.y = positionCorrEKF.y;
+    poseCorrEKF.pose.pose.position.z = 0.0; //-------------> Ignored
+    for(int i=0; i<6; i++)
+    {
+        for(int j=0; j<6; j++)
+            poseCorrEKF.pose.covariance[i+j] = P(i, j);
+    }
+    poseCorrEKF.header.frame_id = "map";
+    poseCorrEKF.header.stamp = ros::Time::now();
 
     /*
     Correct orientation of the predicted pose by the EKF
@@ -600,16 +613,16 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
           poseCorrEKF.pose.pose.orientation.z,
           poseCorrEKF.pose.pose.orientation.w);
 
-    ROS_DEBUG("Covariance matrix:");
-    for (int i = 0; i < 6; i++) {
-        ROS_DEBUG("[%f, %f, %f, %f, %f, %f]",
-                poseCorrEKF.pose.covariance[i * 6 + 0],
-                poseCorrEKF.pose.covariance[i * 6 + 1],
-                poseCorrEKF.pose.covariance[i * 6 + 2],
-                poseCorrEKF.pose.covariance[i * 6 + 3],
-                poseCorrEKF.pose.covariance[i * 6 + 4],
-                poseCorrEKF.pose.covariance[i * 6 + 5]);
-    }
+    // ROS_DEBUG("Covariance matrix:");
+    // for (int i = 0; i < 6; i++) {
+    //     ROS_DEBUG("[%f, %f, %f, %f, %f, %f]",
+    //             poseCorrEKF.pose.covariance[i * 6 + 0],
+    //             poseCorrEKF.pose.covariance[i * 6 + 1],
+    //             poseCorrEKF.pose.covariance[i * 6 + 2],
+    //             poseCorrEKF.pose.covariance[i * 6 + 3],
+    //             poseCorrEKF.pose.covariance[i * 6 + 4],
+    //             poseCorrEKF.pose.covariance[i * 6 + 5]);
+    // }
 
     transform_ekf.setOrigin(tf::Vector3(poseCorrEKF.pose.pose.position.x, poseCorrEKF.pose.pose.position.y, poseCorrEKF.pose.pose.position.z));
     transform_ekf.setRotation(quat_msg);

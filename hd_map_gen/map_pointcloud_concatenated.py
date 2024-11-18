@@ -39,7 +39,7 @@ from google.protobuf.json_format import MessageToJson
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 if not tf.executing_eagerly():
   tf.compat.v1.enable_eager_execution()
 
@@ -58,7 +58,7 @@ print(src_dir)
 ###############################################################################
 
 # Set up logging to both file and console
-log_file = src_dir + '/hd_map_gen/logs/waymo_hd_map_gen.log'
+log_file = src_dir + '/logs/waymo_hd_map_gen.log'
 
 # Create handlers
 file_handler = logging.FileHandler(log_file)
@@ -88,7 +88,7 @@ from waymo_utils.waymo_3d_parser import *
 
 def project_points_on_map(points, frame):
     """
-    Project coordinates of the point cloud (referenced to the sensor system) to the map (referenced to the vehicle system)
+    Project coordinates of the point cloud (referenced to the vehicle system) to the map (referenced to the global system)
     """
     # Get pointcloud coordinated to project in the map
     xyz = points[0]
@@ -98,12 +98,6 @@ def project_points_on_map(points, frame):
     xyz = np.concatenate([xyz, np.ones([num_points, 1])], axis=-1)
     transform = np.reshape(np.array(frame.pose.transform), [4, 4])
     xyz = np.transpose(np.matmul(transform, np.transpose(xyz)))[:, 0:3]
-
-    # Correct the pose of the points into the coordinate system of the first
-    # frame to align with the map data.
-    offset = frame.map_pose_offset
-    points_offset = np.array([offset.x, offset.y, offset.z])
-    xyz += points_offset
 
     return xyz
 
@@ -232,10 +226,10 @@ def save_protobuf_features(protobuf_message, output):
 
 
 if __name__ == "__main__":
-    dataset_path        = os.path.join(src_dir, "dataset/waymo_valid_scene")
+    dataset_path        = os.path.join(src_dir, "dataset/final_tests_scene")
     json_maps_path      = os.path.join(src_dir, "dataset/hd_maps")
     point_clouds_path   = os.path.join(src_dir, "dataset/pointclouds")
-    output_dataset_path = os.path.join(src_dir, "dataset/waymo_map_scene_mod")
+    output_dataset_path = os.path.join(src_dir, "dataset/final_output_scenes")
     output_csv_path     = os.path.join(src_dir, "pointcloud_clustering/map")
 
     tfrecord_list = list(sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
@@ -300,7 +294,7 @@ if __name__ == "__main__":
 
             # plot_pointcloud_on_map(map_features, points_return1, point_labels)
 
-            filtered_point_cloud, filtered_point_labels = filter_lidar_data(points_return1, point_labels, [8, 10])
+            filtered_point_cloud, filtered_point_labels = filter_lidar_data(points_return1, point_labels, [10])
 
             projected_point_cloud = project_points_on_map(filtered_point_cloud, frame)
 
@@ -332,6 +326,7 @@ if __name__ == "__main__":
         # Get the clustered pointclouds, each cluster corresponding to a traffic sign
         clustered_point_cloud, cluster_labels = cluster_pointcloud(point_clouds)
 
+
         ##############################################################
         ## Enrich Feature Map
         ##############################################################
@@ -349,9 +344,12 @@ if __name__ == "__main__":
         save_protobuf_features(map_features, json_file)
         logging.debug("Modified map saved as JSON")
 
+
+        ##############################################################
+        ## Save map in csv format
+        ##############################################################
         with open(json_file, 'r') as f:
             data = json.load(f)
-        # Open CSV file to write
         output_csv = output_csv_path + "/signs_map_features_" + os.path.splitext(os.path.basename(scene_path))[0] + '.csv'
         with open(output_csv, 'w', newline='') as csvfile:
             csv_writer = csv.writer(csvfile)
@@ -363,28 +361,30 @@ if __name__ == "__main__":
                     if 'lane' in stop_sign and stop_sign['lane'] == ["100"]:
                         # Extract x and y coordinates from position
                         position = stop_sign['position']
-                        csv_writer.writerow([position['x'], position['y']])
+                        csv_writer.writerow([position['x'], position['y'], position['z']])
 
-        ##############################################################
-        ## Generate a new tfrecord file
-        ##############################################################
-        output_filename = output_dataset_path + '/output' + os.path.basename(scene_path)
-        writer = tf.io.TFRecordWriter(output_filename)
-        for frame in load_frame(scene_path):
-            if hasattr(frame, 'map_features') and frame.map_features:
-                logging.debug("Removing current map features")
-                # Retrieve map_feature in the firts 
-                del frame.map_features[:]
 
-                # Append the new map_features object to the cleared list
-                logging.debug("Adding modified map features")
-                for feature in map_features:
-                    frame.map_features.append(feature)
-            serialized_frame = frame.SerializeToString()
-            writer.write(serialized_frame)
-            logging.info("Tfrecord saved...")
 
-        # Close the writer
-        writer.close()
+        # ##############################################################
+        # ## Generate a new tfrecord file
+        # ##############################################################
+        # output_filename = output_dataset_path + '/output' + os.path.basename(scene_path)
+        # writer = tf.io.TFRecordWriter(output_filename)
+        # for frame in load_frame(scene_path):
+        #     if hasattr(frame, 'map_features') and frame.map_features:
+        #         logging.debug("Removing current map features")
+        #         # Retrieve map_feature in the firts 
+        #         del frame.map_features[:]
 
-        # plot_pointcloud_on_map(map_features, point_clouds, cluster_labels)
+        #         # Append the new map_features object to the cleared list
+        #         logging.debug("Adding modified map features")
+        #         for feature in map_features:
+        #             frame.map_features.append(feature)
+        #     serialized_frame = frame.SerializeToString()
+        #     writer.write(serialized_frame)
+        #     logging.info("Tfrecord saved...")
+
+        # # Close the writer
+        # writer.close()
+
+        plot_pointcloud_on_map(map_features, point_clouds, cluster_labels)

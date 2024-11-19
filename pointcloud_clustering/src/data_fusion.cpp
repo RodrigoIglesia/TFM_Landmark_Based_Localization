@@ -85,8 +85,8 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     DataFusion Class constructor
     */
     ros::NodeHandle nh;
-    observation_pub_ = nh.advertise<sensor_msgs::PointCloud2>("observation", 1);
-    map_element_pub_ = nh.advertise<sensor_msgs::PointCloud2>("map_element", 1);
+    observation_pub_ = nh.advertise<pointcloud_clustering::observationRPY>("observation", 1);
+    map_element_pub_ = nh.advertise<pointcloud_clustering::observationRPY>("map_element", 1);
     readConfig(configFilePath);
 }
 
@@ -478,8 +478,8 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
 
                 // Jacobians
                 //TODO: Changed observations to global frame to match map coordinates > review
-                H_x_ij = B*J2_n(Inv(map[j].position), Comp(positionPredEKF, observations[i].position))*J1_n(positionPredEKF, observations[i].position);
-                H_z_ij = B*J2_n(Inv(map[j].position), Comp(positionPredEKF, observations[i].position))*J2_n(positionPredEKF, observations[i].position);
+                H_x_ij = B*J2_n(Inv(map[j].position), Comp(positionPredEKF, observations_BL[i].position))*J1_n(positionPredEKF, observations_BL[i].position);
+                H_z_ij = B*J2_n(Inv(map[j].position), Comp(positionPredEKF, observations_BL[i].position))*J2_n(positionPredEKF, observations_BL[i].position);
 
                 // Innovation covariance
                 S_ij = H_x_ij*P*H_x_ij.transpose() + H_z_ij*R*H_z_ij.transpose();

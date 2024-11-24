@@ -610,6 +610,16 @@ if __name__ == "__main__":
                     'corrected_x', 'corrected_y', 'corrected_z', 'corrected_roll', 'corrected_pitch', 'corrected_yaw'
                 ]
                 csv_writer.writerow(header)
+            #TODO: REMOVE > Save detected landmarks
+            landmark_csv_file_path = os.path.join(src_dir, f'results/landmarks_{scene_name}.csv')
+            with open(landmark_csv_file_path, 'w', newline='') as csvfile:
+                csv_writer = csv.writer(csvfile)
+                
+                # Write header once at the beginning
+                header = [
+                    'Landmark_X', 'Landmark_Y', 'Landmark_Z', 'Landmark_Roll', 'Landmark_Pitch', 'Landmark_Yaw'
+                ]
+                csv_writer.writerow(header)
 
             # Reset odometry cumulative error every scene
             #TODO Odometría simulada, en caso de tener odometría con error real > eliminar
@@ -725,6 +735,14 @@ if __name__ == "__main__":
                 header.frame_id = "base_link"
                 header.stamp = rospy.Time.now()
                 publish_multiple_poses_to_topic("landmark_poses", wc.clusters_poses, header)
+
+                #TODO: REMOVE > Save detected landmarks
+                with open(landmark_csv_file_path, 'a', newline='') as csvfile:
+                    csv_writer = csv.writer(csvfile)
+                    for label, landmark in wc.clusters_poses_global.items():
+                        row = landmark[0], landmark[1], landmark[2], landmark[3], landmark[4], landmark[5]
+                    csv_writer.writerow(row)
+                    rospy.loginfo(f"Frame {frame_n} data appended to CSV")
 
 
                 """

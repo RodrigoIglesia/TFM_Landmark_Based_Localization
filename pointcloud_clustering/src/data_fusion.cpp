@@ -1,6 +1,8 @@
 //  Created on: Jul 29, 2013
 //      Author: pdelapuente
 
+//TODO: Comprobar si las observaciones en el sistema de referencia del vehículo son necesitadas
+
 #include <ros/ros.h>
 #include <time.h>
 #include <math.h>
@@ -25,6 +27,12 @@
 #include <vector>
 #include <iostream>
 #include "custom_functions.h"
+
+using namespace Eigen;
+typedef Eigen::Matrix<float, 5, 5> Matrix5f;
+typedef Eigen::Matrix<float, 6, 6> Matrix6f;
+typedef Eigen::Matrix<float, 5, 1> Vector5f;
+typedef Eigen::Matrix<float, 6, 1> Vector6f;
 
 struct Config
 {
@@ -68,10 +76,8 @@ public:
 
 private:
     void readConfig(const std::string &filename);
-
     Config config_;
     std::string mapFilePath;
-    
     int mapSize;
 
     // Debug publishers -> publisher to debug processing results in RVIZ topics
@@ -379,17 +385,25 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
             int bestMatchIndex = -1;
 
             for (int j = 0; j < map.size(); j++) {
-                // Compute innovation
-                auto h_ij = B * RPY2Vec(Comp(Inv(map[j].position), 
-                                            Comp(positionPredEKF, observations_BL[i].position)));
+                // Compute innovation vector
+                // auto h_ij = B * RPY2Vec(Comp(Inv(map[j].position), 
+                //                             Comp(positionPredEKF, observations_BL[i].position)));
+                // // Compute Jacobians
+                // auto H_x_ij = B * J2_n(Inv(map[j].position), Comp(positionPredEKF, observations_BL[i].position)) * J1_n(positionPredEKF, observations_BL[i].position);
+                // auto H_z_ij = B * J2_n(Inv(map[j].position), 
+                //                     Comp(positionPredEKF, observations_BL[i].position)) 
+                //                 * J2_n(positionPredEKF, observations_BL[i].position);
+
+                // Compute the innovation vector > distance between the measured observation and the expected observation
+                // Observations >> Expressed in the global frame
+                // Map elements >> Expressed in the global frame
+                // Comp(Inv(map[j]), observation[i]) >> obtains the observation expressed in the reference system of the map element
+                // B * Comp(...) > obtains de distance
+                auto h_ij = B * RPY2Vec(Comp(Inv(map[j].position), observations[i].position));
 
                 // Compute Jacobians
-                auto H_x_ij = B * J2_n(Inv(map[j].position), 
-                                    Comp(positionPredEKF, observations_BL[i].position)) 
-                                * J1_n(positionPredEKF, observations_BL[i].position);
-                auto H_z_ij = B * J2_n(Inv(map[j].position), 
-                                    Comp(positionPredEKF, observations_BL[i].position)) 
-                                * J2_n(positionPredEKF, observations_BL[i].position);
+                auto H_x_ij = B * J2_n(Inv(map[j].position), observations[i].position) * J1_n(positionPredEKF, observations[i].position);
+                auto H_z_ij = B * J2_n(Inv(map[j].position), observations[i].position) * J2_n(positionPredEKF, observations[i].position);
 
                 // Innovation covariance
                 auto S_ij = H_x_ij * P * H_x_ij.transpose() + H_z_ij * R * H_z_ij.transpose();

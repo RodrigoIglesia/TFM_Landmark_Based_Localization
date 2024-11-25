@@ -432,6 +432,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
             res.corrected_position = positionCorrEKF;
         }
         else {
+            //TODO: Voy por aquí lo anterior está bien >> Encuentra MATCHING
             // Initialize matrices for correction
             int M = i_vec.size(); // Number of matches
             MatrixXf h_k(M * B.rows(), 1);
@@ -450,19 +451,29 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
                 int j = j_vec[m];
 
                 // Compute innovation
-                auto h_i = B * RPY2Vec(Comp(Inv(map[j].position), 
-                                            Comp(positionPredEKF, observations_BL[i].position)));
+                // auto h_i = B * RPY2Vec(Comp(Inv(map[j].position), 
+                //                             Comp(positionPredEKF, observations_BL[i].position)));
+                // h_k.block(m * B.rows(), 0, B.rows(), 1) = h_i;
+
+                // // Compute Jacobians
+                // auto H_x_i = B * J2_n(Inv(map[j].position), 
+                //                     Comp(positionPredEKF, observations_BL[i].position)) 
+                //                 * J1_n(positionPredEKF, observations_BL[i].position);
+                // H_x_k.block(m * B.rows(), 0, B.rows(), 6) = H_x_i;
+
+                // auto H_z_i = B * J2_n(Inv(map[j].position), 
+                //                     Comp(positionPredEKF, observations_BL[i].position)) 
+                //                 * J2_n(positionPredEKF, observations_BL[i].position);
+
+                auto h_i = B * RPY2Vec(Comp(Inv(map[j].position), observations[i].position));
                 h_k.block(m * B.rows(), 0, B.rows(), 1) = h_i;
 
                 // Compute Jacobians
-                auto H_x_i = B * J2_n(Inv(map[j].position), 
-                                    Comp(positionPredEKF, observations_BL[i].position)) 
-                                * J1_n(positionPredEKF, observations_BL[i].position);
+                auto H_x_i = B * J2_n(Inv(map[j].position), observations[i].position) * J1_n(positionPredEKF, observations[i].position);
                 H_x_k.block(m * B.rows(), 0, B.rows(), 6) = H_x_i;
 
-                auto H_z_i = B * J2_n(Inv(map[j].position), 
-                                    Comp(positionPredEKF, observations_BL[i].position)) 
-                                * J2_n(positionPredEKF, observations_BL[i].position);
+                auto H_z_i = B * J2_n(Inv(map[j].position), observations[i].position) * J2_n(positionPredEKF, observations[i].position);
+                
                 H_z_k.block(m * B.rows(), m * 6, B.rows(), 6) = H_z_i;
 
                 // Add observation noise

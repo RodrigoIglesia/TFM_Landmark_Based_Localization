@@ -111,7 +111,7 @@ class WaymoClient:
         return (angle + np.pi) % (2 * np.pi) - np.pi
 
 
-    def process_odometry(self, position_noise_std=0.01, orientation_noise_std=0.01):
+    def process_odometry(self, position_noise_std=0.1, orientation_noise_std=0.1):
         """
         Get incremental pose of the vehicle with cumulative noise.
         """

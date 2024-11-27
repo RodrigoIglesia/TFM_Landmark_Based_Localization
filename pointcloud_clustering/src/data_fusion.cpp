@@ -80,6 +80,17 @@ private:
     std::string mapFilePath;
     int mapSize;
 
+    // Member variables to store the state across service calls
+    pointcloud_clustering::positionRPY positionCorrEKF;
+    Matrix6f P;  // Covariance matrix
+    Matrix6f Q;  // Process noise covariance
+    Matrix6f R;  // Observation noise covariance
+    float PFactor;  // Factor for the covariance matrix scaling
+    float QFactor;  // Factor for the covariance matrix scaling
+    pointcloud_clustering::positionRPY sigma_odom;
+    pointcloud_clustering::positionRPY sigma_obs;
+    std::vector<pointcloud_clustering::observationRPY> map;
+
     // Debug publishers -> publisher to debug processing results in RVIZ topics
     ros::Publisher observation_pub_;
     ros::Publisher map_element_pub_;
@@ -96,6 +107,60 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     observation_pub_ = nh.advertise<pointcloud_clustering::observationRPY>("observation", 1);
     map_element_pub_ = nh.advertise<pointcloud_clustering::observationRPY>("map_element", 1);
     readConfig(configFilePath);
+
+    // Read map
+    std::vector<pointcloud_clustering::observationRPY> map;
+    map = loadMapFromCSV();
+    int mapSize = map.size();
+    ROS_DEBUG("EKF Loaded %d map elements", mapSize);
+
+    // Initial pose
+    positionCorrEKF.x = 0.0;
+    positionCorrEKF.y = 0.0;
+    positionCorrEKF.z = 0.0;
+    positionCorrEKF.roll = 0.0;
+    positionCorrEKF.pitch = 0.0;
+    positionCorrEKF.yaw = 0.0;
+
+
+    P(0,0) = config_.P00_init;
+    P(1,1) = config_.P11_init;
+    P(2,2) = config_.P22_init;
+    P(3,3) = config_.P33_init;
+    P(4,4) = config_.P44_init;
+    P(5,5) = config_.P55_init;
+    PFactor = config_.PFactor;
+    P = P*PFactor;
+
+    sigma_obs.x = config_.sigma_obs_x;
+    sigma_obs.y = config_.sigma_obs_y;
+    sigma_obs.z = config_.sigma_obs_z;
+    sigma_obs.roll = config_.sigma_obs_roll;
+    sigma_obs.pitch = config_.sigma_obs_pitch;
+    sigma_obs.yaw = config_.sigma_obs_yaw;
+    R(0, 0) = sigma_obs.x*sigma_obs.x;
+    R(1, 1) = sigma_obs.y*sigma_obs.y;
+    R(2, 2) = sigma_obs.z*sigma_obs.z;
+    R(3, 3) = sigma_obs.roll*sigma_obs.roll;
+    R(4, 4) = sigma_obs.pitch*sigma_obs.pitch;
+    R(5, 5) = sigma_obs.yaw*sigma_obs.yaw;
+
+
+    sigma_odom.x = config_.sigma_odom_x;
+    sigma_odom.y = config_.sigma_odom_y;
+    sigma_odom.z = config_.sigma_odom_z;
+    sigma_odom.roll = config_.sigma_odom_roll;
+    sigma_odom.pitch = config_.sigma_odom_pitch;
+    sigma_odom.yaw = config_.sigma_odom_yaw;
+    Q(0, 0) = sigma_odom.x*sigma_odom.x;
+    Q(1, 1) = sigma_odom.y*sigma_odom.y;
+    Q(2, 2) = sigma_odom.z*sigma_odom.z;
+    Q(3, 3) = sigma_odom.roll*sigma_odom.roll;
+    Q(4, 4) = sigma_odom.pitch*sigma_odom.pitch;
+    Q(5, 5) = sigma_odom.yaw*sigma_odom.yaw;
+
+    QFactor = config_.QFactor;
+    Q = Q*QFactor;
 }
 
 void DataFusion::readConfig(const std::string &filename)
@@ -250,11 +315,16 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     /* Service Input values*/
     // Odometry input
     pointcloud_clustering::positionRPY incOdomEKF;
-    incOdomEKF = req.odometry; // Vehicle odometry pose
-    ROS_INFO("EKF Incremental odometry received: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %f]", 
+    // Vehicle odometry pose
+    incOdomEKF.x = req.odometry.x;
+    incOdomEKF.y = req.odometry.y;
+    incOdomEKF.z = req.odometry.z;
+    incOdomEKF.roll = req.odometry.roll;
+    incOdomEKF.pitch = req.odometry.pitch;
+    incOdomEKF.yaw = req.odometry.yaw;
+    ROS_INFO("EKF Incremental odometry received: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]", 
          incOdomEKF.x, incOdomEKF.y, incOdomEKF.z, 
-         incOdomEKF.roll, incOdomEKF.pitch, incOdomEKF.yaw, 
-         incOdomEKF.stamp.toSec());
+         incOdomEKF.roll, incOdomEKF.pitch, incOdomEKF.yaw);
 
     // Observations input
     geometry_msgs::PoseArray verticalElements;
@@ -265,80 +335,18 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     std::vector<pointcloud_clustering::observationRPY> observations = processPoseArray(verticalElements);
     std::vector<pointcloud_clustering::observationRPY> observations_BL = processPoseArray(verticalElements_BL);
 
-    // Rad map
-    std::vector<pointcloud_clustering::observationRPY> map;
-    map = loadMapFromCSV();
-    int mapSize = map.size();
-    ROS_DEBUG("EKF Loaded %d map elements", mapSize);
-
-    /* EKF initialization*/
-    // Initial pose
-    pointcloud_clustering::positionRPY positionCorrEKF;
-    positionCorrEKF.x = 0.0;
-    positionCorrEKF.y = 0.0;
-    positionCorrEKF.z = 0.0;
-    positionCorrEKF.roll = 0.0;
-    positionCorrEKF.pitch = 0.0;
-    positionCorrEKF.yaw = 0.0;
-    pointcloud_clustering::positionRPY positionPredEKF = positionCorrEKF;
-
-
 
     // Initialize B matrix
-    Matrix <float, 4, 6> B; // Binding matrix for EKF
+    Matrix <float, 6, 6> B; // Binding matrix for EKF
     B << 1, 0, 0, 0, 0, 0, // x
     0, 1, 0, 0, 0, 0, // y
+    0, 0, 1, 0, 0, 0, // z
     0, 0, 0, 1, 0, 0, // roll
-    0, 0, 0, 0, 1, 0; // pitch
+    0, 0, 0, 0, 1, 0, // pitch
+    0, 0, 0, 0, 0, 1; // yaw
 
     int B_rows = B.rows();
 
-    // Initialize P, R and Q matrix
-    Matrix6f P = P.Zero(); // Kalman covariance matrix
-    float PFactor;
-    P(0,0) = config_.P00_init;
-    P(1,1) = config_.P11_init;
-    P(2,2) = config_.P22_init;
-    P(3,3) = config_.P33_init;
-    P(4,4) = config_.P44_init;
-    P(5,5) = config_.P55_init;
-    PFactor = config_.PFactor;
-    P = P*PFactor;
-
-    Matrix6f R = R.Zero(); // Observation covariance matrix -> sigma_obs
-    pointcloud_clustering::positionRPY sigma_obs;
-    sigma_obs.x = config_.sigma_obs_x;
-    sigma_obs.y = config_.sigma_obs_y;
-    sigma_obs.z = config_.sigma_obs_z;
-    sigma_obs.roll = config_.sigma_obs_roll;
-    sigma_obs.pitch = config_.sigma_obs_pitch;
-    sigma_obs.yaw = config_.sigma_obs_yaw;
-    R(0, 0) = sigma_obs.x*sigma_obs.x;
-    R(1, 1) = sigma_obs.y*sigma_obs.y;
-    R(2, 2) = sigma_obs.z*sigma_obs.z;
-    R(3, 3) = sigma_obs.roll*sigma_obs.roll;
-    R(4, 4) = sigma_obs.pitch*sigma_obs.pitch;
-    R(5, 5) = sigma_obs.yaw*sigma_obs.yaw;
-
-    Matrix6f Q = Q.Zero(); // Odometry covariance matrix -> sigma_odom
-    pointcloud_clustering::positionRPY sigma_odom;
-
-    sigma_odom.x = config_.sigma_odom_x;
-    sigma_odom.y = config_.sigma_odom_y;
-    sigma_odom.z = config_.sigma_odom_z;
-    sigma_odom.roll = config_.sigma_odom_roll;
-    sigma_odom.pitch = config_.sigma_odom_pitch;
-    sigma_odom.yaw = config_.sigma_odom_yaw;
-    Q(0, 0) = sigma_odom.x*sigma_odom.x;
-    Q(1, 1) = sigma_odom.y*sigma_odom.y;
-    Q(2, 2) = sigma_odom.z*sigma_odom.z;
-    Q(3, 3) = sigma_odom.roll*sigma_odom.roll;
-    Q(4, 4) = sigma_odom.pitch*sigma_odom.pitch;
-    Q(5, 5) = sigma_odom.yaw*sigma_odom.yaw;
-
-    float QFactor;
-    QFactor = config_.QFactor;
-    Q = Q*QFactor;
 
     // Initialize Mahalanobis distance threshold for matching step
     float mahalanobisDistanceThreshold;
@@ -348,7 +356,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     /* MAIN PROCESS*/
     ///////////////////////////////////////////////////////
     /* 1. Pose Prediction*/
-    positionPredEKF = Comp(positionCorrEKF, incOdomEKF);
+    pointcloud_clustering::positionRPY positionPredEKF = Comp(positionCorrEKF, incOdomEKF);
     ROS_DEBUG("EKF Pose Predicted: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]", 
          positionPredEKF.x, positionPredEKF.y, positionPredEKF.z, 
          positionPredEKF.roll, positionPredEKF.pitch, positionPredEKF.yaw);
@@ -370,7 +378,8 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     positionCorrEKF = positionPredEKF;
     Matrix6f updatedP = P;
 
-    if (observations.empty()) {
+    // if (observations.empty()) {
+    if(true){
         ROS_DEBUG("EKF No observations received. Skipping update.");
         // Set the response
         res.corrected_position = positionCorrEKF;
@@ -435,6 +444,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
             //TODO: Voy por aquí lo anterior está bien >> Encuentra MATCHING
             // Initialize matrices for correction
             int M = i_vec.size(); // Number of matches
+            ROS_DEBUG("EKF Matches found: %d", M);
             MatrixXf h_k(M * B.rows(), 1);
             MatrixXf H_x_k(M * B.rows(), 6);
             MatrixXf H_z_k(M * B.rows(), M * 6);

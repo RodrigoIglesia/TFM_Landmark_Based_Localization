@@ -122,10 +122,11 @@ class WaymoClient:
         # Initialize the initial frame as the origin if not already done
         if self.initial_transform_matrix is None:
             self.initial_transform_matrix = self.transform_matrix
-        
-        # Compute the relative pose: relative_pose = initial_transform_matrix^-1 * transform_matrix
-        relative_transform = np.linalg.inv(self.initial_transform_matrix) @ self.transform_matrix
-        self.relative_pose = self._get_pose(relative_transform)
+            self.relative_pose = [0, 0, 0, 0, 0, 0]  # Explicitly set the first pose
+        else:
+            # Compute the relative pose: relative_pose = initial_transform_matrix^-1 * transform_matrix
+            relative_transform = np.linalg.inv(self.initial_transform_matrix) @ self.transform_matrix
+            self.relative_pose = self._get_pose(relative_transform)
         rospy.loginfo(f"Vehicle relative (real) pose: {self.relative_pose}")
         self.relative_path.append(self.relative_pose)
 
@@ -314,6 +315,10 @@ class WaymoClient:
         """
         rospy.logdebug("Getting associations...")
 
+        # Reset clusters iou each time process is called
+        self.clustered_pointcloud_iou = {}
+        self.clustered_pointcloud_iou_vehicle_frame = {}
+
         # Convert processed image to grayscale
         processed_image = cv2.cvtColor(self.processed_image, cv2.COLOR_RGB2GRAY)
         segmentation_contours, _ = cv2.findContours(processed_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -360,6 +365,9 @@ class WaymoClient:
         """
         This method computes the [x,y,z, roll, pitch, yaw] coordinates of a clustered pointcloud
         """
+        # Reset clusters poses dict each time process is called
+        self.clusters_poses = {}
+        self.clusters_poses_global = {}
         for label, pointcloud in self.clustered_pointcloud_iou_vehicle_frame.items():
             centroid = w3d.get_cluster_centroid(pointcloud)
             orientation = w3d.get_cluster_orientation(pointcloud)
@@ -419,8 +427,8 @@ class WaymoClient:
         
         # Populate the request with incremental odometry pose
         self.odometry_pose_msg.x        = self.odometry_pose[0]
-        self.odometry_pose_msg.z        = self.odometry_pose[1]
-        self.odometry_pose_msg.y        = self.odometry_pose[2]
+        self.odometry_pose_msg.y        = self.odometry_pose[1]
+        self.odometry_pose_msg.z        = self.odometry_pose[2]
         self.odometry_pose_msg.roll     = self.odometry_pose[3]
         self.odometry_pose_msg.pitch    = self.odometry_pose[4]
         self.odometry_pose_msg.yaw      = self.odometry_pose[5]
@@ -754,7 +762,7 @@ if __name__ == "__main__":
                 wc.process_EKF()
 
                 if wc.corrected_pose is None:
-                    rospy.logerr("Not EKF correction received")
+                    rospy.logerr("No EKF correction received")
                     continue
 
                 corrected_pose = wc.corrected_pose

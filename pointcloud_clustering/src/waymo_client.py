@@ -8,7 +8,13 @@ Is in charge of parsing several data from waymo open dataset and send it to diff
 - Data association > Associates pointcloud clustering and image analysis information to get a real representation of the landmarks
 - Data fusion > sends to the data fusion process Odometry pose and Landmark poses > receives the corrected pose of the vehicle
 
+Every element is represented in the vehicle frame
 """
+
+#TODO: Corregir como estoy pasando la pose odométrica
+# Estaba pasando las poses incrementales desde 0, tengo que pasar los incrementos desde el estado anterior
+# Tengo que calcular también la acumulada desde 0 para plotearla
+# IMPORTANTE: Estoy usando las representaciones de los landmarks en el vehicle frame, en ningún momento global frame
 import os
 import sys
 import numpy as np
@@ -58,7 +64,8 @@ class WaymoClient:
         self.clustered_pointcloud_iou = {} # Dictionary class:cluster for image projected pointclouds matched with segmentation masks
         self.clustered_pointcloud_iou_vehicle_frame = {} # Dictionary class:cluster for vehicle frame cluster pointclouds matched with segmentation masks
         self.clusters_poses = {} # Dictionary label:pose of landmarks in vehicle frame
-        self.clusters_poses_global = {} # Dictionary label:pose of landmarks in global frame
+        #FIXME: Remove
+        # self.clusters_poses_global = {} # Dictionary label:pose of landmarks in global frame
         self.init_camera_params()
         self.image = None # Original Image
         self.processed_image = None # Returned segmentation mask by the landmark detection service
@@ -71,10 +78,12 @@ class WaymoClient:
         self.odometry_path = []
         self.relative_path = []
         self.odometry_pose = []
+        self.odometry_cummulative_pose = np.zeros(6)
         self.corrected_pose = []
         self.corrected_path = []
         self.odometry_pose_msg = positionRPY()
-        self.landmark_poses_msg = PoseArray()
+        #FIXME: Remove
+        # self.landmark_poses_msg = PoseArray()
         self.landmark_poses_msg_BL = PoseArray()
         self.initial_transform_matrix = None
         self.transform_matrix = None
@@ -150,8 +159,11 @@ class WaymoClient:
 
         # Actualizar la odometría con los valores ruidosos acumulativos
         self.odometry_pose = noisy_position + noisy_orientation
+        self.odometry_cummulative_pose += self.odometry_pose
         rospy.loginfo(f"Vehicle odometry Pose (with cumulative noise): {self.odometry_pose}")
-        self.odometry_path.append(self.odometry_pose)
+        self.odometry_path.append(self.odometry_cummulative_pose)
+
+        self.initial_transform_matrix = self.transform_matrix # Update transform matrix to compute incremental odometry pose from last pose
 
 
     def init_camera_params(self):
@@ -365,9 +377,11 @@ class WaymoClient:
         """
         This method computes the [x,y,z, roll, pitch, yaw] coordinates of a clustered pointcloud
         """
+        #FIXME: Estoy calculando la pose de los landmark en global usando la pose real del vehículo > Esto no es correcto, solo puedo pasar las poses en coordenadas del vehículo
         # Reset clusters poses dict each time process is called
         self.clusters_poses = {}
-        self.clusters_poses_global = {}
+        #FIXME: Remove
+        # self.clusters_poses_global = {}
         for label, pointcloud in self.clustered_pointcloud_iou_vehicle_frame.items():
             centroid = w3d.get_cluster_centroid(pointcloud)
             orientation = w3d.get_cluster_orientation(pointcloud)
@@ -380,42 +394,43 @@ class WaymoClient:
             landmark_pose = [centroid[0], centroid[1], centroid[2], roll, pitch, yaw]
             self.clusters_poses[label] = landmark_pose
 
-            # Get pose in global frame
-            # Convert the centroid to homogeneous coordinates
-            landmark_pose_hom = np.hstack((landmark_pose[:3], [1]))
-            landmark_global_hom = np.dot(self.transform_matrix, landmark_pose_hom)
-            landmark_global = landmark_global_hom[:3]
+            #FIXME: Remove commented files
+            # # Get pose in global frame
+            # # Convert the centroid to homogeneous coordinates
+            # landmark_pose_hom = np.hstack((landmark_pose[:3], [1]))
+            # landmark_global_hom = np.dot(self.transform_matrix, landmark_pose_hom)
+            # landmark_global = landmark_global_hom[:3]
 
-            # Rotation
-            R_x = np.array([[1, 0, 0],
-                    [0, np.cos(orientation[0]), -np.sin(orientation[0])],
-                    [0, np.sin(orientation[0]), np.cos(orientation[0])]])
+            # # Rotation
+            # R_x = np.array([[1, 0, 0],
+            #         [0, np.cos(orientation[0]), -np.sin(orientation[0])],
+            #         [0, np.sin(orientation[0]), np.cos(orientation[0])]])
 
-            R_y = np.array([[np.cos(orientation[1]), 0, np.sin(orientation[1])],
-                            [0, 1, 0],
-                            [-np.sin(orientation[1]), 0, np.cos(orientation[1])]])
+            # R_y = np.array([[np.cos(orientation[1]), 0, np.sin(orientation[1])],
+            #                 [0, 1, 0],
+            #                 [-np.sin(orientation[1]), 0, np.cos(orientation[1])]])
             
-            R_z = np.array([[np.cos(orientation[2]), -np.sin(orientation[2]), 0],
-                            [np.sin(orientation[2]), np.cos(orientation[2]), 0],
-                            [0, 0, 1]])
+            # R_z = np.array([[np.cos(orientation[2]), -np.sin(orientation[2]), 0],
+            #                 [np.sin(orientation[2]), np.cos(orientation[2]), 0],
+            #                 [0, 0, 1]])
             
-            landmark_rotation_matrix = np.dot(R_z, np.dot(R_y, R_x))
-            # Transform the orientation using the rotation matrix
-            global_rotation_matrix = np.dot(self.transform_matrix[:3,:3], landmark_rotation_matrix)
+            # landmark_rotation_matrix = np.dot(R_z, np.dot(R_y, R_x))
+            # # Transform the orientation using the rotation matrix
+            # global_rotation_matrix = np.dot(self.transform_matrix[:3,:3], landmark_rotation_matrix)
 
-            # Convert the global rotation matrix back to euler angles
-            sy = math.sqrt(global_rotation_matrix[0, 0] ** 2 + global_rotation_matrix[1, 0] ** 2)
-            singular = sy < 1e-6
-            if not singular:
-                global_roll = math.atan2(global_rotation_matrix[2, 1], global_rotation_matrix[2, 2])
-                global_pitch = math.atan2(-global_rotation_matrix[2, 0], sy)
-                global_yaw = math.atan2(global_rotation_matrix[1, 0], global_rotation_matrix[0, 0])
-            else:
-                global_roll = math.atan2(-global_rotation_matrix[1, 2], global_rotation_matrix[1, 1])
-                global_pitch = math.atan2(-global_rotation_matrix[2, 0], sy)
-                global_yaw = 0
+            # # Convert the global rotation matrix back to euler angles
+            # sy = math.sqrt(global_rotation_matrix[0, 0] ** 2 + global_rotation_matrix[1, 0] ** 2)
+            # singular = sy < 1e-6
+            # if not singular:
+            #     global_roll = math.atan2(global_rotation_matrix[2, 1], global_rotation_matrix[2, 2])
+            #     global_pitch = math.atan2(-global_rotation_matrix[2, 0], sy)
+            #     global_yaw = math.atan2(global_rotation_matrix[1, 0], global_rotation_matrix[0, 0])
+            # else:
+            #     global_roll = math.atan2(-global_rotation_matrix[1, 2], global_rotation_matrix[1, 1])
+            #     global_pitch = math.atan2(-global_rotation_matrix[2, 0], sy)
+            #     global_yaw = 0
 
-            self.clusters_poses_global[label] = [landmark_global[0],landmark_global[1],landmark_global[2], global_roll, global_pitch, global_yaw]
+            # self.clusters_poses_global[label] = [landmark_global[0],landmark_global[1],landmark_global[2], global_roll, global_pitch, global_yaw]
 
 
     def process_EKF(self):
@@ -438,20 +453,21 @@ class WaymoClient:
         rospy.loginfo(f"Waymo Client Incremental odometry sent: [{self.odometry_pose[0]}, {self.odometry_pose[1]}, {self.odometry_pose[2]}, {self.odometry_pose[3]}, {self.odometry_pose[4]}, {self.odometry_pose[5]}, {rospy.Time.now()}]")
         rospy.loginfo(f"Waymo Client Incremental odometry sent in message: [{self.odometry_pose_msg.x}, {self.odometry_pose_msg.y}, {self.odometry_pose_msg.z}, {self.odometry_pose_msg.roll}, {self.odometry_pose_msg.pitch}, {self.odometry_pose_msg.yaw}, {self.odometry_pose_msg.stamp}]")
 
-        # Populate the request with landmark poses in global frame
-        for label, pose in self.clusters_poses_global.items():
-            landmark_pose = PoseStamped()
-            landmark_pose.pose.position.x = pose[0]
-            landmark_pose.pose.position.y = pose[1]
-            landmark_pose.pose.position.z = pose[2]
-            quaternion = R.from_euler('xyz', pose[3:]).as_quat()
-            landmark_pose.pose.orientation.x = quaternion[0]
-            landmark_pose.pose.orientation.y = quaternion[1]
-            landmark_pose.pose.orientation.z = quaternion[2]
-            landmark_pose.pose.orientation.w = quaternion[3]
-            self.landmark_poses_msg.poses.append(landmark_pose.pose)
+        #FIXME: Remove
+        # # Populate the request with landmark poses in global frame
+        # for label, pose in self.clusters_poses_global.items():
+        #     landmark_pose = PoseStamped()
+        #     landmark_pose.pose.position.x = pose[0]
+        #     landmark_pose.pose.position.y = pose[1]
+        #     landmark_pose.pose.position.z = pose[2]
+        #     quaternion = R.from_euler('xyz', pose[3:]).as_quat()
+        #     landmark_pose.pose.orientation.x = quaternion[0]
+        #     landmark_pose.pose.orientation.y = quaternion[1]
+        #     landmark_pose.pose.orientation.z = quaternion[2]
+        #     landmark_pose.pose.orientation.w = quaternion[3]
+        #     self.landmark_poses_msg.poses.append(landmark_pose.pose)
 
-        ekf_request.verticalElements = self.landmark_poses_msg
+        # ekf_request.verticalElements = self.landmark_poses_msg
 
         # Populate the request with landmark poses in Base Line frame
         for label, pose in self.clusters_poses.items():
@@ -459,12 +475,12 @@ class WaymoClient:
             landmark_pose_BL.pose.position.x = pose[0]
             landmark_pose_BL.pose.position.y = pose[1]
             landmark_pose_BL.pose.position.z = pose[2]
-            rnion = R.from_euler('xyz', pose[3:]).as_quat()
+            quaternion = R.from_euler('xyz', pose[3:]).as_quat()
             landmark_pose_BL.pose.orientation.x = quaternion[0]
             landmark_pose_BL.pose.orientation.y = quaternion[1]
             landmark_pose_BL.pose.orientation.z = quaternion[2]
             landmark_pose_BL.pose.orientation.w = quaternion[3]
-            self.landmark_poses_msg_BL.poses.append(landmark_pose.pose)
+            self.landmark_poses_msg_BL.poses.append(landmark_pose_BL.pose)
 
         ekf_request.verticalElements_BL = self.landmark_poses_msg_BL
 
@@ -485,6 +501,7 @@ class WaymoClient:
                 position_rpy.pitch, 
                 position_rpy.yaw
             ]
+            
             rospy.loginfo(f"Corrected EKF Pose: {self.corrected_pose}")
 
             # Add the corrected pose to a path array
@@ -674,7 +691,8 @@ if __name__ == "__main__":
 
                 # Obtain odometry increment (in frame 0 will be 0)
                 wc.process_odometry()
-                relative_pose = np.array(wc.odometry_pose)
+                #TODO: REMOVE
+                relative_pose = np.array(wc.odometry_cummulative_pose)
 
                 # DEBUG -> send incremental odometry to publish in RVIZ
                 text = f"Frame: ({frame_n})\n" \
@@ -738,18 +756,18 @@ if __name__ == "__main__":
                 # Get cluster landmarks pose
                 wc.calculate_landmark_pose()
 
-                # DEBUG - Publish landmark poses in vehicle and global frame
+                # DEBUG - Publish landmark poses in vehicle frame
                 header = Header()
                 header.frame_id = "base_link"
                 header.stamp = rospy.Time.now()
                 publish_multiple_poses_to_topic("landmark_poses", wc.clusters_poses, header)
 
-                #TODO: REMOVE > Save detected landmarks
+                #TODO: REMOVE > Save detected landmarks in global frame
                 with open(landmark_csv_file_path, 'a', newline='') as csvfile:
                     csv_writer = csv.writer(csvfile)
-                    for label, landmark in wc.clusters_poses_global.items():
+                    for label, landmark in wc.clusters_poses.items():
                         row = landmark[0], landmark[1], landmark[2], landmark[3], landmark[4], landmark[5]
-                    csv_writer.writerow(row)
+                        csv_writer.writerow(row)
                     rospy.loginfo(f"Frame {frame_n} data appended to CSV")
 
 
@@ -757,8 +775,8 @@ if __name__ == "__main__":
                 DATA FUSION > CORRECT ODOMETRY POSITION WITH LANDMARK OBSERVATIONS
                 """
                 rospy.logdebug("Data Fusion processing service")
-                wc.landmark_poses_msg.header.frame_id = f"base_link_{scene_name}"
-                wc.landmark_poses_msg.header.stamp = rospy.Time.now()
+                # wc.landmark_poses_msg.header.frame_id = f"base_link_{scene_name}"
+                # wc.landmark_poses_msg.header.stamp = rospy.Time.now()
                 wc.process_EKF()
 
                 if wc.corrected_pose is None:

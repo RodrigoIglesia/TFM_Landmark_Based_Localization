@@ -2,6 +2,9 @@
 //      Author: pdelapuente
 
 //TODO: Comprobar si las observaciones en el sistema de referencia del vehículo son necesitadas
+//TODO: Cambiar observations por observations_BL y hacer transformaciones a global frame
+//TODO: De momento el EKF frame es referenciado a 0,0,0 como pose inicial del vehículo
+//TODO: comprobar que los incrementos de odometría recibidos son respecto a la pose anterior, no respecto a la primera pose, si son respecto a la primera pose ya es la pose referenciada del frame del EKF
 
 #include <ros/ros.h>
 #include <time.h>
@@ -36,6 +39,12 @@ typedef Eigen::Matrix<float, 6, 1> Vector6f;
 
 struct Config
 {
+    float x_init;
+    float y_init;
+    float z_init;
+    float roll_init;
+    float pitch_init;
+    float yaw_init;
     float sigma_odom_x;
     float sigma_odom_y;
     float sigma_odom_z;
@@ -74,7 +83,7 @@ private:
     int mapSize;
 
     // Member variables to store the state across service calls
-    pointcloud_clustering::positionRPY positionCorrEKF;
+    pointcloud_clustering::positionRPY kalmanPose; // Kalman corrected pose
     Matrix6f P;  // Covariance matrix
     Matrix6f Q;  // Process noise covariance
     Matrix6f R;  // Observation noise covariance
@@ -108,22 +117,26 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     ROS_DEBUG("EKF Loaded %d map elements", mapSize);
 
     // Initial pose
-    positionCorrEKF.x = 0.0;
-    positionCorrEKF.y = 0.0;
-    positionCorrEKF.z = 0.0;
-    positionCorrEKF.roll = 0.0;
-    positionCorrEKF.pitch = 0.0;
-    positionCorrEKF.yaw = 0.0;
+    kalmanPose.x = config_.x_init;
+    kalmanPose.y = config_.y_init;
+    kalmanPose.z = config_.z_init;
+    kalmanPose.roll = config_.roll_init;
+    kalmanPose.pitch = config_.pitch_init;
+    kalmanPose.yaw = config_.yaw_init;
 
 
+    P = P.Zero();
     P(0,0) = config_.P00_init;
     P(1,1) = config_.P11_init;
     P(2,2) = config_.P22_init;
     P(3,3) = config_.P33_init;
     P(4,4) = config_.P44_init;
     P(5,5) = config_.P55_init;
-    PFactor = config_.PFactor;
-    P = P*PFactor;
+    // PFactor = config_.PFactor;
+    // P = P*PFactor;
+
+    std::cout << "Initial P: " << std::endl;
+    std::cout << P << std::endl;
 
     sigma_obs.x = config_.sigma_obs_x;
     sigma_obs.y = config_.sigma_obs_y;
@@ -131,12 +144,16 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     sigma_obs.roll = config_.sigma_obs_roll;
     sigma_obs.pitch = config_.sigma_obs_pitch;
     sigma_obs.yaw = config_.sigma_obs_yaw;
-    R(0, 0) = sigma_obs.x*sigma_obs.x;
-    R(1, 1) = sigma_obs.y*sigma_obs.y;
-    R(2, 2) = sigma_obs.z*sigma_obs.z;
-    R(3, 3) = sigma_obs.roll*sigma_obs.roll;
-    R(4, 4) = sigma_obs.pitch*sigma_obs.pitch;
-    R(5, 5) = sigma_obs.yaw*sigma_obs.yaw;
+    R = R.Zero();
+    R(0, 0) = std::pow(sigma_obs.x, 2);
+    R(1, 1) = std::pow(sigma_obs.y, 2);
+    R(2, 2) = std::pow(sigma_obs.z, 2);
+    R(3, 3) = std::pow(sigma_obs.roll, 2);
+    R(4, 4) = std::pow(sigma_obs.pitch, 2);
+    R(5, 5) = std::pow(sigma_obs.yaw, 2);
+
+    std::cout << "Initial R: " << std::endl;
+    std::cout << R << std::endl;
 
 
     sigma_odom.x = config_.sigma_odom_x;
@@ -145,15 +162,19 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     sigma_odom.roll = config_.sigma_odom_roll;
     sigma_odom.pitch = config_.sigma_odom_pitch;
     sigma_odom.yaw = config_.sigma_odom_yaw;
-    Q(0, 0) = sigma_odom.x*sigma_odom.x;
-    Q(1, 1) = sigma_odom.y*sigma_odom.y;
-    Q(2, 2) = sigma_odom.z*sigma_odom.z;
-    Q(3, 3) = sigma_odom.roll*sigma_odom.roll;
-    Q(4, 4) = sigma_odom.pitch*sigma_odom.pitch;
-    Q(5, 5) = sigma_odom.yaw*sigma_odom.yaw;
+    Q = Q.Zero();
+    Q(0, 0) = std::pow(sigma_odom.x, 2);
+    Q(1, 1) = std::pow(sigma_odom.y, 2);
+    Q(2, 2) = std::pow(sigma_odom.z, 2);
+    Q(3, 3) = std::pow(sigma_odom.roll, 2);
+    Q(4, 4) = std::pow(sigma_odom.pitch, 2);
+    Q(5, 5) = std::pow(sigma_odom.yaw, 2);
 
-    QFactor = config_.QFactor;
-    Q = Q*QFactor;
+    // QFactor = config_.QFactor;
+    // Q = Q*QFactor;
+
+    std::cout << "Initial Q: " << std::endl;
+    std::cout << Q << std::endl;
 }
 
 void DataFusion::readConfig(const std::string &filename)
@@ -161,6 +182,12 @@ void DataFusion::readConfig(const std::string &filename)
     namespace po = boost::program_options;
     po::options_description config("Configuration");
     config.add_options()
+        ("data_fusion.x_init", po::value<float>(&config_.x_init)->default_value(0.0), "Initial Global X")
+        ("data_fusion.y_init", po::value<float>(&config_.y_init)->default_value(0.0), "Initial Global Y")
+        ("data_fusion.z_init", po::value<float>(&config_.z_init)->default_value(0.0), "Initial Global Z")
+        ("data_fusion.roll_init", po::value<float>(&config_.roll_init)->default_value(0.0), "Initial Global Roll")
+        ("data_fusion.pitch_init", po::value<float>(&config_.pitch_init)->default_value(0.0), "Initial Global Pitch")
+        ("data_fusion.yaw_init", po::value<float>(&config_.yaw_init)->default_value(0.0), "Initial Global Yaw")
         ("data_fusion.sigma_odom_x", po::value<float>(&config_.sigma_odom_x)->default_value(0.0), "Odometry sigma X")
         ("data_fusion.sigma_odom_y", po::value<float>(&config_.sigma_odom_y)->default_value(0.0), "Odometry sigma Y")
         ("data_fusion.sigma_odom_z", po::value<float>(&config_.sigma_odom_z)->default_value(0.0), "Odometry sigma Z")
@@ -313,13 +340,16 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
          incOdomEKF.x, incOdomEKF.y, incOdomEKF.z, 
          incOdomEKF.roll, incOdomEKF.pitch, incOdomEKF.yaw);
 
+    ROS_INFO("EKF Previous pose: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]", 
+         kalmanPose.x, kalmanPose.y, kalmanPose.z, 
+         kalmanPose.roll, kalmanPose.pitch, kalmanPose.yaw);
+
     // Observations input
     geometry_msgs::PoseArray verticalElements;
     geometry_msgs::PoseArray verticalElements_BL;
     verticalElements = req.verticalElements; // Detected vertical elements in global frame
     verticalElements_BL = req.verticalElements_BL; // Detected vertical elements in vehicle frame
     // Transform observations to Roll-Pitch-Yaw format
-    std::vector<pointcloud_clustering::observationRPY> observations = processPoseArray(verticalElements);
     std::vector<pointcloud_clustering::observationRPY> observations_BL = processPoseArray(verticalElements_BL);
 
 
@@ -342,15 +372,15 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     /* MAIN PROCESS*/
     ///////////////////////////////////////////////////////
     /* 1. Pose Prediction*/
-    pointcloud_clustering::positionRPY positionPredEKF = Comp(positionCorrEKF, incOdomEKF);
-    ROS_DEBUG("EKF Pose Predicted: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]", 
-         positionPredEKF.x, positionPredEKF.y, positionPredEKF.z, 
-         positionPredEKF.roll, positionPredEKF.pitch, positionPredEKF.yaw);
+    kalmanPose = Comp(kalmanPose, incOdomEKF);
+    ROS_INFO("EKF Pose Predicted: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]", 
+         kalmanPose.x, kalmanPose.y, kalmanPose.z, 
+         kalmanPose.roll, kalmanPose.pitch, kalmanPose.yaw);
 
     // Position covariance matrix update
     Matrix6f Fx, Fu;
-    Fx = J1_n(positionCorrEKF, positionPredEKF);
-    Fu = J2_n(positionCorrEKF, positionPredEKF);
+    Fx = J1_n(kalmanPose, incOdomEKF);
+    Fu = J2_n(kalmanPose, incOdomEKF);
 
     // State coveriance
     P = Fx*P*Fx.transpose() + Fu*Q*Fu.transpose();
@@ -361,153 +391,145 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     ROS_DEBUG("EKF Number of observations received: %d", obsSize);
 
     bool matched = false;
-    positionCorrEKF = positionPredEKF;
     Matrix6f updatedP = P;
 
-    //TODO: Debug REMOVE
-    std::cout << "P:" << std::endl;
-    std::cout << P << std::endl;
+    if (observations.empty()) {
+        ROS_DEBUG("EKF No observations received. Skipping update.");
 
-    // Set the response
-    res.corrected_position = positionCorrEKF;
+        std::cout << "P:" << std::endl;
+        std::cout << P << std::endl;
 
-    // if (observations.empty()) {
-    //     ROS_DEBUG("EKF No observations received. Skipping update.");
+        // Set the response
+        res.corrected_position = kalmanPose;
+    }
+    else {
+        ROS_DEBUG("EKF OBSERVATIONS FOUND >> MATCHING....");
+        std::vector<int> i_vec; // Indices of matched observations
+        std::vector<int> j_vec; // Indices of matched map elements
+        // Data association: Match observations with map elements
+        for (int i = 0; i < observations.size(); i++) {
+            float minMahalanobis = mahalanobisDistanceThreshold;
+            int bestMatchIndex = -1;
 
-    //     std::cout << "P:" << std::endl;
-    //     std::cout << P << std::endl;
+            for (int j = 0; j < map.size(); j++) {
+                // Compute innovation vector
+                // auto h_ij = B * RPY2Vec(Comp(Inv(map[j].position), 
+                //                             Comp(positionPredEKF, observations_BL[i].position)));
+                // // Compute Jacobians
+                // auto H_x_ij = B * J2_n(Inv(map[j].position), Comp(positionPredEKF, observations_BL[i].position)) * J1_n(positionPredEKF, observations_BL[i].position);
+                // auto H_z_ij = B * J2_n(Inv(map[j].position), 
+                //                     Comp(positionPredEKF, observations_BL[i].position)) 
+                //                 * J2_n(positionPredEKF, observations_BL[i].position);
 
-    //     // Set the response
-    //     res.corrected_position = positionCorrEKF;
-    // }
-    // else {
-    //     ROS_DEBUG("EKF OBSERVATIONS FOUND >> MATCHING....");
-    //     std::vector<int> i_vec; // Indices of matched observations
-    //     std::vector<int> j_vec; // Indices of matched map elements
-    //     // Data association: Match observations with map elements
-    //     for (int i = 0; i < observations.size(); i++) {
-    //         float minMahalanobis = mahalanobisDistanceThreshold;
-    //         int bestMatchIndex = -1;
+                // Compute the innovation vector > distance between the measured observation and the expected observation
+                // Observations >> Expressed in the global frame
+                // Map elements >> Expressed in the global frame
+                // Comp(Inv(map[j]), observation[i]) >> obtains the observation expressed in the reference system of the map element
+                // B * Comp(...) > obtains de distance
+                auto h_ij = B * RPY2Vec(Comp(Inv(map[j].position), observations[i].position));
 
-    //         for (int j = 0; j < map.size(); j++) {
-    //             // Compute innovation vector
-    //             // auto h_ij = B * RPY2Vec(Comp(Inv(map[j].position), 
-    //             //                             Comp(positionPredEKF, observations_BL[i].position)));
-    //             // // Compute Jacobians
-    //             // auto H_x_ij = B * J2_n(Inv(map[j].position), Comp(positionPredEKF, observations_BL[i].position)) * J1_n(positionPredEKF, observations_BL[i].position);
-    //             // auto H_z_ij = B * J2_n(Inv(map[j].position), 
-    //             //                     Comp(positionPredEKF, observations_BL[i].position)) 
-    //             //                 * J2_n(positionPredEKF, observations_BL[i].position);
+                // Compute Jacobians
+                auto H_x_ij = B * J2_n(Inv(map[j].position), observations[i].position) * J1_n(kalmanPose, observations[i].position);
+                auto H_z_ij = B * J2_n(Inv(map[j].position), observations[i].position) * J2_n(kalmanPose, observations[i].position);
 
-    //             // Compute the innovation vector > distance between the measured observation and the expected observation
-    //             // Observations >> Expressed in the global frame
-    //             // Map elements >> Expressed in the global frame
-    //             // Comp(Inv(map[j]), observation[i]) >> obtains the observation expressed in the reference system of the map element
-    //             // B * Comp(...) > obtains de distance
-    //             auto h_ij = B * RPY2Vec(Comp(Inv(map[j].position), observations[i].position));
+                // Innovation covariance
+                auto S_ij = H_x_ij * P * H_x_ij.transpose() + H_z_ij * R * H_z_ij.transpose();
 
-    //             // Compute Jacobians
-    //             auto H_x_ij = B * J2_n(Inv(map[j].position), observations[i].position) * J1_n(positionPredEKF, observations[i].position);
-    //             auto H_z_ij = B * J2_n(Inv(map[j].position), observations[i].position) * J2_n(positionPredEKF, observations[i].position);
+                // Compute Mahalanobis distance
+                float distance = sqrt(mahalanobisDistance(h_ij, S_ij));
+                // ROS_DEBUG("EKF Distance between %d observation and %d map element = %f", i, j, distance);
+                if (distance < minMahalanobis) {
+                    minMahalanobis = distance;
+                    bestMatchIndex = j;
+                }
+            }
 
-    //             // Innovation covariance
-    //             auto S_ij = H_x_ij * P * H_x_ij.transpose() + H_z_ij * R * H_z_ij.transpose();
+            // Register match if found
+            if (bestMatchIndex != -1) {
+                matched = true;
+                i_vec.push_back(i);
+                j_vec.push_back(bestMatchIndex);
+            }
+        }
 
-    //             // Compute Mahalanobis distance
-    //             float distance = sqrt(mahalanobisDistance(h_ij, S_ij));
-    //             // ROS_DEBUG("EKF Distance between %d observation and %d map element = %f", i, j, distance);
-    //             if (distance < minMahalanobis) {
-    //                 minMahalanobis = distance;
-    //                 bestMatchIndex = j;
-    //             }
-    //         }
+        // If no matches were found, skip update
+        if (!matched) {
+            ROS_DEBUG("EKF No matches found. Using predicted state.");
+            // Set the response
+            res.corrected_position = kalmanPose;
+        }
+        else {
+            //TODO: Voy por aquí lo anterior está bien >> Encuentra MATCHING
+            // Initialize matrices for correction
+            int M = i_vec.size(); // Number of matches
+            ROS_DEBUG("EKF Matches found: %d", M);
+            MatrixXf h_k(M * B.rows(), 1);
+            MatrixXf H_x_k(M * B.rows(), 6);
+            MatrixXf H_z_k(M * B.rows(), M * 6);
+            MatrixXf R_k(M * 6, M * 6);
 
-    //         // Register match if found
-    //         if (bestMatchIndex != -1) {
-    //             matched = true;
-    //             i_vec.push_back(i);
-    //             j_vec.push_back(bestMatchIndex);
-    //         }
-    //     }
+            h_k.setZero();
+            H_x_k.setZero();
+            H_z_k.setZero();
+            R_k.setZero();
 
-    //     // If no matches were found, skip update
-    //     if (!matched) {
-    //         ROS_DEBUG("EKF No matches found. Using predicted state.");
-    //         // Set the response
-    //         res.corrected_position = positionCorrEKF;
-    //     }
-    //     else {
-    //         //TODO: Voy por aquí lo anterior está bien >> Encuentra MATCHING
-    //         // Initialize matrices for correction
-    //         int M = i_vec.size(); // Number of matches
-    //         ROS_DEBUG("EKF Matches found: %d", M);
-    //         MatrixXf h_k(M * B.rows(), 1);
-    //         MatrixXf H_x_k(M * B.rows(), 6);
-    //         MatrixXf H_z_k(M * B.rows(), M * 6);
-    //         MatrixXf R_k(M * 6, M * 6);
+            // Populate matrices based on matches
+            for (int m = 0; m < M; m++) {
+                int i = i_vec[m];
+                int j = j_vec[m];
 
-    //         h_k.setZero();
-    //         H_x_k.setZero();
-    //         H_z_k.setZero();
-    //         R_k.setZero();
+                // Compute innovation
+                // auto h_i = B * RPY2Vec(Comp(Inv(map[j].position), 
+                //                             Comp(positionPredEKF, observations_BL[i].position)));
+                // h_k.block(m * B.rows(), 0, B.rows(), 1) = h_i;
 
-    //         // Populate matrices based on matches
-    //         for (int m = 0; m < M; m++) {
-    //             int i = i_vec[m];
-    //             int j = j_vec[m];
+                // // Compute Jacobians
+                // auto H_x_i = B * J2_n(Inv(map[j].position), 
+                //                     Comp(positionPredEKF, observations_BL[i].position)) 
+                //                 * J1_n(positionPredEKF, observations_BL[i].position);
+                // H_x_k.block(m * B.rows(), 0, B.rows(), 6) = H_x_i;
 
-    //             // Compute innovation
-    //             // auto h_i = B * RPY2Vec(Comp(Inv(map[j].position), 
-    //             //                             Comp(positionPredEKF, observations_BL[i].position)));
-    //             // h_k.block(m * B.rows(), 0, B.rows(), 1) = h_i;
+                // auto H_z_i = B * J2_n(Inv(map[j].position), 
+                //                     Comp(positionPredEKF, observations_BL[i].position)) 
+                //                 * J2_n(positionPredEKF, observations_BL[i].position);
 
-    //             // // Compute Jacobians
-    //             // auto H_x_i = B * J2_n(Inv(map[j].position), 
-    //             //                     Comp(positionPredEKF, observations_BL[i].position)) 
-    //             //                 * J1_n(positionPredEKF, observations_BL[i].position);
-    //             // H_x_k.block(m * B.rows(), 0, B.rows(), 6) = H_x_i;
+                auto h_i = B * RPY2Vec(Comp(Inv(map[j].position), observations[i].position));
+                h_k.block(m * B.rows(), 0, B.rows(), 1) = h_i;
 
-    //             // auto H_z_i = B * J2_n(Inv(map[j].position), 
-    //             //                     Comp(positionPredEKF, observations_BL[i].position)) 
-    //             //                 * J2_n(positionPredEKF, observations_BL[i].position);
+                // Compute Jacobians
+                auto H_x_i = B * J2_n(Inv(map[j].position), observations[i].position) * J1_n(kalmanPose, observations[i].position);
+                H_x_k.block(m * B.rows(), 0, B.rows(), 6) = H_x_i;
 
-    //             auto h_i = B * RPY2Vec(Comp(Inv(map[j].position), observations[i].position));
-    //             h_k.block(m * B.rows(), 0, B.rows(), 1) = h_i;
-
-    //             // Compute Jacobians
-    //             auto H_x_i = B * J2_n(Inv(map[j].position), observations[i].position) * J1_n(positionPredEKF, observations[i].position);
-    //             H_x_k.block(m * B.rows(), 0, B.rows(), 6) = H_x_i;
-
-    //             auto H_z_i = B * J2_n(Inv(map[j].position), observations[i].position) * J2_n(positionPredEKF, observations[i].position);
+                auto H_z_i = B * J2_n(Inv(map[j].position), observations[i].position) * J2_n(kalmanPose, observations[i].position);
                 
-    //             H_z_k.block(m * B.rows(), m * 6, B.rows(), 6) = H_z_i;
+                H_z_k.block(m * B.rows(), m * 6, B.rows(), 6) = H_z_i;
 
-    //             // Add observation noise
-    //             R_k.block(m * 6, m * 6, 6, 6) = R;
-    //         }
+                // Add observation noise
+                R_k.block(m * 6, m * 6, 6, 6) = R;
+            }
 
-    //         // Compute innovation covariance
-    //         auto S_k = H_x_k * P * H_x_k.transpose() + H_z_k * R_k * H_z_k.transpose();
+            // Compute innovation covariance
+            auto S_k = H_x_k * P * H_x_k.transpose() + H_z_k * R_k * H_z_k.transpose();
 
-    //         // Compute Kalman gain
-    //         auto W = P * H_x_k.transpose() * S_k.inverse();
+            // Compute Kalman gain
+            auto W = P * H_x_k.transpose() * S_k.inverse();
 
-    //         // Update state
-    //         positionCorrEKF = vec2RPY(RPY2Vec(positionPredEKF) - W * h_k);
+            // Update state
+            kalmanPose = vec2RPY(RPY2Vec(kalmanPose) - W * h_k);
 
-    //         // Update covariance
-    //         updatedP = (Matrix6f::Identity() - W * H_x_k) * P;
+            // Update covariance
+            updatedP = (Matrix6f::Identity() - W * H_x_k) * P;
 
-    //         ROS_DEBUG("EKF Corrected Position: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]",
-    //                 positionCorrEKF.x, positionCorrEKF.y, positionCorrEKF.z,
-    //                 positionCorrEKF.roll, positionCorrEKF.pitch, positionCorrEKF.yaw);
+            ROS_DEBUG("EKF Corrected Position: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]",
+                    kalmanPose.x, kalmanPose.y, kalmanPose.z,
+                    kalmanPose.roll, kalmanPose.pitch, kalmanPose.yaw);
 
-    //         P = updatedP;
+            P = updatedP;
 
-    //         // Set the response
-    //         res.corrected_position = positionCorrEKF;
-    //     }
-    // }
+            // Set the response
+            res.corrected_position = kalmanPose;
+        }
+    }
 
     return true;
 }

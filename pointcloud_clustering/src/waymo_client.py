@@ -72,20 +72,19 @@ class WaymoClient:
         self.image_height = None
         self.image_width = None
         # Positioning
-        self.position_noise_cumulative = [0, 0, 0]
-        self.orientation_noise_cumulative = [0, 0, 0]
         self.relative_pose = []
+        self.odometry_pose = []
+        self.corrected_pose = []
+        self.relative_cummulative_pose = np.zeros(6)
+        self.odometry_cummulative_pose = np.zeros(6)
         self.odometry_path = []
         self.relative_path = []
-        self.odometry_pose = []
-        self.odometry_cummulative_pose = np.zeros(6)
-        self.corrected_pose = []
         self.corrected_path = []
         self.odometry_pose_msg = positionRPY()
         #FIXME: Remove
         # self.landmark_poses_msg = PoseArray()
         self.landmark_poses_msg_BL = PoseArray()
-        self.initial_transform_matrix = None
+        self.previous_transform_matrix = None
         self.transform_matrix = None
 
         rospy.loginfo("Waiting for server processes...")
@@ -118,52 +117,84 @@ class WaymoClient:
     def _normalize_angle(self, angle):
         """ Normalize the angle to be within the range [-π, π] """
         return (angle + np.pi) % (2 * np.pi) - np.pi
+    
 
 
-    def process_odometry(self, position_noise_std=0.1, orientation_noise_std=0.1):
+    def _accumulate_pose(self,cumulative_pose, increment):
         """
-        Get incremental pose of the vehicle with cumulative noise.
-        """
+        Acumula una nueva pose relativa sobre una pose acumulada existente.
 
+        Args:
+            cumulative_pose (list): Pose acumulada [x, y, z, roll, pitch, yaw].
+            increment (list): Incremento relativo [Δx, Δy, Δz, Δroll, Δpitch, Δyaw].
+
+        Returns:
+            list: Nueva pose acumulada [x, y, z, roll, pitch, yaw].
+        """
+        cumulative_position = np.array(cumulative_pose[:3])  # [x, y, z]
+        cumulative_orientation = np.array(cumulative_pose[3:])  # [roll, pitch, yaw]
+
+        increment_position = np.array(increment[:3])  # [Δx, Δy, Δz]
+        increment_orientation = np.array(increment[3:])  # [Δroll, Δpitch, Δyaw]
+        rotation_matrix = R.from_euler('xyz', cumulative_orientation).as_matrix()
+
+        global_position_delta = rotation_matrix @ increment_position
+        new_position = cumulative_position + global_position_delta
+        new_orientation = cumulative_orientation + increment_orientation
+
+        new_orientation = self._normalize_angle(new_orientation)
+        new_cumulative_pose = np.concatenate((new_position, new_orientation))
+
+        return new_cumulative_pose
+
+
+
+    def process_odometry(self, position_noise_std=0.01, orientation_noise_std=0.01):
+        """
+        Get incremental pose of the vehicle with cumulative Gaussian noise.
+        """
         # Extract the transform matrix for the current frame
         self.transform_matrix = np.array(self.frame.pose.transform).reshape(4, 4)
         
         # Initialize the initial frame as the origin if not already done
-        if self.initial_transform_matrix is None:
-            self.initial_transform_matrix = self.transform_matrix
+        if self.previous_transform_matrix is None:
+            rospy.logdebug("Initial frame pose")
             self.relative_pose = [0, 0, 0, 0, 0, 0]  # Explicitly set the first pose
+            self.odometry_pose = np.array(self.relative_pose)  # Initialize the noisy pose
         else:
-            # Compute the relative pose: relative_pose = initial_transform_matrix^-1 * transform_matrix
-            relative_transform = np.linalg.inv(self.initial_transform_matrix) @ self.transform_matrix
+            # Compute the relative pose to the previous pose
+            relative_transform = np.linalg.inv(self.previous_transform_matrix) @ self.transform_matrix
             self.relative_pose = self._get_pose(relative_transform)
-        rospy.loginfo(f"Vehicle relative (real) pose: {self.relative_pose}")
-        self.relative_path.append(self.relative_pose)
 
-        # Generar ruido gaussiano y acumularlo en las variables de ruido acumulado
-        self.position_noise_cumulative = [
-            self.position_noise_cumulative[i] + np.random.normal(0, position_noise_std)
-            for i in range(3)
-        ]
-        self.orientation_noise_cumulative = [
-            self.orientation_noise_cumulative[i] + np.random.normal(0, orientation_noise_std)
-            for i in range(3)
-        ]
+            print("REMOVEEE Relative pose ", self.relative_pose)
 
-        # Añadir el ruido acumulado a la pose relativa para obtener la odometría con ruido
-        noisy_position = [
-            self.relative_pose[i] + self.position_noise_cumulative[i] for i in range(3)
-        ]
-        noisy_orientation = [
-            self.relative_pose[i+3] + self.orientation_noise_cumulative[i] for i in range(3)
-        ]
+            # Add Gaussian noise to the relative pose
+            # Generar ruido gaussiano y acumularlo en las variables de ruido acumulado
+            position_noise = np.random.normal(0, position_noise_std, 3)
+            orientation_noise = np.random.normal(0, orientation_noise_std, 3)
 
-        # Actualizar la odometría con los valores ruidosos acumulativos
-        self.odometry_pose = noisy_position + noisy_orientation
-        self.odometry_cummulative_pose += self.odometry_pose
-        rospy.loginfo(f"Vehicle odometry Pose (with cumulative noise): {self.odometry_pose}")
-        self.odometry_path.append(self.odometry_cummulative_pose)
+            # Añadir el ruido acumulado a la pose relativa para obtener la odometría con ruido
+            noisy_position = [
+                self.relative_pose[i] + position_noise[i] for i in range(3)
+            ]
+            noisy_orientation = [
+                self.relative_pose[i+3] + orientation_noise[i] for i in range(3)
+            ]
 
-        self.initial_transform_matrix = self.transform_matrix # Update transform matrix to compute incremental odometry pose from last pose
+            self.odometry_pose = noisy_position + noisy_orientation
+            print("REMOVEEE Odometry pose ", self.odometry_pose)
+
+        # Accumulate the odometry and real pose to get the pose relative to the origin
+        self.relative_cummulative_pose = self._accumulate_pose(self.relative_cummulative_pose, self.relative_pose)
+        self.odometry_cummulative_pose = self._accumulate_pose(self.odometry_cummulative_pose, self.odometry_pose)
+
+        rospy.loginfo(f"Vehicle relative (real) pose: {self.relative_cummulative_pose}")
+        rospy.loginfo(f"Vehicle odometry pose: {self.odometry_cummulative_pose}")
+
+        # Add poses to generate a path
+        self.relative_path.append(self.relative_cummulative_pose.tolist())
+        self.odometry_path.append(self.odometry_cummulative_pose.tolist())
+        self.previous_transform_matrix = self.transform_matrix  # Update for the next iteration
 
 
     def init_camera_params(self):
@@ -171,7 +202,7 @@ class WaymoClient:
         self.intrinsic_matrix = [[camera_intrinsic[0], 0, camera_intrinsic[2]],
                             [0, camera_intrinsic[1], camera_intrinsic[3]],
                             [0, 0, 1]]
-        distortion = np.array([camera_intrinsic[4], camera_intrinsic[5], camera_intrinsic[6], camera_intrinsic[7], camera_intrinsic[8]])
+        distortion = np.array([camera_intrinsic[4], camera_intrinsic[5], camera_intrinsic[6], camera_intrinsic[7], camera_intrinsic[8]]) #TODO: Adjust projections using the distortion parameters
 
         self.extrinsic_matrix = np.array((self.frame.context.camera_calibrations[0].extrinsic.transform), dtype=np.float32).reshape(4, 4)
         rotation = self.extrinsic_matrix[:3, :3]
@@ -394,7 +425,7 @@ class WaymoClient:
             landmark_pose = [centroid[0], centroid[1], centroid[2], roll, pitch, yaw]
             self.clusters_poses[label] = landmark_pose
 
-            #FIXME: Remove commented files
+            #FIXME: Remove commented lines
             # # Get pose in global frame
             # # Convert the centroid to homogeneous coordinates
             # landmark_pose_hom = np.hstack((landmark_pose[:3], [1]))
@@ -692,7 +723,7 @@ if __name__ == "__main__":
                 # Obtain odometry increment (in frame 0 will be 0)
                 wc.process_odometry()
                 #TODO: REMOVE
-                relative_pose = np.array(wc.odometry_cummulative_pose)
+                relative_pose = np.array(wc.relative_cummulative_pose)
 
                 # DEBUG -> send incremental odometry to publish in RVIZ
                 text = f"Frame: ({frame_n})\n" \
@@ -702,6 +733,16 @@ if __name__ == "__main__":
                 header.frame_id = "base_link"
                 header.stamp = rospy.Time.now()
                 publish_incremental_pose_to_topic("vehicle_pose", relative_pose, text, header)
+                odometry_pose = np.array(wc.odometry_cummulative_pose)
+
+                # DEBUG -> send incremental odometry to publish in RVIZ
+                text = f"Frame: ({frame_n})\n" \
+                                    f"Pos: ({odometry_pose[0]:.2f}, {odometry_pose[1]:.2f}, {odometry_pose[2]:.2f})\n" \
+                                    f"Orientation: ({odometry_pose[3]:.2f}, {odometry_pose[4]:.2f}, {odometry_pose[5]:.2f})"
+                header = Header()
+                header.frame_id = "base_link"
+                header.stamp = rospy.Time.now()
+                publish_incremental_pose_to_topic("vehicle_odometry_pose", odometry_pose, text, header)
                 
                 # DEBUG -> Publish vehicle path
                 vehicle_path = np.array(wc.odometry_path)
@@ -801,7 +842,7 @@ if __name__ == "__main__":
                 # Append pose data for the current frame to CSV
                 with open(csv_file_path, 'a', newline='') as csvfile:
                     csv_writer = csv.writer(csvfile)
-                    row = [frame_n] + wc.relative_pose + wc.odometry_pose + corrected_pose
+                    row = [frame_n] + wc.relative_cummulative_pose + wc.odometry_cummulative_pose + corrected_pose
                     csv_writer.writerow(row)
                     rospy.loginfo(f"Frame {frame_n} data appended to CSV")
 

@@ -7,88 +7,84 @@
 
 
 /*----------------------------------------------------------------------------------------------*/
+pointcloud_clustering::positionRPY Comp(pointcloud_clustering::positionRPY accumulated_pose, pointcloud_clustering::positionRPY increment) {
+    Matrix4f actualMatrix = createHomogMatr(accumulated_pose);
+    Matrix4f incrementMatrix = createHomogMatr(increment);
 
-pointcloud_clustering::positionRPY Comp(pointcloud_clustering::positionRPY position1, pointcloud_clustering::positionRPY position2){ // Composition of two positions: T_ac = T_ab ⊕ T_bc
-  Matrix4f T_ab = createHomogMatr(position1);
-  Matrix4f T_bc = createHomogMatr(position2);
-  
-  return(coordRPY(T_ab*T_bc)); 
+    // Multiply the matrices to accumulate the pose
+    Matrix4f resultMatrix = actualMatrix * incrementMatrix;
+
+    // Convert the result back to pose
+    return(coordRPY(resultMatrix));
 }
-
 /*----------------------------------------------------------------------------------------------*/
 
 Matrix4f createHomogMatr(pointcloud_clustering::positionRPY position){ // Homogeneous matrix (4x4) of a position given as x, y, z, roll, pitch, yaw 
-  Matrix4f result = result.Identity();  
-    
-  float x = position.x;
-  float y = position.y;
-  float z = position.z;
-  float alpha = position.roll;
-  float phi   = position.pitch;
-  float theta = position.yaw;
-  
-  Matrix4f Rx = Rx.Identity();
-  Matrix4f Ry = Ry.Identity();
-  Matrix4f Rz = Rz.Identity();
-  
-  Rx(1,1) = cos(alpha);  Rx(1,2) = -sin(alpha);
-  Rx(2,1) = sin(alpha);  Rx(2,2) =  cos(alpha);
-  
-  Ry(0,0) =  cos(phi);   Ry(0,2) = sin(phi);
-  Ry(2,0) = -sin(phi);   Ry(2,2) = cos(phi);
-  
-  Rz(0,0) = cos(theta);  Rz(1,0) = -sin(theta);
-  Rz(0,1) = sin(theta);  Rz(1,1) =  cos(theta);
+    Matrix4f transform = Matrix4f::Identity();
+      
+    float x = position.x;
+    float y = position.y;
+    float z = position.z;
+    float roll = position.roll;
+    float pitch   = position.pitch;
+    float yaw = position.yaw;
 
-  result = Rx*Ry*Rz;
-  
-  result(0,3) = x;
-  result(1,3) = y;
-  result(2,3) = z;
-  
-  return result;
+    // Rotation matrices
+    Eigen::Matrix3f Rx, Ry, Rz;
+
+    // Rotation around X-axis (roll)
+    Rx << 1, 0, 0,
+          0, cos(roll), -sin(roll),
+          0, sin(roll), cos(roll);
+
+    // Rotation around Y-axis (pitch)
+    Ry << cos(pitch), 0, sin(pitch),
+          0, 1, 0,
+          -sin(pitch), 0, cos(pitch);
+
+    // Rotation around Z-axis (yaw)
+    Rz << cos(yaw), -sin(yaw), 0,
+          sin(yaw), cos(yaw), 0,
+          0, 0, 1;
+
+    // Combined rotation matrix
+    Eigen::Matrix3f R = Rz * Ry * Rx;
+
+    // Assign rotation to the transformation matrix
+    transform.block<3, 3>(0, 0) = R;
+
+    // Assign translation to the transformation matrix
+    transform(0, 3) = x;
+    transform(1, 3) = y;
+    transform(2, 3) = z;
+
+    return transform;
 }
 
-/*----------------------------------------------------------------------------------------------*/
-
-Matrix4f createHomogMatrInv(pointcloud_clustering::positionRPY position){ // Inverse homogeneous matrix (4x4) of a position given as x, y, z, roll, pitch, yaw
-  Matrix4f result = result.Zero();  
-
-  float r = position.roll;
-  float p = position.pitch;
-  float y = position.yaw;
-
-  result(0,0) = cos(r)*cos(p);                                  result(0,1) = sin(r)*cos(p);                              result(0,2) = -sin(p);
-  result(1,0) = -sin(r)*cos(y) + cos(r)*sin(p)*sin(y);          result(1,1) = cos(r)*cos(y) + sin(r)*sin(p)*sin(y);       result(1,2) = cos(p)*sin(y);
-  result(2,0) = sin(r)*sin(y) + cos(r)*sin(p)*cos(y);           result(2,1) = -cos(r)*sin(y) + sin(r)*sin(p)*cos(y);      result(2,2) = cos(p)*cos(y);
-  result(3,0) = 0.0;                                            result(3,1) = 0.0;                                        result(3,2) = 0.0; 
-  
-  result(0,3) = -position.x*cos(r)*cos(p)-position.y*sin(r)*cos(p)+position.z*sin(p);
-  result(1,3) = position.x*(sin(r)*cos(y)-cos(r)*sin(p)*sin(y))-position.y*(cos(r)*cos(y)+sin(p)*sin(r)*sin(y))-position.z*cos(p)*sin(y);
-  result(2,3) = -position.x*(sin(r)*sin(y)+cos(r)*sin(p)*cos(y))+position.y*(cos(r)*sin(y)-sin(p)*sin(r)*cos(y))-position.z*cos(p)*cos(y);
-  result(3,3) = 1.0;
-
-  return result;
-}
 
 /*----------------------------------------------------------------------------------------------*/
+pointcloud_clustering::positionRPY coordRPY(Eigen::Matrix4f matrix) {
+    pointcloud_clustering::positionRPY pose;
+    // Extract translation
+    pose.x = matrix(0, 3);
+    pose.y = matrix(1, 3);
+    pose.z = matrix(2, 3);
 
-pointcloud_clustering::positionRPY coordRPY(Matrix4f homogMatr){ // Position x, y, z, roll, pitch, yaw of an homogeneus matrix (4x4)
-  pointcloud_clustering::positionRPY result;
+    // Extract rotation
+    double sy = sqrt(matrix(0, 0) * matrix(0, 0) + matrix(1, 0) * matrix(1, 0));
 
-  result.x = homogMatr(0,3);
-  result.y = homogMatr(1,3);
-  result.z = homogMatr(2,3);
-  
-  float nx = homogMatr(0,0); float ox = homogMatr(0,1); float ax = homogMatr(0,2);
-  float ny = homogMatr(1,0); float oy = homogMatr(1,1); float ay = homogMatr(1,2);
-  float nz = homogMatr(2,0); float oz = homogMatr(2,1); float az = homogMatr(2,2);
-  
-  result.roll = atan2(-ay, az);
-  result.pitch = atan2(ax, -ay*sin(result.roll) + az*cos(result.roll));
-  result.yaw = -atan2(ny*cos(result.roll) + nz*sin(result.roll), oy*cos(result.roll) + oz*sin(result.roll));
-    
-  return result;
+    bool singular = sy < 1e-6; // Near-zero determinant check
+
+    if (!singular) {
+        pose.roll = atan2(matrix(2, 1), matrix(2, 2));
+        pose.pitch = atan2(-matrix(2, 0), sy);
+        pose.yaw = atan2(matrix(1, 0), matrix(0, 0));
+    } else {
+        pose.roll = atan2(-matrix(1, 2), matrix(1, 1));
+        pose.pitch = atan2(-matrix(2, 0), sy);
+        pose.yaw = 0;
+    }
+    return pose;
 }
 
 /*----------------------------------------------------------------------------------------------*/
@@ -187,9 +183,9 @@ Vector6f computeInnovation(pointcloud_clustering::positionRPY kalman_pos, pointc
 /*----------------------------------------------------------------------------------------------*/
 
 pointcloud_clustering::positionRPY Inv(pointcloud_clustering::positionRPY position){ // Same of createHomogMatrInv?
-  Matrix4f H = createHomogMatr(position);
-  
-  return(coordRPY(H.inverse()));
+    Matrix4f H = createHomogMatr(position);
+    Matrix4f H_inv = H.inverse(); // Explicitly assign the inverse
+    return coordRPY(H_inv);       // Pass the result to coordRPY
 }
 
 /*----------------------------------------------------------------------------------------------*/

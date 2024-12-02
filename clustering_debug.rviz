@@ -4,18 +4,8 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
-        - /Global Options1
-        - /Status1
-        - /Grid1
-        - /PointCloud21
-        - /Marker1
-        - /Odometry2
         - /Odometry2/Shape1
-        - /Path1
-        - /Path2
-        - /Marker2
-        - /Marker3
-        - /Path3
+        - /Marker4
       Splitter Ratio: 0.5
     Tree Height: 301
   - Class: rviz/Selection
@@ -71,7 +61,7 @@ Visualization Manager:
       Channel Name: intensity
       Class: rviz/PointCloud2
       Color: 255; 0; 0
-      Color Transformer: RGB8
+      Color Transformer: Intensity
       Decay Time: 0
       Enabled: true
       Invert Rainbow: false
@@ -82,9 +72,9 @@ Visualization Manager:
       Queue Size: 10
       Selectable: true
       Size (Pixels): 3
-      Size (m): 0.05000000074505806
+      Size (m): 0.029999999329447746
       Style: Flat Squares
-      Topic: /filtered_pointcloud
+      Topic: /input_pointcloud
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
@@ -267,6 +257,14 @@ Visualization Manager:
       Topic: vehicle_real_path
       Unreliable: false
       Value: true
+    - Class: rviz/Marker
+      Enabled: true
+      Marker Topic: vehicle_odometry_pose/text_marker
+      Name: Marker
+      Namespaces:
+        {}
+      Queue Size: 100
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 86; 86; 86
@@ -295,7 +293,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 17.32314109802246
+      Distance: 8.62666130065918
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -311,9 +309,9 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.2553993761539459
+      Pitch: 0.620398998260498
       Target Frame: <Fixed Frame>
-      Yaw: 2.9685592651367188
+      Yaw: 2.9685604572296143
     Saved: ~
 Window Geometry:
   Displays:

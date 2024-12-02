@@ -135,8 +135,8 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     // PFactor = config_.PFactor;
     // P = P*PFactor;
 
-    std::cout << "Initial P: " << std::endl;
-    std::cout << P << std::endl;
+    // std::cout << "Initial P: " << std::endl;
+    // std::cout << P << std::endl;
 
     sigma_obs.x = config_.sigma_obs_x;
     sigma_obs.y = config_.sigma_obs_y;
@@ -152,8 +152,8 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     R(4, 4) = std::pow(sigma_obs.pitch, 2);
     R(5, 5) = std::pow(sigma_obs.yaw, 2);
 
-    std::cout << "Initial R: " << std::endl;
-    std::cout << R << std::endl;
+    // std::cout << "Initial R: " << std::endl;
+    // std::cout << R << std::endl;
 
 
     sigma_odom.x = config_.sigma_odom_x;
@@ -173,8 +173,8 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     // QFactor = config_.QFactor;
     // Q = Q*QFactor;
 
-    std::cout << "Initial Q: " << std::endl;
-    std::cout << Q << std::endl;
+    // std::cout << "Initial Q: " << std::endl;
+    // std::cout << Q << std::endl;
 }
 
 void DataFusion::readConfig(const std::string &filename)
@@ -345,10 +345,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
          kalmanPose.roll, kalmanPose.pitch, kalmanPose.yaw);
 
     // Observations input
-    geometry_msgs::PoseArray verticalElements;
-    geometry_msgs::PoseArray verticalElements_BL;
-    verticalElements = req.verticalElements; // Detected vertical elements in global frame
-    verticalElements_BL = req.verticalElements_BL; // Detected vertical elements in vehicle frame
+    geometry_msgs::PoseArray verticalElements_BL = req.verticalElements_BL; // Detected vertical elements in vehicle frame
     // Transform observations to Roll-Pitch-Yaw format
     std::vector<pointcloud_clustering::observationRPY> observations_BL = processPoseArray(verticalElements_BL);
 
@@ -373,7 +370,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     ///////////////////////////////////////////////////////
     /* 1. Pose Prediction*/
     kalmanPose = Comp(kalmanPose, incOdomEKF);
-    ROS_INFO("EKF Pose Predicted: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]", 
+    ROS_DEBUG("EKF Pose Predicted: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]", 
          kalmanPose.x, kalmanPose.y, kalmanPose.z, 
          kalmanPose.roll, kalmanPose.pitch, kalmanPose.yaw);
 
@@ -387,17 +384,18 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
 
     /* 2. Update with observations*/
     // P = updatedP;
-    int obsSize = observations.size(); // Number of observations
+    int obsSize = observations_BL.size(); // Number of observations
     ROS_DEBUG("EKF Number of observations received: %d", obsSize);
 
     bool matched = false;
     Matrix6f updatedP = P;
 
-    if (observations.empty()) {
+    // if (observations_BL.empty()) {
+    if (true){
         ROS_DEBUG("EKF No observations received. Skipping update.");
 
-        std::cout << "P:" << std::endl;
-        std::cout << P << std::endl;
+        // std::cout << "P:" << std::endl;
+        // std::cout << P << std::endl;
 
         // Set the response
         res.corrected_position = kalmanPose;
@@ -407,7 +405,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
         std::vector<int> i_vec; // Indices of matched observations
         std::vector<int> j_vec; // Indices of matched map elements
         // Data association: Match observations with map elements
-        for (int i = 0; i < observations.size(); i++) {
+        for (int i = 0; i < observations_BL.size(); i++) {
             float minMahalanobis = mahalanobisDistanceThreshold;
             int bestMatchIndex = -1;
 
@@ -426,11 +424,11 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
                 // Map elements >> Expressed in the global frame
                 // Comp(Inv(map[j]), observation[i]) >> obtains the observation expressed in the reference system of the map element
                 // B * Comp(...) > obtains de distance
-                auto h_ij = B * RPY2Vec(Comp(Inv(map[j].position), observations[i].position));
+                auto h_ij = B * RPY2Vec(Comp(Inv(map[j].position), observations_BL[i].position));
 
                 // Compute Jacobians
-                auto H_x_ij = B * J2_n(Inv(map[j].position), observations[i].position) * J1_n(kalmanPose, observations[i].position);
-                auto H_z_ij = B * J2_n(Inv(map[j].position), observations[i].position) * J2_n(kalmanPose, observations[i].position);
+                auto H_z_ij = B * J2_n(Inv(map[j].position), observations_BL[i].position) * J2_n(kalmanPose, observations_BL[i].position);
+                auto H_x_ij = B * J2_n(Inv(map[j].position), observations_BL[i].position) * J1_n(kalmanPose, observations_BL[i].position);
 
                 // Innovation covariance
                 auto S_ij = H_x_ij * P * H_x_ij.transpose() + H_z_ij * R * H_z_ij.transpose();
@@ -493,14 +491,14 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
                 //                     Comp(positionPredEKF, observations_BL[i].position)) 
                 //                 * J2_n(positionPredEKF, observations_BL[i].position);
 
-                auto h_i = B * RPY2Vec(Comp(Inv(map[j].position), observations[i].position));
+                auto h_i = B * RPY2Vec(Comp(Inv(map[j].position), observations_BL[i].position));
                 h_k.block(m * B.rows(), 0, B.rows(), 1) = h_i;
 
                 // Compute Jacobians
-                auto H_x_i = B * J2_n(Inv(map[j].position), observations[i].position) * J1_n(kalmanPose, observations[i].position);
+                auto H_x_i = B * J2_n(Inv(map[j].position), observations_BL[i].position) * J1_n(kalmanPose, observations_BL[i].position);
                 H_x_k.block(m * B.rows(), 0, B.rows(), 6) = H_x_i;
 
-                auto H_z_i = B * J2_n(Inv(map[j].position), observations[i].position) * J2_n(kalmanPose, observations[i].position);
+                auto H_z_i = B * J2_n(Inv(map[j].position), observations_BL[i].position) * J2_n(kalmanPose, observations_BL[i].position);
                 
                 H_z_k.block(m * B.rows(), m * 6, B.rows(), 6) = H_z_i;
 

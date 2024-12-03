@@ -1,5 +1,6 @@
 //  Created on: Jul 29, 2013
 //      Author: pdelapuente
+//      Updated (Dec 01, 2024): Rodrigo de la Iglesia
 
 //TODO: Comprobar si las observaciones en el sistema de referencia del vehículo son necesitadas
 //TODO: Cambiar observations por observations_BL y hacer transformaciones a global frame
@@ -383,15 +384,12 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     P = Fx*P*Fx.transpose() + Fu*Q*Fu.transpose();
 
     /* 2. Update with observations*/
-    // P = updatedP;
     int obsSize = observations_BL.size(); // Number of observations
     ROS_DEBUG("EKF Number of observations received: %d", obsSize);
 
     bool matched = false;
-    Matrix6f updatedP = P;
 
-    // if (observations_BL.empty()) {
-    if (true){
+    if (observations_BL.empty()) {
         ROS_DEBUG("EKF No observations received. Skipping update.");
 
         // std::cout << "P:" << std::endl;
@@ -411,24 +409,11 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
 
             for (int j = 0; j < map.size(); j++) {
                 // Compute innovation vector
-                // auto h_ij = B * RPY2Vec(Comp(Inv(map[j].position), 
-                //                             Comp(positionPredEKF, observations_BL[i].position)));
-                // // Compute Jacobians
-                // auto H_x_ij = B * J2_n(Inv(map[j].position), Comp(positionPredEKF, observations_BL[i].position)) * J1_n(positionPredEKF, observations_BL[i].position);
-                // auto H_z_ij = B * J2_n(Inv(map[j].position), 
-                //                     Comp(positionPredEKF, observations_BL[i].position)) 
-                //                 * J2_n(positionPredEKF, observations_BL[i].position);
-
-                // Compute the innovation vector > distance between the measured observation and the expected observation
-                // Observations >> Expressed in the global frame
-                // Map elements >> Expressed in the global frame
-                // Comp(Inv(map[j]), observation[i]) >> obtains the observation expressed in the reference system of the map element
-                // B * Comp(...) > obtains de distance
-                auto h_ij = B * RPY2Vec(Comp(Inv(map[j].position), observations_BL[i].position));
+                Vector6f h_ij = computeInnovation(kalmanPose, observations_BL[i].position, map[j].position, B);
 
                 // Compute Jacobians
-                auto H_z_ij = B * J2_n(Inv(map[j].position), observations_BL[i].position) * J2_n(kalmanPose, observations_BL[i].position);
-                auto H_x_ij = B * J2_n(Inv(map[j].position), observations_BL[i].position) * J1_n(kalmanPose, observations_BL[i].position);
+                auto H_z_ij = B * J2_n(map[j].position, observations_BL[i].position) * J2_n(kalmanPose, observations_BL[i].position);
+                auto H_x_ij = B * J2_n(map[j].position, observations_BL[i].position) * J1_n(kalmanPose, observations_BL[i].position);
 
                 // Innovation covariance
                 auto S_ij = H_x_ij * P * H_x_ij.transpose() + H_z_ij * R * H_z_ij.transpose();
@@ -457,7 +442,6 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
             res.corrected_position = kalmanPose;
         }
         else {
-            //TODO: Voy por aquí lo anterior está bien >> Encuentra MATCHING
             // Initialize matrices for correction
             int M = i_vec.size(); // Number of matches
             ROS_DEBUG("EKF Matches found: %d", M);
@@ -475,33 +459,17 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
             for (int m = 0; m < M; m++) {
                 int i = i_vec[m];
                 int j = j_vec[m];
-
                 // Compute innovation
-                // auto h_i = B * RPY2Vec(Comp(Inv(map[j].position), 
-                //                             Comp(positionPredEKF, observations_BL[i].position)));
-                // h_k.block(m * B.rows(), 0, B.rows(), 1) = h_i;
-
-                // // Compute Jacobians
-                // auto H_x_i = B * J2_n(Inv(map[j].position), 
-                //                     Comp(positionPredEKF, observations_BL[i].position)) 
-                //                 * J1_n(positionPredEKF, observations_BL[i].position);
-                // H_x_k.block(m * B.rows(), 0, B.rows(), 6) = H_x_i;
-
-                // auto H_z_i = B * J2_n(Inv(map[j].position), 
-                //                     Comp(positionPredEKF, observations_BL[i].position)) 
-                //                 * J2_n(positionPredEKF, observations_BL[i].position);
-
-                auto h_i = B * RPY2Vec(Comp(Inv(map[j].position), observations_BL[i].position));
+                auto h_i = computeInnovation(kalmanPose, observations_BL[i].position, map[j].position,B);
                 h_k.block(m * B.rows(), 0, B.rows(), 1) = h_i;
 
                 // Compute Jacobians
-                auto H_x_i = B * J2_n(Inv(map[j].position), observations_BL[i].position) * J1_n(kalmanPose, observations_BL[i].position);
+                auto H_x_i = B * J2_n(map[j].position, observations_BL[i].position) * J1_n(kalmanPose, observations_BL[i].position);
                 H_x_k.block(m * B.rows(), 0, B.rows(), 6) = H_x_i;
 
-                auto H_z_i = B * J2_n(Inv(map[j].position), observations_BL[i].position) * J2_n(kalmanPose, observations_BL[i].position);
+                auto H_z_i = B * J2_n(map[j].position, observations_BL[i].position) * J2_n(kalmanPose, observations_BL[i].position);
                 
                 H_z_k.block(m * B.rows(), m * 6, B.rows(), 6) = H_z_i;
-
                 // Add observation noise
                 R_k.block(m * 6, m * 6, 6, 6) = R;
             }
@@ -516,7 +484,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
             kalmanPose = vec2RPY(RPY2Vec(kalmanPose) - W * h_k);
 
             // Update covariance
-            updatedP = (Matrix6f::Identity() - W * H_x_k) * P;
+            Matrix6f updatedP = (Matrix6f::Identity() - W * H_x_k) * P;
 
             ROS_DEBUG("EKF Corrected Position: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]",
                     kalmanPose.x, kalmanPose.y, kalmanPose.z,

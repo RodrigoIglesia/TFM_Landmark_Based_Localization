@@ -11,9 +11,10 @@ Is in charge of parsing several data from waymo open dataset and send it to diff
 Every element is represented in the vehicle frame
 """
 
-#TODO: Corregir como estoy pasando la pose odométrica
-# Estaba pasando las poses incrementales desde 0, tengo que pasar los incrementos desde el estado anterior
-# Tengo que calcular también la acumulada desde 0 para plotearla
+#TODO: En la generación del mapa estoy guardando las poses en globales >> considerar guardarlas referenciadas a la pose inicial del vehículo
+#TODO: Para pasar de coordenadas globales a ref inicial del movimiento, tengo que usar la mat de transformación de la pose global, dada por el dataset. es la única forma de saber cómo transformar dichas poses.
+#TODO: Usar el origen como sistema de ref lo hace más robusto >> vale para todos los casos
+
 # IMPORTANTE: Estoy usando las representaciones de los landmarks en el vehicle frame, en ningún momento global frame
 import os
 import sys

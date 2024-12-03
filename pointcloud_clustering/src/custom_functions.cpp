@@ -6,6 +6,14 @@
 //************************************//
 
 
+Vector6f RPY2Vec(pointcloud_clustering::positionRPY position){ // Conversion pointcloud_clustering::positionRPY -> Vector6f
+  Vector6f result;
+  
+  result << position.x, position.y, position.z, position.roll, position.pitch, position.yaw;
+  
+  return(result);
+}
+
 /*----------------------------------------------------------------------------------------------*/
 pointcloud_clustering::positionRPY Comp(pointcloud_clustering::positionRPY accumulated_pose, pointcloud_clustering::positionRPY increment) {
     Matrix4f actualMatrix = createHomogMatr(accumulated_pose);
@@ -131,26 +139,6 @@ Matrix6f J2_n(pointcloud_clustering::positionRPY ab, pointcloud_clustering::posi
 
 /*----------------------------------------------------------------------------------------------*/
 
-Matrix6f computeHx2(pointcloud_clustering::observationRPY obs, pointcloud_clustering::positionRPY kalman_pos){
-	Matrix6f Hx = Hx.Zero();
-	
-	Hx = J1_n(kalman_pos, obs.position);
-
-	return Hx;
-}
-
-/*----------------------------------------------------------------------------------------------*/
-
-Matrix6f computeHz2(pointcloud_clustering::observationRPY obs, pointcloud_clustering::positionRPY kalman_pos){
-	Matrix6f Hz = Hz.Zero();
-
-	Hz = J2_n(kalman_pos, obs.position);
-
-	return Hz;
-}
-
-/*----------------------------------------------------------------------------------------------*/
-
 float mahalanobisDistance(const MatrixXf& h, const MatrixXf& S){ 
   
 //  Vector6f diff;
@@ -166,21 +154,22 @@ float mahalanobisDistance(const MatrixXf& h, const MatrixXf& S){
   return hTSih(0, 0);
 }
 
-/*----------------------------------------------------------------------------------------------*/
+// /*----------------------------------------------------------------------------------------------*/
 
-Vector6f computeInnovation(pointcloud_clustering::positionRPY kalman_pos, pointcloud_clustering::observationRPY obs, pointcloud_clustering::observationRPY map_landmark){ // Innovation step of EKF
-  Vector6f result;
-  pointcloud_clustering::positionRPY Xhz = Comp(kalman_pos, obs.position); // FIXME obs_v FRAME?
-  
-  result = RPY2Vec(Xhz) - RPY2Vec(map_landmark.position);
-  result(3) = AngRango(result(3));
-  result(4) = AngRango(result(4));
-  result(5) = AngRango(result(5));
-  
-  return(result);
+Vector6f computeInnovation(pointcloud_clustering::positionRPY kalman_pos, pointcloud_clustering::positionRPY obs, pointcloud_clustering::positionRPY map_landmark, Matrix <float, 6, 6> B){ // Innovation step of EKF
+  // Innovation vector indicates de distance between the measured observation referenced to the real one (map landmarks)
+  // Measured observations are expresed in the vehicle frame
+  // Real landmarks are expressed in the global frame
+  // Both elements need to be transformed to the EKF frame
+  // 1. Observation from the vehicle frame to the origin frame
+  pointcloud_clustering::positionRPY observation_origin = Comp(kalman_pos, obs);
+  // 2. Map element from global frame to origin frame
+  pointcloud_clustering::positionRPY mapElement_origin = Comp(kalman_pos, map_landmark);
+  // 3. Innovation vector
+  return(B * RPY2Vec(Comp(mapElement_origin, observation_origin)));
 }
 
-/*----------------------------------------------------------------------------------------------*/
+// /*----------------------------------------------------------------------------------------------*/
 
 pointcloud_clustering::positionRPY Inv(pointcloud_clustering::positionRPY position){ // Same of createHomogMatrInv?
     Matrix4f H = createHomogMatr(position);
@@ -188,24 +177,24 @@ pointcloud_clustering::positionRPY Inv(pointcloud_clustering::positionRPY positi
     return coordRPY(H_inv);       // Pass the result to coordRPY
 }
 
-/*----------------------------------------------------------------------------------------------*/
+// /*----------------------------------------------------------------------------------------------*/
 
-float AngRango (float ang)
-{
-  float PI = 3.141596;
-	if (ang > PI)
-	{
-		ang=ang-2*PI;
-		AngRango(ang);
-	}
-	if (ang < -PI)
-	{
-		ang=2*PI+ang;
-		AngRango(ang);
-	}
+// float AngRango (float ang)
+// {
+//   float PI = 3.141596;
+// 	if (ang > PI)
+// 	{
+// 		ang=ang-2*PI;
+// 		AngRango(ang);
+// 	}
+// 	if (ang < -PI)
+// 	{
+// 		ang=2*PI+ang;
+// 		AngRango(ang);
+// 	}
 
-	return ang;
-}
+// 	return ang;
+// }
 
 /*----------------------------------------------------------------------------------------------*/
 
@@ -224,10 +213,3 @@ pointcloud_clustering::positionRPY vec2RPY(Vector6f position){ // Conversion Vec
 
 /*----------------------------------------------------------------------------------------------*/
 
-Vector6f RPY2Vec(pointcloud_clustering::positionRPY position){ // Conversion pointcloud_clustering::positionRPY -> Vector6f
-  Vector6f result;
-  
-  result << position.x, position.y, position.z, position.roll, position.pitch, position.yaw;
-  
-  return(result);
-}

@@ -10,7 +10,8 @@ For each scene:
     2.1. Read the 3D pointcloud for each frame.
     2.2. If the frame has pointcloud with segmentation labels > Get a pointcloud only containing points labeled as signs.
     2.3. Save each frame pointcloud in a vector.
-    2.4. Concatenate the pointcloud vectors.
+    2.4. Concatenate the pointcloud vectors > to do that, all pointclouds must be expressed in the same reference frame
+        For this implementation, the global frame used is the origin of movement of the vehicle in the scene (instead of waymo global frame)
     2.5. Apply a clustering algorithm to the pointcloud vector,
     obtaining a the point cloud vector divided in classes (clustered point cloud) and a vector with a class for each point in the point cloud.
 3. Enrich the feature map.
@@ -86,20 +87,24 @@ from waymo_utils.WaymoParser import *
 from waymo_utils.waymo_3d_parser import *
 
 
-def project_points_on_map(points, frame):
+def transform_point_cloud(points, transform):
     """
-    Project coordinates of the point cloud (referenced to the vehicle system) to the map (referenced to the global system)
+    Transform a point cloud with a given transformation matrix.
+
+    Parameters:
+        points (np.ndarray): Nx3 array of points in the point cloud.
+        transform (np.ndarray): 4x4 transformation matrix.
+
+    Returns:
+        np.ndarray: Transformed Nx3 point cloud.
     """
-    # Get pointcloud coordinated to project in the map
-    xyz = points[0]
-    num_points = xyz.shape[0]
-
-    # Transform the points from the vehicle frame to the world frame.
-    xyz = np.concatenate([xyz, np.ones([num_points, 1])], axis=-1)
-    transform = np.reshape(np.array(frame.pose.transform), [4, 4])
-    xyz = np.transpose(np.matmul(transform, np.transpose(xyz)))[:, 0:3]
-
-    return xyz
+    # Convert to homogeneous coordinates
+    points = points[0]
+    points_homogeneous = np.hstack((points, np.ones((points.shape[0], 1))))
+    # Apply transformation
+    transformed_points_homogeneous = points_homogeneous @ transform.T
+    # Convert back to Cartesian coordinates
+    return transformed_points_homogeneous[:, :3]
 
 
 def add_sign_to_map(map_features, sign_coords, id):
@@ -237,6 +242,7 @@ if __name__ == "__main__":
     ##############################################################
     ## Iterate through Dataset Scenes
     ##############################################################
+
     for scene_index, scene_path in enumerate(sorted(tfrecord_list)):
         logging.info("Scene {} processing: {}".format(str(scene_index), scene_path))
 
@@ -266,7 +272,21 @@ if __name__ == "__main__":
         point_clouds = []
         # Array to store pointcloud labels
         point_cloud_labels = []
-        for frame in load_frame(scene_path):
+
+        origin_pose = None
+        for frame_index, frame in enumerate(load_frame(scene_path)):
+
+            ############################################################
+            ## Get transform from current pose to vehicle origin pose
+            ###########################################################
+            current_pose = np.array(frame.pose.transform).reshape(4, 4)
+            if frame_index == 0:
+                origin_pose = current_pose
+            relative_transform = np.linalg.inv(origin_pose) @ current_pose
+
+            ############################################################
+            ## Process Pointclouds
+            ###########################################################
             (range_images, camera_projections, segmentation_labels, range_image_top_pose) = frame_utils.parse_range_image_and_camera_projection(frame)
 
             # Only generate information of 3D labeled frames
@@ -296,7 +316,8 @@ if __name__ == "__main__":
 
             filtered_point_cloud, filtered_point_labels = filter_lidar_data(points_return1, point_labels, [10])
 
-            projected_point_cloud = project_points_on_map(filtered_point_cloud, frame)
+            # # Project pointcloud from vehicle frame to global frame
+            projected_point_cloud = transform_point_cloud(filtered_point_cloud, relative_transform)
 
             # Concatenate labels of points of the 5 LiDAR
             concat_point_labels = concatenate_points(filtered_point_labels)

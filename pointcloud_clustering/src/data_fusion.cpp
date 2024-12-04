@@ -352,13 +352,14 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
 
 
     // Initialize B matrix
-    Matrix <float, 6, 6> B; // Binding matrix for EKF
-    B << 1, 0, 0, 0, 0, 0, // x
+    Matrix <float, 4, 6> B; // Binding matrix for EKF
+    B << 
+    1, 0, 0, 0, 0, 0, // x
     0, 1, 0, 0, 0, 0, // y
-    0, 0, 1, 0, 0, 0, // z
+    // 0, 0, 1, 0, 0, 0, // z
     0, 0, 0, 1, 0, 0, // roll
     0, 0, 0, 0, 1, 0, // pitch
-    0, 0, 0, 0, 0, 1; // yaw
+    // 0, 0, 0, 0, 0, 1; // yaw
 
     int B_rows = B.rows();
 
@@ -383,7 +384,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     // State coveriance
     P = Fx*P*Fx.transpose() + Fu*Q*Fu.transpose();
 
-    /* 2. Update with observations*/
+    /* 2. Get observations (Matches)*/
     int obsSize = observations_BL.size(); // Number of observations
     ROS_DEBUG("EKF Number of observations received: %d", obsSize);
 

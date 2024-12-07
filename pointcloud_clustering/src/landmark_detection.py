@@ -25,6 +25,10 @@ from cv_bridge import CvBridge
 from pointcloud_clustering.srv import landmark_detection_srv, landmark_detection_srvResponse
 import configparser
 
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="transformers.utils.deprecation")
+
+
 
 # Add project src root to python path
 current_script_directory = os.path.dirname(os.path.realpath(__file__))

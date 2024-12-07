@@ -84,7 +84,7 @@ class WaymoClient:
         self.odometry_pose_msg = positionRPY()
         #FIXME: Remove
         # self.landmark_poses_msg = PoseArray()
-        self.landmark_poses_msg_BL = PoseArray()
+        self.landmark_poses_msg_BL = None
         self.previous_transform_matrix = None
         self.transform_matrix = None
 
@@ -150,7 +150,7 @@ class WaymoClient:
 
 
 
-    def process_odometry(self, position_noise_std=0.01, orientation_noise_std=0.01):
+    def process_odometry(self, position_noise_std=0.05, orientation_noise_std=0.01):
         """
         Get incremental pose of the vehicle with cumulative Gaussian noise.
         """
@@ -224,6 +224,7 @@ class WaymoClient:
 
 
     def process_pointcloud(self):
+        self.clustered_pointcloud.clear()
         self.points, points_cp = self.pointcloud_processor.get_pointcloud()
         if self.points is not None:
             self.pointcloud_processor.pointcloud_to_ros(self.points)
@@ -360,8 +361,8 @@ class WaymoClient:
         rospy.logdebug("Getting associations...")
 
         # Reset clusters iou each time process is called
-        self.clustered_pointcloud_iou = {}
-        self.clustered_pointcloud_iou_vehicle_frame = {}
+        self.clustered_pointcloud_iou.clear()
+        self.clustered_pointcloud_iou_vehicle_frame.clear()
 
         # Convert processed image to grayscale
         processed_image = cv2.cvtColor(self.processed_image, cv2.COLOR_RGB2GRAY)
@@ -371,6 +372,7 @@ class WaymoClient:
         segmentation_hulls = [cv2.convexHull(contour).reshape((-1, 2)) for contour in segmentation_contours]
 
         # Process each cluster
+        landmarks_associated = 0
         for label, cluster_points in self.clustered_pointcloud_image.items():
             if len(cluster_points) >= 3:  # Convex hull requires at least 3 points
                 hull = ConvexHull(cluster_points)
@@ -391,8 +393,9 @@ class WaymoClient:
                     # Save only clusters which iou with segmentation masks is greater than threshols
                     if (iou > iou_threshold):
                         self.clustered_pointcloud_iou[label] = cluster_points
+                        landmarks_associated += 1
                     # Filter 3D clusters in vehicle frame
-                    self.clustered_pointcloud_iou_vehicle_frame = filtered_dict = {label: self.clustered_pointcloud[label] for label in self.clustered_pointcloud_iou.keys() if label in self.clustered_pointcloud}
+                    self.clustered_pointcloud_iou_vehicle_frame = {label: self.clustered_pointcloud[label] for label in self.clustered_pointcloud_iou.keys() if label in self.clustered_pointcloud}
 
                     # Show the image with the pair of hulls
                     if (debug==True):
@@ -403,15 +406,15 @@ class WaymoClient:
                         self.__draw_iou_text(pair_image, cluster_hull, seg_hull, iou)
                         cv2.imshow("Hull Pair", pair_image)
                         cv2.waitKey(0)
+        rospy.loginfo("Data Association Associated landmarks: " + str(landmarks_associated))
 
 
     def calculate_landmark_pose(self):
         """
         This method computes the [x,y,z, roll, pitch, yaw] coordinates of a clustered pointcloud
         """
-        #FIXME: Estoy calculando la pose de los landmark en global usando la pose real del vehículo > Esto no es correcto, solo puedo pasar las poses en coordenadas del vehículo
         # Reset clusters poses dict each time process is called
-        self.clusters_poses = {}
+        self.clusters_poses.clear()
         #FIXME: Remove
         # self.clusters_poses_global = {}
         for label, pointcloud in self.clustered_pointcloud_iou_vehicle_frame.items():
@@ -425,6 +428,8 @@ class WaymoClient:
             # Generate dict label:pose
             landmark_pose = [centroid[0], centroid[1], centroid[2], roll, pitch, yaw]
             self.clusters_poses[label] = landmark_pose
+
+        rospy.loginfo("Data Association Clusters poses to send to EKF " + str(len(self.clusters_poses)))
 
             #FIXME: Remove commented lines
             # # Get pose in global frame
@@ -469,6 +474,7 @@ class WaymoClient:
         """
         Method to send current pose and rest of parameters to the EKF process
         """
+        self.landmark_poses_msg_BL = PoseArray()
         # Create the service request
         ekf_request = data_fusion_srvRequest()
         
@@ -674,7 +680,7 @@ if __name__ == "__main__":
                 
                 # Write header once at the beginning
                 header = [
-                    'Landmark_X', 'Landmark_Y', 'Landmark_Z', 'Landmark_Roll', 'Landmark_Pitch', 'Landmark_Yaw'
+                    'frame', 'Landmark_X', 'Landmark_Y', 'Landmark_Z', 'Landmark_Roll', 'Landmark_Pitch', 'Landmark_Yaw'
                 ]
                 csv_writer.writerow(header)
 
@@ -808,7 +814,7 @@ if __name__ == "__main__":
                 with open(landmark_csv_file_path, 'a', newline='') as csvfile:
                     csv_writer = csv.writer(csvfile)
                     for label, landmark in wc.clusters_poses.items():
-                        row = landmark[0], landmark[1], landmark[2], landmark[3], landmark[4], landmark[5]
+                        row = [frame_n], landmark[0], landmark[1], landmark[2], landmark[3], landmark[4], landmark[5]
                         csv_writer.writerow(row)
                     rospy.loginfo(f"Frame {frame_n} data appended to CSV")
 

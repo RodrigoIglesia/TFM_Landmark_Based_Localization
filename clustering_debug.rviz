@@ -4,8 +4,11 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
+        - /PointCloud21
         - /Odometry2/Shape1
-        - /Marker4
+        - /Path1
+        - /Path2
+        - /Path3
       Splitter Ratio: 0.5
     Tree Height: 301
   - Class: rviz/Selection
@@ -72,9 +75,9 @@ Visualization Manager:
       Queue Size: 10
       Selectable: true
       Size (Pixels): 3
-      Size (m): 0.029999999329447746
+      Size (m): 0.10000000149011612
       Style: Flat Squares
-      Topic: /input_pointcloud
+      Topic: /filtered_pointcloud
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
@@ -185,7 +188,7 @@ Visualization Manager:
         Y: 0
         Z: 0
       Pose Color: 255; 85; 255
-      Pose Style: Axes
+      Pose Style: None
       Queue Size: 10
       Radius: 0.029999999329447746
       Shaft Diameter: 0.10000000149011612
@@ -209,7 +212,7 @@ Visualization Manager:
         Y: 0
         Z: 0
       Pose Color: 255; 85; 255
-      Pose Style: Axes
+      Pose Style: None
       Queue Size: 10
       Radius: 0.029999999329447746
       Shaft Diameter: 0.10000000149011612
@@ -262,7 +265,7 @@ Visualization Manager:
       Marker Topic: vehicle_odometry_pose/text_marker
       Name: Marker
       Namespaces:
-        {}
+        pose_text: true
       Queue Size: 100
       Value: true
   Enabled: true
@@ -293,7 +296,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 8.62666130065918
+      Distance: 9.951221466064453
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -309,9 +312,9 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.620398998260498
+      Pitch: 0.5253990888595581
       Target Frame: <Fixed Frame>
-      Yaw: 2.9685604572296143
+      Yaw: 3.2385618686676025
     Saved: ~
 Window Geometry:
   Displays:

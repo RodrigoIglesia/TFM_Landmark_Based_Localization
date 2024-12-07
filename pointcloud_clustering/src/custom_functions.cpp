@@ -156,17 +156,10 @@ float mahalanobisDistance(const MatrixXf& h, const MatrixXf& S){
 
 // /*----------------------------------------------------------------------------------------------*/
 
-Vector6f computeInnovation(pointcloud_clustering::positionRPY kalman_pos, pointcloud_clustering::positionRPY obs, pointcloud_clustering::positionRPY map_landmark, Matrix <float, 6, 6> B){ // Innovation step of EKF
+Vector4f computeInnovation(pointcloud_clustering::positionRPY obs, pointcloud_clustering::positionRPY map_landmark, Matrix <float, 4, 6> B){ // Innovation step of EKF
   // Innovation vector indicates de distance between the measured observation referenced to the real one (map landmarks)
-  // Measured observations are expresed in the vehicle frame
-  // Real landmarks are expressed in the global frame
-  // Both elements need to be transformed to the EKF frame
-  // 1. Observation from the vehicle frame to the origin frame
-  pointcloud_clustering::positionRPY observation_origin = Comp(kalman_pos, obs);
-  // 2. Map element from global frame to origin frame
-  pointcloud_clustering::positionRPY mapElement_origin = Comp(kalman_pos, map_landmark);
-  // 3. Innovation vector
-  return(B * RPY2Vec(Comp(mapElement_origin, observation_origin)));
+  
+  return(B * RPY2Vec(Comp(Inv(map_landmark), obs)));
 }
 
 // /*----------------------------------------------------------------------------------------------*/

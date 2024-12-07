@@ -21,7 +21,7 @@ pointcloud_clustering::positionRPY Inv(pointcloud_clustering::positionRPY pos);
 Matrix4f createHomogMatrInv(pointcloud_clustering::positionRPY pos);
 Matrix6f J1_n(pointcloud_clustering::positionRPY pos1, pointcloud_clustering::positionRPY pos2);
 Matrix6f J2_n(pointcloud_clustering::positionRPY pos1, pointcloud_clustering::positionRPY pos2);
-Vector6f computeInnovation(pointcloud_clustering::positionRPY kalman_pos, pointcloud_clustering::positionRPY obs, pointcloud_clustering::positionRPY map_landmark, Matrix <float, 6, 6> B);
+Vector4f computeInnovation(pointcloud_clustering::positionRPY obs, pointcloud_clustering::positionRPY map_landmark, Matrix <float, 4, 6> B);
 float mahalanobisDistance(const MatrixXf& h, const MatrixXf& S);
 // float AngRango(float ang);
 pointcloud_clustering::positionRPY vec2RPY(Vector6f pos);

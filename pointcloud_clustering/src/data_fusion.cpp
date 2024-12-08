@@ -84,6 +84,8 @@ private:
     std::string mapFilePath;
     int mapSize;
 
+    int frame_n;
+
     // Member variables to store the state across service calls
     pointcloud_clustering::positionRPY kalmanPose; // Kalman corrected pose
     Matrix6f P;  // Covariance matrix
@@ -105,23 +107,27 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
 : mapFilePath(mapFilePath)
 {
     /*
-    DataFusion Class constructor > 
+    DataFusion Class constructor 
     */
     ros::NodeHandle nh;
     observation_pub_ = nh.advertise<geometry_msgs::PoseArray>("observation", 10);
     map_element_pub_ = nh.advertise<geometry_msgs::PoseArray>("map_element", 10, true);
+
+    // Read configuration file
     readConfig(configFilePath);
 
     // Read map
     map = loadMapFromCSV();
-
     //DEBUG >> Publish map elements
     publishPoseElements(map, map_element_pub_);
 
     int mapSize = map.size();
     ROS_INFO("EKF Loaded %d map elements", mapSize);
 
+    // Initialize frame to 0 in constructor
+    frame_n = 0;
 
+    /* EKF initialization*/
     // Initial pose
     kalmanPose.x = config_.x_init;
     kalmanPose.y = config_.y_init;
@@ -363,6 +369,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     MAIN FUNCTION
     Receives the request and generates a response
     */
+   frame_n = frame_n + 1;
 
     /* Service Input values*/
     // Odometry input
@@ -374,6 +381,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     incOdomEKF.roll = req.odometry.roll;
     incOdomEKF.pitch = req.odometry.pitch;
     incOdomEKF.yaw = req.odometry.yaw;
+    ROS_INFO("EKF Frame %d", frame_n);
     ROS_INFO("EKF Incremental odometry received: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]", 
          incOdomEKF.x, incOdomEKF.y, incOdomEKF.z, 
          incOdomEKF.roll, incOdomEKF.pitch, incOdomEKF.yaw);
@@ -458,9 +466,9 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
 
                 // Compute Mahalanobis distance
                 float distance = sqrt(mahalanobisDistance(h_ij, S_ij));
-                // std::cout << "Distance: " << distance << std::endl;
                 if (distance < minMahalanobis) {
                     // Match found
+                    ROS_INFO("EKF MATCH FOUND in observation %d with map element %d. Distance = %4f", i, j, distance);
                     std::cout << "Distance: " << distance << std::endl;
                     minMahalanobis = distance;
                     bestMatchIndex = j;

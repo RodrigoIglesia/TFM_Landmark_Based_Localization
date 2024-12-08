@@ -87,25 +87,6 @@ from waymo_utils.WaymoParser import *
 from waymo_utils.waymo_3d_parser import *
 
 
-def transform_point_cloud(points, transform):
-    """
-    Transform a point cloud with a given transformation matrix.
-
-    Parameters:
-        points (np.ndarray): Nx3 array of points in the point cloud.
-        transform (np.ndarray): 4x4 transformation matrix.
-
-    Returns:
-        np.ndarray: Transformed Nx3 point cloud.
-    """
-    # Convert to homogeneous coordinates
-    points = points[0]
-    points_homogeneous = np.hstack((points, np.ones((points.shape[0], 1))))
-    # Apply transformation
-    transformed_points_homogeneous = points_homogeneous @ transform.T
-    # Convert back to Cartesian coordinates
-    return transformed_points_homogeneous[:, :3]
-
 
 def add_sign_to_map(map_features, sign_coords, id):
     # Create a new map features object to insert the sign there
@@ -272,6 +253,7 @@ if __name__ == "__main__":
         point_clouds = []
         # Array to store pointcloud labels
         point_cloud_labels = []
+        cummulative_pose = np.zeros(6)
 
         origin_pose = None
         for frame_index, frame in enumerate(load_frame(scene_path)):
@@ -317,7 +299,7 @@ if __name__ == "__main__":
             filtered_point_cloud, filtered_point_labels = filter_lidar_data(points_return1, point_labels, [10])
 
             # # Project pointcloud from vehicle frame to global frame
-            projected_point_cloud = transform_point_cloud(filtered_point_cloud, relative_transform)
+            projected_point_cloud = transform_points(filtered_point_cloud[0], relative_transform)
 
             # Concatenate labels of points of the 5 LiDAR
             concat_point_labels = concatenate_points(filtered_point_labels)

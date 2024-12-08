@@ -50,6 +50,7 @@ sys.path.append(src_dir)
 from waymo_utils.WaymoParser import *
 from waymo_utils.publisher_utils import *
 import waymo_utils.waymo_3d_parser as w3d
+import waymo_utils.transform_utils as tu
 
 
 
@@ -106,47 +107,6 @@ class WaymoClient:
         rospy.loginfo("Data Fusion service is running")
 
 
-    def _get_pose(self, T):
-        position = T[:3, 3]
-        R_matrix = T[:3, :3]
-        rotation = R.from_matrix(R_matrix)
-        roll, pitch, yaw = rotation.as_euler('xyz', degrees=False)
-
-        return [position[0], position[1], position[2], roll, pitch, yaw]
-
-
-    def _normalize_angle(self, angle):
-        """ Normalize the angle to be within the range [-π, π] """
-        return (angle + np.pi) % (2 * np.pi) - np.pi
-    
-
-
-    def _accumulate_pose(self,cumulative_pose, increment):
-        """
-        Acumula una nueva pose relativa sobre una pose acumulada existente.
-
-        Args:
-            cumulative_pose (list): Pose acumulada [x, y, z, roll, pitch, yaw].
-            increment (list): Incremento relativo [Δx, Δy, Δz, Δroll, Δpitch, Δyaw].
-
-        Returns:
-            list: Nueva pose acumulada [x, y, z, roll, pitch, yaw].
-        """
-        cumulative_position = np.array(cumulative_pose[:3])  # [x, y, z]
-        cumulative_orientation = np.array(cumulative_pose[3:])  # [roll, pitch, yaw]
-
-        increment_position = np.array(increment[:3])  # [Δx, Δy, Δz]
-        increment_orientation = np.array(increment[3:])  # [Δroll, Δpitch, Δyaw]
-        rotation_matrix = R.from_euler('xyz', cumulative_orientation).as_matrix()
-
-        global_position_delta = rotation_matrix @ increment_position
-        new_position = cumulative_position + global_position_delta
-        new_orientation = cumulative_orientation + increment_orientation
-
-        new_orientation = self._normalize_angle(new_orientation)
-        new_cumulative_pose = np.concatenate((new_position, new_orientation))
-
-        return new_cumulative_pose
 
 
 
@@ -165,9 +125,7 @@ class WaymoClient:
         else:
             # Compute the relative pose to the previous pose
             relative_transform = np.linalg.inv(self.previous_transform_matrix) @ self.transform_matrix
-            self.relative_pose = self._get_pose(relative_transform)
-
-            print("REMOVEEE Relative pose ", self.relative_pose)
+            self.relative_pose = tu.get_pose(relative_transform)
 
             # Add Gaussian noise to the relative pose
             # Generar ruido gaussiano y acumularlo en las variables de ruido acumulado
@@ -183,11 +141,10 @@ class WaymoClient:
             ]
 
             self.odometry_pose = noisy_position + noisy_orientation
-            print("REMOVEEE Odometry pose ", self.odometry_pose)
 
         # Accumulate the odometry and real pose to get the pose relative to the origin
-        self.relative_cummulative_pose = self._accumulate_pose(self.relative_cummulative_pose, self.relative_pose)
-        self.odometry_cummulative_pose = self._accumulate_pose(self.odometry_cummulative_pose, self.odometry_pose)
+        self.relative_cummulative_pose = tu.comp_poses(self.relative_cummulative_pose, self.relative_pose)
+        self.odometry_cummulative_pose = tu.comp_poses(self.odometry_cummulative_pose, self.odometry_pose)
 
         rospy.loginfo(f"Vehicle relative (real) pose: {self.relative_cummulative_pose}")
         rospy.loginfo(f"Vehicle odometry pose: {self.odometry_cummulative_pose}")
@@ -644,8 +601,7 @@ if __name__ == "__main__":
     rate = rospy.Rate(1/4)
 
     # Read dataset
-    dataset_path = os.path.join(src_dir, "dataset/final_tests_scene")
-    tfrecord_list = list(sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
+    scene_path = os.path.join(src_dir, "dataset/final_tests_scene/individual_files_training_segment-10072140764565668044_4060_000_4080_000_with_camera_labels.tfrecord")
 
     # Initialize classes outside the loop
     wc = None
@@ -656,202 +612,206 @@ if __name__ == "__main__":
     ## Dataset Parsing
     ##############################################################################################
     while not rospy.is_shutdown():
-        for scene_index, scene_path in enumerate(tfrecord_list):
-            scene_name = scene_path.stem
-            rospy.loginfo(f"Scene {scene_index}: {scene_name} processing: {scene_path}")
-            frame_n = 0  # Scene frames counter
+        scene_name = pathlib.Path(scene_path).stem
+        rospy.loginfo(f"Scene: {scene_name} processing: {scene_path}")
+        frame_n = 0  # Scene frames counter
 
-            # Initialize CSV file and write header at the beginning of each scene
-            csv_file_path = os.path.join(src_dir, f'results/poses_{scene_name}.csv')
-            with open(csv_file_path, 'w', newline='') as csvfile:
+        # Initialize CSV file and write header at the beginning of each scene
+        csv_file_path = os.path.join(src_dir, f'results/poses_{scene_name}.csv')
+        with open(csv_file_path, 'w', newline='') as csvfile:
+            csv_writer = csv.writer(csvfile)
+            
+            # Write header once at the beginning
+            header = [
+                'frame', 'real_x', 'real_y', 'real_z', 'real_roll', 'real_pitch', 'real_yaw',
+                'odometry_x', 'odometry_y', 'odometry_z', 'odometry_roll', 'odometry_pitch', 'odometry_yaw',
+                'corrected_x', 'corrected_y', 'corrected_z', 'corrected_roll', 'corrected_pitch', 'corrected_yaw'
+            ]
+            csv_writer.writerow(header)
+        #TODO: REMOVE > Save detected landmarks
+        landmark_csv_file_path = os.path.join(src_dir, f'results/landmarks_{scene_name}.csv')
+        with open(landmark_csv_file_path, 'w', newline='') as csvfile:
+            csv_writer = csv.writer(csvfile)
+            
+            # Write header once at the beginning
+            header = [
+                'frame', 'Landmark_X', 'Landmark_Y', 'Landmark_Z', 'Landmark_Roll', 'Landmark_Pitch', 'Landmark_Yaw'
+            ]
+            csv_writer.writerow(header)
+
+        # Reset odometry cumulative error every scene
+        #TODO Odometría simulada, en caso de tener odometría con error real > eliminar
+        if wc is not None:
+            wc.position_noise_cumulative = [0, 0, 0]
+            wc.orientation_noise_cumulative = [0, 0, 0]
+
+        for frame in load_frame(scene_path):
+            if frame is None:
+                rospy.logerr("Error reading frame")
+                continue
+
+            # Initialize classes if not already done
+            if wc is None:
+                wc = WaymoClient(frame, [2, 1, 3])
+            if pointcloud_processor is None:
+                pointcloud_processor = PointCloudProcessor(frame)
+            if camera_processor is None:
+                camera_processor = CameraProcessor(frame)
+
+
+            # Update frame for each class
+            wc.frame = frame
+            pointcloud_processor.frame = frame
+            camera_processor.frame = frame
+
+            # Set class references in wc
+            wc.pointcloud_processor = pointcloud_processor
+            wc.camera_processor = camera_processor
+
+            ##############################################################################################
+            ## Procesing Services
+            ##############################################################################################
+
+            rospy.logdebug("Calling processing services")
+            frame_n += 1
+            rospy.loginfo(f"\n New Frame {frame_n} \n")
+
+            """ 
+            PROCESS ODOMETRY --> GET INCREMENTAL VEHICLE POSITION ON EACH FRAME
+            Odometry service also get the transformation matrix of the vehicle
+            In this version, incremental odometry is also calculated by the client service
+            """
+
+            # Obtain odometry increment (in frame 0 will be 0)
+            wc.process_odometry()
+            #TODO: REMOVE
+            relative_pose = np.array(wc.relative_cummulative_pose)
+
+            # DEBUG -> send incremental odometry to publish in RVIZ
+            text = f"Frame: ({frame_n})\n" \
+                                f"Pos: ({relative_pose[0]:.2f}, {relative_pose[1]:.2f}, {relative_pose[2]:.2f})\n" \
+                                f"Orientation: ({relative_pose[3]:.2f}, {relative_pose[4]:.2f}, {relative_pose[5]:.2f})"
+            header = Header()
+            header.frame_id = "base_link"
+            header.stamp = rospy.Time.now()
+            publish_incremental_pose_to_topic("vehicle_pose", relative_pose, text, header)
+            odometry_pose = np.array(wc.odometry_cummulative_pose)
+
+            # DEBUG -> send incremental odometry to publish in RVIZ
+            text = f"Frame: ({frame_n})\n" \
+                                f"Pos: ({odometry_pose[0]:.2f}, {odometry_pose[1]:.2f}, {odometry_pose[2]:.2f})\n" \
+                                f"Orientation: ({odometry_pose[3]:.2f}, {odometry_pose[4]:.2f}, {odometry_pose[5]:.2f})"
+            header = Header()
+            header.frame_id = "base_link"
+            header.stamp = rospy.Time.now()
+            publish_incremental_pose_to_topic("vehicle_odometry_pose", odometry_pose, text, header)
+            
+            # DEBUG -> Publish vehicle path
+            vehicle_path = np.array(wc.odometry_path)
+            publish_path("vehicle_path", vehicle_path, header)
+
+            vehicle_real_path = np.array(wc.relative_path)
+            publish_path("vehicle_real_path", vehicle_real_path, header)
+
+            """
+            POINTCLOUD CLUSTERING PROCESS
+            """
+            rospy.logdebug("Pointcloud processing service")
+            wc.pointcloud_processor.pointcloud_msg.header.frame_id = f"base_link_{scene_name}"
+            wc.pointcloud_processor.pointcloud_msg.header.stamp = rospy.Time.now()
+            wc.process_pointcloud()
+            if wc.pointcloud.size < 0:
+                rospy.logerr("Pointcloud received is empty")
+                continue
+            rospy.logdebug("Processed Pointcloud received")
+
+            """
+            LANDMARK DETECTION PROCESS
+            """
+            rospy.logdebug("Landmark detection processing service")
+            wc.camera_processor.camera_msg.header.frame_id = f"base_link_{scene_name}"
+            wc.camera_processor.camera_msg.header.stamp = rospy.Time.now()
+            wc.process_image()
+            if wc.processed_image is None:
+                rospy.logerr("Image received is empty")
+                continue
+
+            """
+            DATA ASSOCIATION > PROJECT POINTCLOUD ON IMAGE AND FILTER CLUSTERS
+            This process obtains the poses of the detected landmarks referred to the vehicle's pose.
+            In this version, this process is carried out by the client service.
+            """
+            rospy.logdebug("Data association process")
+            # Pointcloud - Image projection
+            wc.project_pointcloud_on_image()
+            
+            # Pointclouds filtering > get the IoU of pointcloud clusters and segmentation masks
+            # This method generates a dictionary of the classes and those clusters that match the segmentations.
+            # Generates clusters in the camera and vehicle frame
+            wc.filter_association_iou(debug=False,iou_threshold=0.1)
+
+            # DEBUG - Publish filtered pointcloud only with landmarks
+            header = Header()
+            header.frame_id = "base_link"
+            header.stamp = rospy.Time.now()
+            publish_labeled_pointcloud_to_topic('filtered_pointcloud', wc.clustered_pointcloud_iou_vehicle_frame, header)
+            
+            # Get cluster landmarks pose
+            wc.calculate_landmark_pose()
+
+            # DEBUG - Publish landmark poses in vehicle frame
+            header = Header()
+            header.frame_id = "base_link"
+            header.stamp = rospy.Time.now()
+            publish_multiple_poses_to_topic("landmark_poses", wc.clusters_poses, header)
+
+            with open(landmark_csv_file_path, 'a', newline='') as csvfile:
                 csv_writer = csv.writer(csvfile)
-                
-                # Write header once at the beginning
-                header = [
-                    'frame', 'real_x', 'real_y', 'real_z', 'real_roll', 'real_pitch', 'real_yaw',
-                    'odometry_x', 'odometry_y', 'odometry_z', 'odometry_roll', 'odometry_pitch', 'odometry_yaw',
-                    'corrected_x', 'corrected_y', 'corrected_z', 'corrected_roll', 'corrected_pitch', 'corrected_yaw'
-                ]
-                csv_writer.writerow(header)
-            #TODO: REMOVE > Save detected landmarks
-            landmark_csv_file_path = os.path.join(src_dir, f'results/landmarks_{scene_name}.csv')
-            with open(landmark_csv_file_path, 'w', newline='') as csvfile:
-                csv_writer = csv.writer(csvfile)
-                
-                # Write header once at the beginning
-                header = [
-                    'frame', 'Landmark_X', 'Landmark_Y', 'Landmark_Z', 'Landmark_Roll', 'Landmark_Pitch', 'Landmark_Yaw'
-                ]
-                csv_writer.writerow(header)
-
-            # Reset odometry cumulative error every scene
-            #TODO Odometría simulada, en caso de tener odometría con error real > eliminar
-            if wc is not None:
-                wc.position_noise_cumulative = [0, 0, 0]
-                wc.orientation_noise_cumulative = [0, 0, 0]
-
-            for frame in load_frame(scene_path):
-                if frame is None:
-                    rospy.logerr("Error reading frame")
-                    continue
-
-                # Initialize classes if not already done
-                if wc is None:
-                    wc = WaymoClient(frame, [2, 1, 3])
-                if pointcloud_processor is None:
-                    pointcloud_processor = PointCloudProcessor(frame)
-                if camera_processor is None:
-                    camera_processor = CameraProcessor(frame)
-
-
-                # Update frame for each class
-                wc.frame = frame
-                pointcloud_processor.frame = frame
-                camera_processor.frame = frame
-
-                # Set class references in wc
-                wc.pointcloud_processor = pointcloud_processor
-                wc.camera_processor = camera_processor
-
-                ##############################################################################################
-                ## Procesing Services
-                ##############################################################################################
-
-                rospy.logdebug("Calling processing services")
-                frame_n += 1
-                rospy.loginfo(f"\n New Frame {frame_n} \n")
-
-                """ 
-                PROCESS ODOMETRY --> GET INCREMENTAL VEHICLE POSITION ON EACH FRAME
-                Odometry service also get the transformation matrix of the vehicle
-                In this version, incremental odometry is also calculated by the client service
-                """
-
-                # Obtain odometry increment (in frame 0 will be 0)
-                wc.process_odometry()
-                #TODO: REMOVE
-                relative_pose = np.array(wc.relative_cummulative_pose)
-
-                # DEBUG -> send incremental odometry to publish in RVIZ
-                text = f"Frame: ({frame_n})\n" \
-                                    f"Pos: ({relative_pose[0]:.2f}, {relative_pose[1]:.2f}, {relative_pose[2]:.2f})\n" \
-                                    f"Orientation: ({relative_pose[3]:.2f}, {relative_pose[4]:.2f}, {relative_pose[5]:.2f})"
-                header = Header()
-                header.frame_id = "base_link"
-                header.stamp = rospy.Time.now()
-                publish_incremental_pose_to_topic("vehicle_pose", relative_pose, text, header)
-                odometry_pose = np.array(wc.odometry_cummulative_pose)
-
-                # DEBUG -> send incremental odometry to publish in RVIZ
-                text = f"Frame: ({frame_n})\n" \
-                                    f"Pos: ({odometry_pose[0]:.2f}, {odometry_pose[1]:.2f}, {odometry_pose[2]:.2f})\n" \
-                                    f"Orientation: ({odometry_pose[3]:.2f}, {odometry_pose[4]:.2f}, {odometry_pose[5]:.2f})"
-                header = Header()
-                header.frame_id = "base_link"
-                header.stamp = rospy.Time.now()
-                publish_incremental_pose_to_topic("vehicle_odometry_pose", odometry_pose, text, header)
-                
-                # DEBUG -> Publish vehicle path
-                vehicle_path = np.array(wc.odometry_path)
-                publish_path("vehicle_path", vehicle_path, header)
-
-                vehicle_real_path = np.array(wc.relative_path)
-                publish_path("vehicle_real_path", vehicle_real_path, header)
-
-                """
-                POINTCLOUD CLUSTERING PROCESS
-                """
-                rospy.logdebug("Pointcloud processing service")
-                wc.pointcloud_processor.pointcloud_msg.header.frame_id = f"base_link_{scene_name}"
-                wc.pointcloud_processor.pointcloud_msg.header.stamp = rospy.Time.now()
-                wc.process_pointcloud()
-                if wc.pointcloud.size < 0:
-                    rospy.logerr("Pointcloud received is empty")
-                    continue
-                rospy.logdebug("Processed Pointcloud received")
-
-                """
-                LANDMARK DETECTION PROCESS
-                """
-                rospy.logdebug("Landmark detection processing service")
-                wc.camera_processor.camera_msg.header.frame_id = f"base_link_{scene_name}"
-                wc.camera_processor.camera_msg.header.stamp = rospy.Time.now()
-                wc.process_image()
-                if wc.processed_image is None:
-                    rospy.logerr("Image received is empty")
-                    continue
-
-                """
-                DATA ASSOCIATION > PROJECT POINTCLOUD ON IMAGE AND FILTER CLUSTERS
-                This process obtains the poses of the detected landmarks referred to the vehicle's pose.
-                In this version, this process is carried out by the client service.
-                """
-                rospy.logdebug("Data association process")
-                # Pointcloud - Image projection
-                wc.project_pointcloud_on_image()
-                
-                # Pointclouds filtering > get the IoU of pointcloud clusters and segmentation masks
-                # This method generates a dictionary of the classes and those clusters that match the segmentations.
-                # Generates clusters in the camera and vehicle frame
-                wc.filter_association_iou(debug=False,iou_threshold=0.1)
-
-                # DEBUG - Publish filtered pointcloud only with landmarks
-                header = Header()
-                header.frame_id = "base_link"
-                header.stamp = rospy.Time.now()
-                publish_labeled_pointcloud_to_topic('filtered_pointcloud', wc.clustered_pointcloud_iou_vehicle_frame, header)
-                
-                # Get cluster landmarks pose
-                wc.calculate_landmark_pose()
-
-                # DEBUG - Publish landmark poses in vehicle frame
-                header = Header()
-                header.frame_id = "base_link"
-                header.stamp = rospy.Time.now()
-                publish_multiple_poses_to_topic("landmark_poses", wc.clusters_poses, header)
-
-                #TODO: REMOVE > Save detected landmarks in global frame
-                with open(landmark_csv_file_path, 'a', newline='') as csvfile:
-                    csv_writer = csv.writer(csvfile)
-                    for label, landmark in wc.clusters_poses.items():
-                        row = [frame_n], landmark[0], landmark[1], landmark[2], landmark[3], landmark[4], landmark[5]
-                        csv_writer.writerow(row)
-                    rospy.loginfo(f"Frame {frame_n} data appended to CSV")
-
-
-                """
-                DATA FUSION > CORRECT ODOMETRY POSITION WITH LANDMARK OBSERVATIONS
-                """
-                rospy.logdebug("Data Fusion processing service")
-                # wc.landmark_poses_msg.header.frame_id = f"base_link_{scene_name}"
-                # wc.landmark_poses_msg.header.stamp = rospy.Time.now()
-                wc.process_EKF()
-
-                if wc.corrected_pose is None:
-                    rospy.logerr("No EKF correction received")
-                    continue
-
-                corrected_pose = wc.corrected_pose
-
-                # DEBUG - Publish corrected EKF pose and path
-                text = f"Frame: ({frame_n})\n" \
-                                    f"Corrected Pos: ({corrected_pose[0]:.2f}, {corrected_pose[1]:.2f}, {corrected_pose[2]:.2f})\n" \
-                                    f"Corrected Orientation: ({corrected_pose[3]:.2f}, {corrected_pose[4]:.2f}, {corrected_pose[5]:.2f})"
-                header = Header()
-                header.frame_id = "base_link"
-                header.stamp = rospy.Time.now()
-                publish_incremental_pose_to_topic("corrected_vehicle_pose", corrected_pose, text, header)
-                
-                # DEBUG -> Publish vehicle path
-                vehicle_corrected_path = np.array(wc.corrected_path)
-                publish_path("corrected_vehicle_path", vehicle_corrected_path, header)
-
-                # Append pose data for the current frame to CSV
-                with open(csv_file_path, 'a', newline='') as csvfile:
-                    csv_writer = csv.writer(csvfile)
-                    row = [frame_n] + wc.relative_cummulative_pose + wc.odometry_cummulative_pose + corrected_pose
+                for label, landmark in wc.clusters_poses.items():
+                    #TODO: Project landmark to map frame
+                    landmark = w3d.comp_poses(corrected_pose, landmark)
+                    row = [frame_n], landmark[0], landmark[1], landmark[2], landmark[3], landmark[4], landmark[5]
                     csv_writer.writerow(row)
-                    rospy.loginfo(f"Frame {frame_n} data appended to CSV")
+                rospy.loginfo(f"Frame {frame_n} data appended to CSV")
 
 
-                rate.sleep()
+            """
+            DATA FUSION > CORRECT ODOMETRY POSITION WITH LANDMARK OBSERVATIONS
+            """
+            rospy.logdebug("Data Fusion processing service")
+            # wc.landmark_poses_msg.header.frame_id = f"base_link_{scene_name}"
+            # wc.landmark_poses_msg.header.stamp = rospy.Time.now()
+            wc.process_EKF()
+
+            if wc.corrected_pose is None:
+                rospy.logerr("No EKF correction received")
+                continue
+
+            corrected_pose = wc.corrected_pose
+
+            # DEBUG - Publish corrected EKF pose and path
+            text = f"Frame: ({frame_n})\n" \
+                                f"Corrected Pos: ({corrected_pose[0]:.2f}, {corrected_pose[1]:.2f}, {corrected_pose[2]:.2f})\n" \
+                                f"Corrected Orientation: ({corrected_pose[3]:.2f}, {corrected_pose[4]:.2f}, {corrected_pose[5]:.2f})"
+            header = Header()
+            header.frame_id = "base_link"
+            header.stamp = rospy.Time.now()
+            publish_incremental_pose_to_topic("corrected_vehicle_pose", corrected_pose, text, header)
+            
+            # DEBUG -> Publish vehicle path
+            vehicle_corrected_path = np.array(wc.corrected_path)
+            publish_path("corrected_vehicle_path", vehicle_corrected_path, header)
+
+            # Append pose (Referenced to the map Frame) data for the current frame to CSV
+            rel_pose = wc.relative_cummulative_pose
+            odo_pose = wc.odometry_cummulative_pose
+            with open(csv_file_path, 'a', newline='') as csvfile:
+                csv_writer = csv.writer(csvfile)
+                row = [frame_n] + rel_pose[0] + rel_pose[1] + rel_pose[2] + rel_pose[3] + rel_pose[4] + rel_pose[5]\
+                                + odo_pose[0] + odo_pose[1] + odo_pose[2] + odo_pose[3] + odo_pose[4] + odo_pose[5]\
+                                + corrected_pose[0] + corrected_pose[1] + corrected_pose[2] + corrected_pose[3] + corrected_pose[4] + corrected_pose[5]
+                csv_writer.writerow(row)
+                rospy.loginfo(f"Frame {frame_n} data appended to CSV")
+
+
+            rate.sleep()

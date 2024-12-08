@@ -256,64 +256,6 @@ def get_cluster_orientation(point_cloud):
     return [roll,pitch,yaw]
 
 
-def euler_to_quaternion(roll, pitch, yaw):
-    qx = np.sin(roll/2) * np.cos(pitch/2) * np.cos(yaw/2) - np.cos(roll/2) * np.sin(pitch/2) * np.sin(yaw/2)
-    qy = np.cos(roll/2) * np.sin(pitch/2) * np.cos(yaw/2) + np.sin(roll/2) * np.cos(pitch/2) * np.sin(yaw/2)
-    qz = np.cos(roll/2) * np.cos(pitch/2) * np.sin(yaw/2) - np.sin(roll/2) * np.sin(pitch/2) * np.cos(yaw/2)
-    qw = np.cos(roll/2) * np.cos(pitch/2) * np.cos(yaw/2) + np.sin(roll/2) * np.sin(pitch/2) * np.sin(yaw/2)
-
-    return [qx, qy, qz, qw]
-
-
-def quaternion_to_euler(w, x, y, z):
-    sinr_cosp = 2 * (w * x + y * z)
-    cosr_cosp = 1 - 2 * (x * x + y * y)
-    roll = np.arctan2(sinr_cosp, cosr_cosp)
-
-    sinp = 2 * (w * y - z * x)
-    if np.abs(sinp) >= 1:
-        pitch = np.sign(sinp) * np.pi / 2
-    else:
-        pitch = np.arcsin(sinp)
-
-    siny_cosp = 2 * (w * z + x * y)
-    cosy_cosp = 1 - 2 * (y * y + z * z)
-    yaw = np.arctan2(siny_cosp, cosy_cosp)
-
-    return roll, pitch, yaw
-
-
-def normalize_quaternion(q):
-    norm = np.linalg.norm(q)
-    if norm == 0:
-        raise ValueError("Cannot normalize a zero-norm quaternion")
-    return q / norm
-
-
-def quaternion_multiply(q1, q2):
-    """ Multiplies two quaternions in the format [x, y, z, w]. """
-    x1, y1, z1, w1 = q1
-    x2, y2, z2, w2 = q2
-    return [
-        w1*x2 + x1*w2 + y1*z2 - z1*y2,
-        w1*y2 - x1*z2 + y1*w2 + z1*x2,
-        w1*z2 + x1*y2 - y1*x2 + z1*w2,
-        w1*w2 - x1*x2 - y1*y2 - z1*z2
-    ]
-
-
-def quaternion_conjugate(q):
-    """ Returns the conjugate (inverse) of a quaternion in the format [x, y, z, w]. """
-    x, y, z, w = q
-    return [-x, -y, -z, w]
-
-
-def quaternion_difference(q1, q2):
-    """ Returns the quaternion representing the rotation from q1 to q2 in the format [x, y, z, w]. """
-    q1_inv = quaternion_conjugate(q1)
-    return quaternion_multiply(q1_inv, q2)
-
-
 def plot_referenced_pointcloud(point_cloud, plot=True):
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(point_cloud)
@@ -323,16 +265,6 @@ def plot_referenced_pointcloud(point_cloud, plot=True):
         o3d.visualization.draw_geometries([pcd, mesh_frame])
     else:
         return [pcd, mesh_frame]
-
-
-def create_pose_frame(pose, size=0.6):
-    x, y, z, roll, pitch, yaw = pose
-    mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=size, origin=[x, y, z])
-    # Create rotation matrix from roll, pitch, yaw
-    r = R.from_euler('xyz', [roll, pitch, yaw], degrees=True)
-    rot_matrix = r.as_matrix()
-    mesh_frame.rotate(rot_matrix, center=[x, y, z])
-    return mesh_frame
 
 
 def plot_labeled_pointcloud(labeled_pointclouds):

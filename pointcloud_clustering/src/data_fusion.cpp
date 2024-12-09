@@ -450,6 +450,8 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
         for (int i = 0; i < observations_BL.size(); i++) {
             float minMahalanobis = mahalanobisDistanceThreshold;
             int bestMatchIndex = -1;
+            //TODO: Remove >> Check distances computed
+            std::vector<float> distances;
 
             for (int j = 0; j < map.size(); j++) {
                 // Compute innovation vector
@@ -466,6 +468,9 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
 
                 // Compute Mahalanobis distance
                 float distance = sqrt(mahalanobisDistance(h_ij, S_ij));
+
+                //TODO: Remove
+                distances.push_back(distance);
                 if (distance < minMahalanobis) {
                     // Match found
                     ROS_INFO("EKF MATCH FOUND in observation %d with map element %d. Distance = %4f", i, j, distance);
@@ -474,12 +479,18 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
                     bestMatchIndex = j;
                 }
             }
-
             // Register match if found
             if (bestMatchIndex != -1) {
                 matched = true;
                 i_vec.push_back(i);
                 j_vec.push_back(bestMatchIndex);
+            }
+            //TODO: Remove
+            if (!distances.empty()) {
+                float minDistance = *std::min_element(distances.begin(), distances.end());
+                std::cout << "Frame: " << frame_n << " - Minimum Mahalanobis distance for observation " << i << ": " << minDistance << std::endl;
+            } else {
+                std::cout << "Frame: " << frame_n << " - No distances computed for observation " << i << "." << std::endl;
             }
         }
 
@@ -518,7 +529,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
                 auto H_x_i = B * J2_n(Inv(map[j].position), observation_origin) * J1_n(kalmanPose, observations_BL[i].position);
                 H_x_k.block(m * B.rows(), 0, B.rows(), 6) = H_x_i;
 
-                auto H_z_i = B * J2_n(map[j].position, observation_origin) * J2_n(kalmanPose, observations_BL[i].position);
+                auto H_z_i = B * J2_n(Inv(map[j].position), observation_origin) * J2_n(kalmanPose, observations_BL[i].position);
                 
                 H_z_k.block(m * B.rows(), m * 6, B.rows(), 6) = H_z_i;
                 // Add observation noise

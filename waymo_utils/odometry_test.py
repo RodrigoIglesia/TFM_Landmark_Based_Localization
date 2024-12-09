@@ -85,7 +85,7 @@ with open(csv_path, newline='') as csvfile:
         vertical_elements.append([x, y, z, 0.0, 0.0, 0.0])
 
 # Read dataset
-dataset_path = os.path.join(src_dir, "dataset/final_tests_scene")
+dataset_path = os.path.join(src_dir, "dataset/waymo_test_scene")
 tfrecord_list = list(sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
 
 # Prepare Open3D geometry objects
@@ -116,57 +116,57 @@ for scene_index, scene_path in enumerate(tfrecord_list):
         if frame is None:
             continue
 
-        # relative_pose, noisy_relative_pose, transform_matrix, initial_transform_matrix = process_odometry(frame, position_noise_cumulative, orientation_noise_cumulative, initial_transform_matrix)
-        # print(relative_pose)
+        relative_pose, noisy_relative_pose, transform_matrix, initial_transform_matrix = process_odometry(frame, position_noise_cumulative, orientation_noise_cumulative, initial_transform_matrix)
+        print(relative_pose)
 
-        # point = [relative_pose[0], relative_pose[1], relative_pose[2]]
-        # points.append(point)
+        point = [relative_pose[0], relative_pose[1], relative_pose[2]]
+        points.append(point)
 
-        # noisy_point = [noisy_relative_pose[0], noisy_relative_pose[1], noisy_relative_pose[2]]
-        # noisy_points.append(noisy_point)
+        noisy_point = [noisy_relative_pose[0], noisy_relative_pose[1], noisy_relative_pose[2]]
+        noisy_points.append(noisy_point)
 
-        # # Create an axis for the pose
-        # R_matrix = transform_matrix[:3, :3]
-        # pose_translation = point
-        # axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=axis_length, origin=pose_translation)
-        # axis.rotate(R_matrix, center=pose_translation)
-        # vis.add_geometry(axis)
+        # Create an axis for the pose
+        R_matrix = transform_matrix[:3, :3]
+        pose_translation = point
+        axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=axis_length, origin=pose_translation)
+        axis.rotate(R_matrix, center=pose_translation)
+        vis.add_geometry(axis)
 
-        # # Connect the current point to the previous one to show the path
-        # if prev_point is not None:
-        #     lines.append([len(points) - 2, len(points) - 1])
-        # if prev_noisy_point is not None:
-        #     noisy_lines.append([len(noisy_points) - 2, len(noisy_points) - 1])
+        # Connect the current point to the previous one to show the path
+        if prev_point is not None:
+            lines.append([len(points) - 2, len(points) - 1])
+        if prev_noisy_point is not None:
+            noisy_lines.append([len(noisy_points) - 2, len(noisy_points) - 1])
 
-        # prev_point = point
-        # prev_noisy_point = noisy_point
+        prev_point = point
+        prev_noisy_point = noisy_point
         frame_n += 1
 
-        # Obtener la nube de puntos para el primer frame
-        if frame_n != 10:
-            continue
-        range_images, camera_projections, segmentation_labels, range_image_top_pose = frame_utils.parse_range_image_and_camera_projection(frame)
+        # # Obtener la nube de puntos para el primer frame
+        # if frame_n != 10:
+        #     continue
+        # range_images, camera_projections, segmentation_labels, range_image_top_pose = frame_utils.parse_range_image_and_camera_projection(frame)
 
-        def _range_image_to_pcd(ri_index=0):
-            points, points_cp = frame_utils.convert_range_image_to_point_cloud(
-                frame, range_images, camera_projections, range_image_top_pose, ri_index=ri_index)
-            return points, points_cp
+        # def _range_image_to_pcd(ri_index=0):
+        #     points, points_cp = frame_utils.convert_range_image_to_point_cloud(
+        #         frame, range_images, camera_projections, range_image_top_pose, ri_index=ri_index)
+        #     return points, points_cp
 
-        points_return1 = _range_image_to_pcd()
-        points_return2 = _range_image_to_pcd(1)
+        # points_return1 = _range_image_to_pcd()
+        # points_return2 = _range_image_to_pcd(1)
 
-        pointcloud, points_cp = concatenate_pcd_returns(points_return1, points_return2)
-        transform = np.reshape(np.array(frame.pose.transform), [4, 4])
-        points_homogeneous = np.hstack((pointcloud, np.ones((pointcloud.shape[0], 1))))
-        global_points = np.dot(transform, points_homogeneous.T).T
-        global_points = global_points[:, :3]
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(global_points)
-        pcd.paint_uniform_color([0.5, 0.5, 0.5])
+        # pointcloud, points_cp = concatenate_pcd_returns(points_return1, points_return2)
+        # transform = np.reshape(np.array(frame.pose.transform), [4, 4])
+        # points_homogeneous = np.hstack((pointcloud, np.ones((pointcloud.shape[0], 1))))
+        # global_points = np.dot(transform, points_homogeneous.T).T
+        # global_points = global_points[:, :3]
+        # pcd = o3d.geometry.PointCloud()
+        # pcd.points = o3d.utility.Vector3dVector(global_points)
+        # pcd.paint_uniform_color([0.5, 0.5, 0.5])
 
-        vis.add_geometry(pcd)
-        opt = vis.get_render_option()
-        opt.point_size = 1.0
+        # vis.add_geometry(pcd)
+        # opt = vis.get_render_option()
+        # opt.point_size = 1.0
 
     # # Convert points and lines to Open3D format
     # points_o3d = o3d.utility.Vector3dVector(points)
@@ -181,11 +181,11 @@ for scene_index, scene_path in enumerate(tfrecord_list):
     # vis.add_geometry(noisy_line_set)
 
     # Añadir ejes de coordenadas para cada elemento vertical
-    for element in vertical_elements:
-        print(element)
-        element_position = element[:3]  # x, y, z
-        axis_element = o3d.geometry.TriangleMesh.create_coordinate_frame(size=axis_length, origin=element_position)
-        vis.add_geometry(axis_element)
+    # for element in vertical_elements:
+    #     print(element)
+    #     element_position = element[:3]  # x, y, z
+    #     axis_element = o3d.geometry.TriangleMesh.create_coordinate_frame(size=axis_length, origin=element_position)
+    #     vis.add_geometry(axis_element)
 
     # Run the visualization
     vis.run()

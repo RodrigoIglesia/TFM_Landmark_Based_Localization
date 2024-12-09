@@ -97,45 +97,78 @@ pointcloud_clustering::positionRPY coordRPY(Eigen::Matrix4f matrix) {
 
 /*----------------------------------------------------------------------------------------------*/
 
-Matrix6f J1_n(pointcloud_clustering::positionRPY ab, pointcloud_clustering::positionRPY bc){ // Jacobian 
-  Matrix6f result; result = result.Identity();
-  Matrix4f H1 = createHomogMatr(ab);
-  Matrix4f H2 = createHomogMatr(bc);
-  
-  pointcloud_clustering::positionRPY ac;
-  
-  ac = Comp(ab, bc);
-  
-  result(0,3) = ab.y - ac.y;     result(0,4) = (ac.z - ab.z)*cos(ab.yaw);                                                                   result(0,5) = H1(0,2)*bc.y - H1(0,1)*bc.z;
-  result(1,3) = ac.x - ab.x;     result(1,4) = (ac.z - ab.z)*sin(ab.yaw);                                                                   result(1,5) = H1(1,2)*bc.y - H1(1,1)*bc.z;
-  result(2,3) = 0.0;             result(2,4) = -bc.x*cos(ab.pitch) - bc.y*sin(ab.pitch)*sin(ab.roll) - bc.z*sin(ab.pitch)*cos(ab.roll);     result(2,5) = H1(2,2)*bc.y - H1(2,1)*bc.z;
-  
-  result(3,3) = 1.0;             result(3,4) = sin(ac.pitch)*sin(ac.yaw-ab.yaw)/cos(ac.pitch);            result(3,5) = (H2(0,1)*sin(ac.roll)+H2(0,2)*cos(ac.roll))/cos(ac.pitch);
-  result(4,3) = 0.0;             result(4,4) = cos(ac.yaw-ab.yaw);                                        result(4,5) = -cos(ab.pitch)*sin(ac.yaw-ab.yaw);
-  result(5,3) = 0.0;             result(5,4) = sin(ac.yaw-ab.yaw)/cos(ac.pitch);                          result(5,5) = cos(ab.pitch)*cos(ac.yaw-ab.yaw)/cos(ac.pitch);
-  
-  return result;
+Matrix6f J1_n(pointcloud_clustering::positionRPY ab, pointcloud_clustering::positionRPY bc) {
+    Matrix6f result = Matrix6f::Identity();
+    Matrix4f H1 = createHomogMatr(ab);
+    Matrix4f H2 = createHomogMatr(bc);
+
+    pointcloud_clustering::positionRPY ac = Comp(ab, bc); // Composed pose
+
+    // Translation Jacobian
+    result(0, 3) = ab.y - ac.y;
+    result(0, 4) = (ac.z - ab.z) * cos(ab.yaw);
+    result(0, 5) = H1(0, 2) * bc.y - H1(0, 1) * bc.z;
+
+    result(1, 3) = ac.x - ab.x;
+    result(1, 4) = (ac.z - ab.z) * sin(ab.yaw);
+    result(1, 5) = H1(1, 2) * bc.y - H1(1, 1) * bc.z;
+
+    result(2, 3) = 0.0;
+    result(2, 4) = -bc.x * cos(ab.pitch) - bc.y * sin(ab.pitch) * sin(ab.roll) - bc.z * sin(ab.pitch) * cos(ab.roll);
+    result(2, 5) = H1(2, 2) * bc.y - H1(2, 1) * bc.z;
+
+    // Rotation Jacobian
+    result(3, 3) = 1.0;
+    result(3, 4) = sin(ac.pitch) * sin(ac.yaw - ab.yaw) / cos(ac.pitch);
+    result(3, 5) = (H2(0, 1) * sin(ac.roll) + H2(0, 2) * cos(ac.roll)) / cos(ac.pitch);
+
+    result(4, 3) = 0.0;
+    result(4, 4) = cos(ac.yaw - ab.yaw);
+    result(4, 5) = -cos(ab.pitch) * sin(ac.yaw - ab.yaw);
+
+    result(5, 3) = 0.0;
+    result(5, 4) = sin(ac.yaw - ab.yaw) / cos(ac.pitch);
+    result(5, 5) = cos(ab.pitch) * cos(ac.yaw - ab.yaw) / cos(ac.pitch);
+
+    return result;
 }
+
 
 /*----------------------------------------------------------------------------------------------*/
 
-Matrix6f J2_n(pointcloud_clustering::positionRPY ab, pointcloud_clustering::positionRPY bc){
-  Matrix6f result = result.Zero();
-  Matrix4f H1 = createHomogMatr(ab);
-  pointcloud_clustering::positionRPY ac;
-  
-  ac = Comp(ab, bc);
-  
-  result(0,0) = cos(ab.yaw)*cos(ab.pitch);  result(0,1) = cos(ab.yaw)*sin(ab.pitch)*sin(ab.roll)-sin(ab.yaw)*cos(ab.pitch);   result(0,2) = cos(ab.yaw)*sin(ab.pitch)*cos(ab.roll)+sin(ab.yaw)*sin(ab.pitch);
-  result(1,0) = sin(ab.yaw)*cos(ab.pitch);  result(1,1) = sin(ab.yaw)*sin(ab.pitch)*sin(ab.roll)+cos(ab.yaw)*cos(ab.roll);   result(1,2) = sin(ab.yaw)*sin(ab.pitch)*cos(ab.roll)-cos(ab.yaw)*sin(ab.roll);
-  result(2,0) = -sin(ab.pitch);             result(2,1) = cos(ab.pitch)*sin(ab.roll);     result(2,2) = cos(ab.pitch)*cos(ab.roll);
-  
-  result(3,3) = cos(bc.pitch)*cos(ac.roll-bc.roll)/cos(ac.pitch);                  result(3,4) = sin(ac.roll-bc.roll);                                   result(3,5) = 0.0;
-  result(4,3) = -cos(bc.pitch)*sin(ac.roll-bc.roll);                               result(4,4) = cos(ac.roll-bc.roll);                                   result(4,5) = 0.0;
-  result(5,3) = (H1(0,2)*cos(ac.yaw) + H1(1,2)*sin(ac.yaw))/cos(ac.pitch);         result(5,4) = sin(ac.pitch)*sin(ac.roll-bc.roll)/cos(ac.pitch);       result(5,5) = 1.0;
-  
-  return result;
+Matrix6f J2_n(pointcloud_clustering::positionRPY ab, pointcloud_clustering::positionRPY bc) {
+    Matrix6f result = Matrix6f::Zero();
+    Matrix4f H1 = createHomogMatr(ab); // Transformation matrix of the first pose
+    pointcloud_clustering::positionRPY ac = Comp(ab, bc); // Composed pose
+
+    // Rotation components
+    float cos_pitch = cos(ab.pitch);
+    float sin_pitch = sin(ab.pitch);
+    float cos_roll = cos(ab.roll);
+    float sin_roll = sin(ab.roll);
+    float cos_yaw = cos(ab.yaw);
+    float sin_yaw = sin(ab.yaw);
+
+    // Jacobian of translation
+    result.block<3, 3>(0, 0) = H1.block<3, 3>(0, 0); // Rotation matrix of ab
+    result.block<3, 3>(0, 3) = Matrix3f::Zero();     // No influence on translation
+
+    // Jacobian of rotation
+    result(3, 3) = cos_pitch * cos(ac.roll - bc.roll) / cos(ac.pitch);
+    result(3, 4) = sin(ac.roll - bc.roll);
+    result(3, 5) = 0.0;
+
+    result(4, 3) = -cos_pitch * sin(ac.roll - bc.roll);
+    result(4, 4) = cos(ac.roll - bc.roll);
+    result(4, 5) = 0.0;
+
+    result(5, 3) = (H1(0, 2) * cos(ac.yaw) + H1(1, 2) * sin(ac.yaw)) / cos(ac.pitch);
+    result(5, 4) = sin(ac.pitch) * sin(ac.roll - bc.roll) / cos(ac.pitch);
+    result(5, 5) = 1.0;
+
+    return result;
 }
+
 
 /*----------------------------------------------------------------------------------------------*/
 

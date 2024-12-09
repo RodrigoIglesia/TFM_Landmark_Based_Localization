@@ -107,9 +107,6 @@ class WaymoClient:
         rospy.loginfo("Data Fusion service is running")
 
 
-
-
-
     def process_odometry(self, position_noise_std=0.05, orientation_noise_std=0.01):
         """
         Get incremental pose of the vehicle with cumulative Gaussian noise.
@@ -174,10 +171,7 @@ class WaymoClient:
         self.extrinsic_matrix_inv = self.extrinsic_matrix_inv[:3,:]
 
 
-    def cart2hom(self, pts_3d):
-        n = pts_3d.shape[0]
-        pts_3d_hom = np.hstack((pts_3d, np.ones((n, 1))))
-        return pts_3d_hom
+    
 
 
     def process_pointcloud(self):
@@ -229,7 +223,7 @@ class WaymoClient:
 
 
     def __vehicle_to_camera(self, pointcloud, transform):
-        point_cloud_hom = self.cart2hom(pointcloud)
+        point_cloud_hom = tu.cart2hom(pointcloud)
         point_cloud_cam = np.dot(point_cloud_hom, np.transpose(transform))
 
         theta_x = np.pi / 2
@@ -263,7 +257,7 @@ class WaymoClient:
         positive_indices = (point_cloud_cam[:, 2] >= 0)
         point_cloud_cam = point_cloud_cam[positive_indices]
         positive_labels = self.cluster_labels[positive_indices]
-        point_cloud_cam_hom = self.cart2hom(point_cloud_cam)
+        point_cloud_cam_hom = tu.cart2hom(point_cloud_cam)
         P = np.hstack((self.intrinsic_matrix, np.zeros((3, 1))))
         point_cloud_image = np.dot(P, point_cloud_cam_hom.T).T
         point_cloud_image = point_cloud_image[:, :2] / point_cloud_image[:, 2:]
@@ -601,7 +595,8 @@ if __name__ == "__main__":
     rate = rospy.Rate(1/4)
 
     # Read dataset
-    scene_path = os.path.join(src_dir, "dataset/final_tests_scene/individual_files_training_segment-10072140764565668044_4060_000_4080_000_with_camera_labels.tfrecord")
+    # scene_path = os.path.join(src_dir, "dataset/final_tests_scene/individual_files_training_segment-10072140764565668044_4060_000_4080_000_with_camera_labels.tfrecord")
+    scene_path = os.path.join(src_dir, "dataset/final_tests_scene/individual_files_testing_segment-10084636266401282188_1120_000_1140_000_with_camera_labels.tfrecord")
 
     # Initialize classes outside the loop
     wc = None
@@ -765,16 +760,6 @@ if __name__ == "__main__":
             header.stamp = rospy.Time.now()
             publish_multiple_poses_to_topic("landmark_poses", wc.clusters_poses, header)
 
-            with open(landmark_csv_file_path, 'a', newline='') as csvfile:
-                csv_writer = csv.writer(csvfile)
-                for label, landmark in wc.clusters_poses.items():
-                    #TODO: Project landmark to map frame
-                    landmark = w3d.comp_poses(corrected_pose, landmark)
-                    row = [frame_n], landmark[0], landmark[1], landmark[2], landmark[3], landmark[4], landmark[5]
-                    csv_writer.writerow(row)
-                rospy.loginfo(f"Frame {frame_n} data appended to CSV")
-
-
             """
             DATA FUSION > CORRECT ODOMETRY POSITION WITH LANDMARK OBSERVATIONS
             """
@@ -807,10 +792,20 @@ if __name__ == "__main__":
             odo_pose = wc.odometry_cummulative_pose
             with open(csv_file_path, 'a', newline='') as csvfile:
                 csv_writer = csv.writer(csvfile)
-                row = [frame_n] + rel_pose[0] + rel_pose[1] + rel_pose[2] + rel_pose[3] + rel_pose[4] + rel_pose[5]\
-                                + odo_pose[0] + odo_pose[1] + odo_pose[2] + odo_pose[3] + odo_pose[4] + odo_pose[5]\
-                                + corrected_pose[0] + corrected_pose[1] + corrected_pose[2] + corrected_pose[3] + corrected_pose[4] + corrected_pose[5]
+                row = [frame_n], rel_pose[0], rel_pose[1], rel_pose[2], rel_pose[3], rel_pose[4], rel_pose[5],\
+                                 odo_pose[0], odo_pose[1], odo_pose[2], odo_pose[3], odo_pose[4], odo_pose[5],\
+                                 corrected_pose[0], corrected_pose[1], corrected_pose[2], corrected_pose[3], corrected_pose[4], corrected_pose[5]
                 csv_writer.writerow(row)
+                rospy.loginfo(f"Frame {frame_n} data appended to CSV")
+            
+            # Append observations landmarks (Referenced to the map Frame) data for the current frame to CSV
+            with open(landmark_csv_file_path, 'a', newline='') as csvfile:
+                csv_writer = csv.writer(csvfile)
+                for label, landmark in wc.clusters_poses.items():
+                    #TODO: Project landmark to map frame
+                    landmark = tu.comp_poses(corrected_pose, landmark)
+                    row = [frame_n], landmark[0], landmark[1], landmark[2], landmark[3], landmark[4], landmark[5]
+                    csv_writer.writerow(row)
                 rospy.loginfo(f"Frame {frame_n} data appended to CSV")
 
 

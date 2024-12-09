@@ -74,7 +74,7 @@ def create_pose_frame(pose, size=0.6):
     mesh_frame.rotate(rot_matrix, center=[x, y, z])
     return mesh_frame
 
-def get_pose(self, T):
+def get_pose(T):
     position = T[:3, 3]
     R_matrix = T[:3, :3]
     rotation = R.from_matrix(R_matrix)
@@ -83,7 +83,7 @@ def get_pose(self, T):
     return [position[0], position[1], position[2], roll, pitch, yaw]
 
 
-def normalize_angle(self, angle):
+def normalize_angle(angle):
     """ Normalize the angle to be within the range [-π, π] """
     return (angle + np.pi) % (2 * np.pi) - np.pi
 
@@ -138,9 +138,6 @@ def comp_poses(accumulated_pose, increment):
     Returns:
         np.ndarray: New accumulated pose vector [x, y, z, roll, pitch, yaw].
     """
-    if len(accumulated_pose) != 6 or len(increment) != 6:
-        raise ValueError("Both pose vectors must have exactly 6 elements.")
-    
     # Create homogeneous matrices
     accumulated_matrix = create_homogeneous_matrix(accumulated_pose)
     increment_matrix = create_homogeneous_matrix(increment)
@@ -157,3 +154,8 @@ def comp_poses(accumulated_pose, increment):
     yaw = np.arctan2(result_matrix[1, 0], result_matrix[0, 0])
 
     return np.array([x, y, z, roll, pitch, yaw])
+
+def cart2hom(pts_3d):
+    n = pts_3d.shape[0]
+    pts_3d_hom = np.hstack((pts_3d, np.ones((n, 1))))
+    return pts_3d_hom

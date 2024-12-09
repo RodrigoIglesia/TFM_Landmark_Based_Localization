@@ -25,6 +25,8 @@ def load_frame(scene):
     """
     dataset = tf.data.TFRecordDataset(scene, compression_type='')
     for data in dataset:
+        if not data:
+            break
         frame_object = open_dataset.Frame()
         frame_object.ParseFromString(bytearray(data.numpy()))
 

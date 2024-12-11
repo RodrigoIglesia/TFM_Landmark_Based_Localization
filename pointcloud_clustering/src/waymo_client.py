@@ -52,7 +52,7 @@ from waymo_utils.publisher_utils import *
 import waymo_utils.waymo_3d_parser as w3d
 import waymo_utils.transform_utils as tu
 
-
+import pandas as pd #TODO:REMOVE
 
 class WaymoClient:
     def __init__(self, frame, cams_order):
@@ -324,6 +324,7 @@ class WaymoClient:
 
         # Process each cluster
         landmarks_associated = 0
+        pair_image = np.copy(self.image)
         for label, cluster_points in self.clustered_pointcloud_image.items():
             if len(cluster_points) >= 3:  # Convex hull requires at least 3 points
                 hull = ConvexHull(cluster_points)
@@ -351,12 +352,15 @@ class WaymoClient:
                     # Show the image with the pair of hulls
                     if (debug==True):
                         ## TODO: REMOVE DEBUG
-                        pair_image = np.copy(self.image)
                         cv2.drawContours(pair_image, [seg_hull.reshape((-1, 1, 2))], -1, (255, 0, 0), 2)  # White for segmentation hull
                         cv2.drawContours(pair_image, [cluster_hull.reshape((-1, 1, 2))], -1, (0, 0, 255), 2)  # Red for cluster hull
                         self.__draw_iou_text(pair_image, cluster_hull, seg_hull, iou)
-                        cv2.imshow("Hull Pair", pair_image)
-                        cv2.waitKey(0)
+        header = Header()
+        header.frame_id = "base_link"
+        header.stamp = rospy.Time.now()
+        publish_image_to_topic(topic='/data_association_output', image=pair_image, header=header)
+        # cv2.imshow("Hull Pair", pair_image)
+        # cv2.waitKey(0)
         rospy.loginfo("Data Association Associated landmarks: " + str(landmarks_associated))
 
 
@@ -596,7 +600,7 @@ if __name__ == "__main__":
 
     # Read dataset
     # scene_path = os.path.join(src_dir, "dataset/final_tests_scene/individual_files_training_segment-10072140764565668044_4060_000_4080_000_with_camera_labels.tfrecord")
-    scene_path = os.path.join(src_dir, "dataset/final_tests_scene/individual_files_testing_segment-10084636266401282188_1120_000_1140_000_with_camera_labels.tfrecord")
+    scene_path = os.path.join(src_dir, "dataset/final_tests_scene/individual_files_training_segment-10023947602400723454_1120_000_1140_000_with_camera_labels.tfrecord")
 
     # Initialize classes outside the loop
     wc = None
@@ -671,6 +675,24 @@ if __name__ == "__main__":
             frame_n += 1
             rospy.loginfo(f"\n New Frame {frame_n} \n")
 
+            ##################################################
+            #TODO: DEBUG REMOVE
+            #Plot saved map elements
+            map_pc_file_path = "/home/rodrigo/catkin_ws/src/TFM_Landmark_Based_Localization/dataset/pointclouds/pointcloud_concatenatedindividual_files_training_segment-10023947602400723454_1120_000_1140_000_with_camera_labels.csv"
+            map_points = []
+            with open(map_pc_file_path, "r") as csvfile:
+                reader = csv.reader(csvfile)
+                for row in reader:
+                    if len(row) >= 3:
+                        x, y, z = map(float, row[:3])
+                        map_points.append((x, y, z))
+            header = Header()
+            header.frame_id = "base_link"
+            header.stamp = rospy.Time.now()
+            publish_pointcloud_to_topic('map_pointcloud', map_points, header)
+
+
+
             """ 
             PROCESS ODOMETRY --> GET INCREMENTAL VEHICLE POSITION ON EACH FRAME
             Odometry service also get the transformation matrix of the vehicle
@@ -743,7 +765,7 @@ if __name__ == "__main__":
             # Pointclouds filtering > get the IoU of pointcloud clusters and segmentation masks
             # This method generates a dictionary of the classes and those clusters that match the segmentations.
             # Generates clusters in the camera and vehicle frame
-            wc.filter_association_iou(debug=False,iou_threshold=0.1)
+            wc.filter_association_iou(debug=True,iou_threshold=0.1)
 
             # DEBUG - Publish filtered pointcloud only with landmarks
             header = Header()
@@ -754,11 +776,11 @@ if __name__ == "__main__":
             # Get cluster landmarks pose
             wc.calculate_landmark_pose()
 
-            # DEBUG - Publish landmark poses in vehicle frame
-            header = Header()
-            header.frame_id = "base_link"
-            header.stamp = rospy.Time.now()
-            publish_multiple_poses_to_topic("landmark_poses", wc.clusters_poses, header)
+            # # DEBUG - Publish landmark poses in vehicle frame
+            # header = Header()
+            # header.frame_id = "base_link"
+            # header.stamp = rospy.Time.now()
+            # publish_multiple_poses_to_topic("landmark_poses", wc.clusters_poses, header)
 
             """
             DATA FUSION > CORRECT ODOMETRY POSITION WITH LANDMARK OBSERVATIONS

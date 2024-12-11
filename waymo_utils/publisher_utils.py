@@ -9,6 +9,7 @@ from cv_bridge import CvBridge
 from sensor_msgs.msg import PointCloud2, PointField
 import sensor_msgs.point_cloud2 as pc2
 import struct
+import numpy as np
 
 def publish_incremental_pose_to_topic(topic, pose, text, header):
     """
@@ -172,6 +173,30 @@ def publish_image_to_topic(topic, image, header):
 
     # Publish the image message
     image_publisher.publish(image_msg)
+
+def publish_pointcloud_to_topic(topic, points, header):
+    publisher = rospy.Publisher(topic, PointCloud2, queue_size=10)
+    fields = [
+        PointField(name="x", offset=0, datatype=PointField.FLOAT32, count=1),
+        PointField(name="y", offset=4, datatype=PointField.FLOAT32, count=1),
+        PointField(name="z", offset=8, datatype=PointField.FLOAT32, count=1),
+    ]
+
+    # Flatten the list of points and pack into binary format
+    point_data = np.array(points, dtype=np.float32).tobytes()
+
+    pointcloud_msg = PointCloud2(
+        header=header,
+        height=1,
+        width=len(points),
+        fields=fields,
+        is_bigendian=False,
+        point_step=12,  # 4 bytes each for x, y, z
+        row_step=12 * len(points),
+        data=point_data,
+        is_dense=True,
+    )
+    publisher.publish(pointcloud_msg)
 
 def publish_labeled_pointcloud_to_topic(topic, clustered_pointcloud, header):
     """

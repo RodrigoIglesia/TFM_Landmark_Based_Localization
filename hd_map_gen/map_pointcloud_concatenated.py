@@ -88,7 +88,25 @@ logger.addHandler(console_handler)
 from waymo_utils.WaymoParser import *
 from waymo_utils.waymo_3d_parser import *
 
+def project_points_on_map(points, transform):
+    """
+    Project coordinates of the point cloud (referenced to the sensor system) to the map (referenced to the vehicle system)
+    """
+    # Get pointcloud coordinated to project in the map
+    xyz = points[0]
+    num_points = xyz.shape[0]
 
+    # Transform the points from the vehicle frame to the world frame.
+    xyz = np.concatenate([xyz, np.ones([num_points, 1])], axis=-1)
+    xyz = np.transpose(np.matmul(transform, np.transpose(xyz)))[:, 0:3]
+
+    # # Correct the pose of the points into the coordinate system of the first
+    # # frame to align with the map data.
+    # offset = frame.map_pose_offset
+    # points_offset = np.array([offset.x, offset.y, offset.z])
+    # xyz += points_offset
+
+    return xyz
 
 def add_sign_to_map(map_features, sign_coords, id):
     # Create a new map features object to insert the sign there
@@ -214,7 +232,7 @@ def save_protobuf_features(protobuf_message, output):
 
 
 if __name__ == "__main__":
-    scene_path = os.path.join(src_dir, "dataset/final_tests_scene/individual_files_validation_segment-10247954040621004675_2180_000_2200_000_with_camera_labels.tfrecord")
+    scene_path = os.path.join(src_dir, "dataset/final_tests_scene/individual_files_training_segment-10023947602400723454_1120_000_1140_000_with_camera_labels.tfrecord")
     json_maps_path      = os.path.join(src_dir, "dataset/hd_maps")
     point_clouds_path   = os.path.join(src_dir, "dataset/pointclouds")
     output_dataset_path = os.path.join(src_dir, "dataset/final_output_scenes")
@@ -252,23 +270,10 @@ if __name__ == "__main__":
     point_clouds = []
     # Array to store pointcloud labels
     point_cloud_labels = []
-    cummulative_pose = np.zeros(6)
 
-    origin_pose = np.zeros(6)
+    accumulated_transform = np.eye(4)
     previous_transform_matrix = None
-    relative_transform = None
     for frame_index, frame in enumerate(load_frame(scene_path)):
-
-        ############################################################
-        ## Get transform from current pose to vehicle origin pose
-        ###########################################################
-        transform_matrix = np.array(frame.pose.transform).reshape(4, 4)
-        if previous_transform_matrix is None:
-            inc_pose = origin_pose
-        else:
-            relative_transform = np.linalg.inv(previous_transform_matrix) @ transform_matrix
-            inc_pose = tu.get_pose(relative_transform)
-
         ############################################################
         ## Process Pointclouds
         ###########################################################
@@ -299,14 +304,22 @@ if __name__ == "__main__":
 
         # plot_pointcloud_on_map(map_features, points_return1, point_labels)
 
-        filtered_point_cloud, filtered_point_labels = filter_lidar_data(points_return1, point_labels, [10])
+        filtered_point_cloud, filtered_point_labels = filter_lidar_data(points_return1, point_labels, [8,9,10])
 
-        # # Project pointcloud from vehicle frame to global frame
-        vehicle_transform = tu.create_homogeneous_matrix(inc_pose)
-        origin_transform = np.linalg.inv(vehicle_transform)
-        pointcloud_hom = tu.cart2hom(filtered_point_cloud[0])
-        pointcloud_origin_hom = pointcloud_hom @ origin_transform.T
-        projected_point_cloud = pointcloud_origin_hom[:, :3]
+        ############################################################
+        ## Get transform from current pose to vehicle origin pose
+        ###########################################################
+        current_transform_matrix = np.array(frame.pose.transform).reshape(4, 4)
+        if previous_transform_matrix is not None:
+            relative_transform = np.linalg.inv(previous_transform_matrix) @ current_transform_matrix
+            accumulated_transform = accumulated_transform @ relative_transform
+            # pointcloud_hom = tu.cart2hom(filtered_point_cloud[0])
+            # transformed_pointcloud_hom = pointcloud_hom @ np.linalg.inv(accumulated_transform).T
+            # transformed_pointcloud = transformed_pointcloud_hom[:, :3]
+            # point_clouds.append(transformed_pointcloud)
+        previous_transform_matrix = current_transform_matrix
+        projected_pointcloud = project_points_on_map(filtered_point_cloud, accumulated_transform)
+        point_clouds.append(projected_pointcloud)
 
         # Concatenate labels of points of the 5 LiDAR
         concat_point_labels = concatenate_points(filtered_point_labels)
@@ -314,8 +327,6 @@ if __name__ == "__main__":
         # Get semantic and instance segmentation labels
         semantic_labels = concat_point_labels[:,1]
         instance_labels = concat_point_labels[:,0]
-
-        point_clouds.append(projected_point_cloud)
         point_cloud_labels.append(semantic_labels)
 
     # Concatenate pointclouds of the scene
@@ -326,11 +337,11 @@ if __name__ == "__main__":
     else:
         logging.debug("No pointclouds in scene")
 
-    # # Save point cloud to csv
-    # out_csv_path = point_clouds_path + '/pointcloud_concatenated' + os.path.splitext(os.path.basename(scene_path))[0] + '.csv'
-    # # Use savetxt to save the array to a CSV file
-    # np.savetxt(out_csv_path, point_clouds, delimiter=',')
-    # logging.debug(f"NumPy array has been successfully saved to {out_csv_path}.")
+    # Save point cloud to csv
+    out_csv_path = point_clouds_path + '/pointcloud_concatenated' + os.path.splitext(os.path.basename(scene_path))[0] + '.csv'
+    # Use savetxt to save the array to a CSV file
+    np.savetxt(out_csv_path, point_clouds, delimiter=',')
+    logging.debug(f"NumPy array has been successfully saved to {out_csv_path}.")
 
     # Get the clustered pointclouds, each cluster corresponding to a traffic sign
     clustered_point_cloud, cluster_labels = cluster_pointcloud(point_clouds)
@@ -349,6 +360,8 @@ if __name__ == "__main__":
         add_sign_to_map(map_features, cluster_centroid, sign_id)
         logging.debug("Sign message added to map features")
         sign_id += 1
+
+
     json_file = json_maps_path + "/signs_map_features_" + os.path.splitext(os.path.basename(scene_path))[0] + '.json'
     save_protobuf_features(map_features, json_file)
     logging.debug("Modified map saved as JSON")

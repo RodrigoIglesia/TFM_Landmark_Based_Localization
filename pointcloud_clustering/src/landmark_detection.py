@@ -181,7 +181,7 @@ if __name__ == "__main__":
     rospy.init_node('landmark_detection', anonymous=True)
     rospy.logdebug("Landmark detection server initialized correctly")
     # Load the model and feature extractor from Hugging Face
-    model_name = "nvidia/segformer-b0-finetuned-cityscapes-1024-1024"
+    model_name = "nvidia/segformer-b5-finetuned-cityscapes-1024-1024"
     model = SegformerForSemanticSegmentation.from_pretrained(model_name)
     feature_extractor = SegformerFeatureExtractor.from_pretrained(model_name)
     model.to('cpu').eval()

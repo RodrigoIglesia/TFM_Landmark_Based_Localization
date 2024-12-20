@@ -99,7 +99,10 @@ private:
 
     // Debug publishers -> publisher to debug processing results in RVIZ topics
     ros::Publisher observation_pub_;
+    ros::Publisher observation_BL_pub_;
     ros::Publisher map_element_pub_;
+    ros::Publisher line_marker_pub;
+
 
 };
 
@@ -111,7 +114,9 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     */
     ros::NodeHandle nh;
     observation_pub_ = nh.advertise<geometry_msgs::PoseArray>("observation", 10);
+    observation_BL_pub_ = nh.advertise<geometry_msgs::PoseArray>("observation_BL", 10);
     map_element_pub_ = nh.advertise<geometry_msgs::PoseArray>("map_element", 10, true);
+    line_marker_pub = nh.advertise<visualization_msgs::Marker>("mahalanobis_distance", 10);
 
     // Read configuration file
     readConfig(configFilePath);
@@ -144,8 +149,8 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     P(3,3) = config_.P33_init;
     P(4,4) = config_.P44_init;
     P(5,5) = config_.P55_init;
-    // PFactor = config_.PFactor;
-    // P = P*PFactor;
+    PFactor = config_.PFactor;
+    P = P*PFactor;
 
     // std::cout << "Initial P: " << std::endl;
     // std::cout << P << std::endl;
@@ -182,8 +187,8 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     Q(4, 4) = std::pow(sigma_odom.pitch, 2);
     Q(5, 5) = std::pow(sigma_odom.yaw, 2);
 
-    // QFactor = config_.QFactor;
-    // Q = Q*QFactor;
+    QFactor = config_.QFactor;
+    Q = Q*QFactor;
 
     // std::cout << "Initial Q: " << std::endl;
     // std::cout << Q << std::endl;
@@ -333,7 +338,7 @@ void DataFusion::publishPoseElements(std::vector<pointcloud_clustering::position
     ROS_DEBUG("EKF publishing elements...");
     geometry_msgs::PoseArray pose_array_msg;
     pose_array_msg.header.stamp = ros::Time::now();
-    pose_array_msg.header.frame_id = "base_link"; // Replace with your fixed frame
+    pose_array_msg.header.frame_id = "map"; // Replace with your fixed frame
 
     for (const auto& pose : pose_array) {
         geometry_msgs::Pose pose_msg;
@@ -381,7 +386,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     incOdomEKF.roll = req.odometry.roll;
     incOdomEKF.pitch = req.odometry.pitch;
     incOdomEKF.yaw = req.odometry.yaw;
-    ROS_INFO("EKF Frame %d", frame_n);
+    ROS_DEBUG("EKF Frame %d", frame_n);
     ROS_INFO("EKF Incremental odometry received: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]", 
          incOdomEKF.x, incOdomEKF.y, incOdomEKF.z, 
          incOdomEKF.roll, incOdomEKF.pitch, incOdomEKF.yaw);
@@ -391,7 +396,6 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
 
     // Transform observations to Roll-Pitch-Yaw format
     std::vector<pointcloud_clustering::positionRPY> observations_BL = processPoseArray(verticalElements_BL);
-    // publishPoseElements(observations_BL, observation_pub_);
 
 
     // Initialize B matrix
@@ -435,7 +439,6 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
 
     if (observations_BL.empty()) {
         ROS_DEBUG("EKF No observations received. Skipping update.");
-
         // std::cout << "P:" << std::endl;
         // std::cout << P << std::endl;
 
@@ -446,6 +449,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
         ROS_DEBUG("EKF OBSERVATIONS FOUND >> MATCHING....");
         std::vector<int> i_vec; // Indices of matched observations
         std::vector<int> j_vec; // Indices of matched map elements
+
         // Data Fusion: Match observations with map elements
         std::vector<pointcloud_clustering::positionRPY> observations_map;
         
@@ -456,7 +460,8 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
             std::vector<float> distances;
 
             // Project observation to map frame
-            pointcloud_clustering::positionRPY observation_origin = Comp(Inv(kalmanPose), observations_BL[i]);
+            pointcloud_clustering::positionRPY observation_origin = Comp(kalmanPose, observations_BL[i]);
+            // pointcloud_clustering::positionRPY observation_origin = Comp(incOdomEKF, observations_BL[i]);
             observations_map.push_back(observation_origin);
 
             for (int j = 0; j < map.size(); j++) {
@@ -478,7 +483,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
                 if (distance < minMahalanobis) {
                     // Match found
                     ROS_INFO("EKF MATCH FOUND in observation %d with map element %d. Distance = %4f", i, j, distance);
-                    std::cout << "Distance: " << distance << std::endl;
+                    // std::cout << "Distance: " << distance << std::endl;
                     minMahalanobis = distance;
                     bestMatchIndex = j;
                 }
@@ -489,17 +494,67 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
                 i_vec.push_back(i);
                 j_vec.push_back(bestMatchIndex);
             }
-            //TODO: Remove
+            //TODO: Remove - Element with the minimum distance between them
             if (!distances.empty()) {
                 float minDistance = *std::min_element(distances.begin(), distances.end());
-                std::cout << "Frame: " << frame_n << " - Minimum Mahalanobis distance for observation " << i << ": " << minDistance << std::endl;
-            } else {
-                std::cout << "Frame: " << frame_n << " - No distances computed for observation " << i << "." << std::endl;
+                int minDistanceIndex = std::distance(distances.begin(), std::min_element(distances.begin(), distances.end()));
+                // std::cout << "Map Element: " << map[minDistanceIndex] << std::endl;
+                std::cout << "Frame: " << frame_n << " - Minimum Mahalanobis distance for Observation " << i << " and Map Element " << minDistanceIndex << " : " << minDistance << std::endl;
+
+                // Draw line between observation and map point and publish it to ROS
+                visualization_msgs::Marker line_marker;
+                line_marker.header.frame_id = "map"; // Adjust the frame id as needed
+                line_marker.header.stamp = ros::Time::now();
+                line_marker.ns = "mahalanobis_lines";
+                line_marker.id = i; // Unique ID for the marker
+                line_marker.type = visualization_msgs::Marker::LINE_STRIP;
+                line_marker.action = visualization_msgs::Marker::ADD;
+                geometry_msgs::Point p1, p2;
+                // Map point
+                p1.x = map[minDistanceIndex].x;
+                p1.y = map[minDistanceIndex].y;
+                p1.z = map[minDistanceIndex].z;
+                // Observation point in map frame
+                p2.x = observation_origin.x;
+                p2.y = observation_origin.y;
+                p2.z = observation_origin.z;
+                line_marker.points.push_back(p1);
+                line_marker.points.push_back(p2);
+                // Set line properties
+                line_marker.scale.x = 0.05; // Line width
+                // Line color (RGBA)
+                line_marker.color.r = 1.0;
+                line_marker.color.g = 0.0;
+                line_marker.color.b = 0.0;
+                line_marker.color.a = 1.0;
+                // Publish the marker
+                line_marker_pub.publish(line_marker);
+
+                // Add text for the distance
+                visualization_msgs::Marker text;
+                text.header.frame_id = "map";
+                text.header.stamp = ros::Time::now();
+                text.ns = "distance_text";
+                text.id = 1; // Set a unique ID
+                text.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
+                text.action = visualization_msgs::Marker::ADD;
+                text.pose.position.x = (p1.x + p2.x) / 2.0;
+                text.pose.position.y = (p1.y + p2.y) / 2.0;
+                text.pose.position.z = (p1.z + p2.z) / 2.0;
+                text.scale.z = 0.5;
+                text.text = std::to_string(minDistance);
+                text.color.r = 1.0;
+                text.color.g = 1.0;
+                text.color.b = 1.0;
+                text.color.a = 1.0;
+                text.scale.z = 0.2;
+                line_marker_pub.publish(text);
             }
         }
 
         // DEBUG: Publish observations in map frame
         publishPoseElements(observations_map, observation_pub_);
+        publishPoseElements(observations_BL, observation_BL_pub_);
 
         // If no matches were found, skip update
         if (!matched) {

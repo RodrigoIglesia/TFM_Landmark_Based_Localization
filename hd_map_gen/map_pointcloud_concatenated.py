@@ -88,25 +88,146 @@ logger.addHandler(console_handler)
 from waymo_utils.WaymoParser import *
 from waymo_utils.waymo_3d_parser import *
 
-def project_points_on_map(points, transform):
+
+def create_homog_matrix(position):
     """
-    Project coordinates of the point cloud (referenced to the sensor system) to the map (referenced to the vehicle system)
+    Creates a homogeneous transformation matrix (4x4) from a position given as x, y, z, roll, pitch, yaw.
+    :param position: Dictionary with keys ['x', 'y', 'z', 'roll', 'pitch', 'yaw']
+    :return: 4x4 numpy array representing the homogeneous transformation matrix.
     """
-    # Get pointcloud coordinated to project in the map
-    xyz = points[0]
-    num_points = xyz.shape[0]
+    x = position['x']
+    y = position['y']
+    z = position['z']
+    roll = position['roll']
+    pitch = position['pitch']
+    yaw = position['yaw']
 
-    # Transform the points from the vehicle frame to the world frame.
-    xyz = np.concatenate([xyz, np.ones([num_points, 1])], axis=-1)
-    xyz = np.transpose(np.matmul(transform, np.transpose(xyz)))[:, 0:3]
+    # Rotation matrices
+    Rx = np.array([
+        [1, 0, 0],
+        [0, np.cos(roll), -np.sin(roll)],
+        [0, np.sin(roll), np.cos(roll)]
+    ])
 
-    # # Correct the pose of the points into the coordinate system of the first
-    # # frame to align with the map data.
-    # offset = frame.map_pose_offset
-    # points_offset = np.array([offset.x, offset.y, offset.z])
-    # xyz += points_offset
+    Ry = np.array([
+        [np.cos(pitch), 0, np.sin(pitch)],
+        [0, 1, 0],
+        [-np.sin(pitch), 0, np.cos(pitch)]
+    ])
 
-    return xyz
+    Rz = np.array([
+        [np.cos(yaw), -np.sin(yaw), 0],
+        [np.sin(yaw), np.cos(yaw), 0],
+        [0, 0, 1]
+    ])
+
+    # Combined rotation matrix
+    R = Rz @ Ry @ Rx
+
+    # Homogeneous transformation matrix
+    transform = np.eye(4)
+    transform[:3, :3] = R
+    transform[0, 3] = x
+    transform[1, 3] = y
+    transform[2, 3] = z
+
+    return transform
+
+def compose_positions(accumulated_pose, increment):
+    """
+    Composes two poses given in positionRPY format (x, y, z, roll, pitch, yaw).
+    :param accumulated_pose: Dictionary with keys ['x', 'y', 'z', 'roll', 'pitch', 'yaw']
+    :param increment: Dictionary with keys ['x', 'y', 'z', 'roll', 'pitch', 'yaw']
+    :return: Dictionary representing the composed pose.
+    """
+    # Create homogeneous transformation matrices
+    actual_matrix = create_homog_matrix(accumulated_pose)
+    increment_matrix = create_homog_matrix(increment)
+
+    # Multiply the matrices to compose the pose
+    result_matrix = actual_matrix @ increment_matrix
+
+    # Extract translation
+    x, y, z = result_matrix[:3, 3]
+
+    # Extract rotation
+    R = result_matrix[:3, :3]
+    roll = np.arctan2(R[2, 1], R[2, 2])
+    pitch = np.arcsin(-R[2, 0])
+    yaw = np.arctan2(R[1, 0], R[0, 0])
+
+    return {
+        'x': x,
+        'y': y,
+        'z': z,
+        'roll': roll,
+        'pitch': pitch,
+        'yaw': yaw
+    }
+
+def project_points_on_map(pointcloud, transformation_matrix):
+    """
+    Transforms a point cloud using a homogeneous transformation matrix.
+    :param pointcloud: Nx3 numpy array representing the point cloud.
+    :param transformation_matrix: 4x4 numpy array representing the transformation matrix.
+    :return: Transformed Nx3 numpy array.
+    """
+    # Convert the point cloud to homogeneous coordinates
+    ones = np.ones((pointcloud.shape[0], 1))
+    homogeneous_points = np.hstack((pointcloud, ones))
+
+    # Apply the transformation
+    transformed_points = (transformation_matrix @ homogeneous_points.T).T
+
+    # Return the points in 3D coordinates
+    return transformed_points[:, :3]
+
+
+def matrix_to_pose(transformation_matrix):
+    """
+    Converts a 4x4 homogeneous transformation matrix into a pose dictionary with keys ['x', 'y', 'z', 'roll', 'pitch', 'yaw'].
+    :param transformation_matrix: 4x4 numpy array representing the transformation matrix.
+    :return: Dictionary representing the pose.
+    """
+    # Extract translation
+    x, y, z = transformation_matrix[:3, 3]
+
+    # Extract rotation
+    R = transformation_matrix[:3, :3]
+    roll = np.arctan2(R[2, 1], R[2, 2])
+    pitch = np.arcsin(-R[2, 0])
+    yaw = np.arctan2(R[1, 0], R[0, 0])
+
+    return {
+        'x': x,
+        'y': y,
+        'z': z,
+        'roll': roll,
+        'pitch': pitch,
+        'yaw': yaw
+    }
+
+
+
+# def project_points_on_map(points, transform):
+#     """
+#     Project coordinates of the point cloud (referenced to the sensor system) to the map (referenced to the vehicle system)
+#     """
+#     # Get pointcloud coordinated to project in the map
+#     xyz = points[0]
+#     num_points = xyz.shape[0]
+
+#     # Transform the points from the vehicle frame to the world frame.
+#     xyz = np.concatenate([xyz, np.ones([num_points, 1])], axis=-1)
+#     xyz = np.transpose(np.matmul(transform, np.transpose(xyz)))[:, 0:3]
+
+#     # # Correct the pose of the points into the coordinate system of the first
+#     # # frame to align with the map data.
+#     # offset = frame.map_pose_offset
+#     # points_offset = np.array([offset.x, offset.y, offset.z])
+#     # xyz += points_offset
+
+#     return xyz
 
 def add_sign_to_map(map_features, sign_coords, id):
     # Create a new map features object to insert the sign there
@@ -271,7 +392,7 @@ if __name__ == "__main__":
     # Array to store pointcloud labels
     point_cloud_labels = []
 
-    accumulated_transform = np.eye(4)
+    composed_pose = {'x': 0.0, 'y': 0.0, 'z': 0.0, 'roll': 0.0, 'pitch': 0.0, 'yaw': 0.0}
     previous_transform_matrix = None
     for frame_index, frame in enumerate(load_frame(scene_path)):
         ############################################################
@@ -312,13 +433,15 @@ if __name__ == "__main__":
         current_transform_matrix = np.array(frame.pose.transform).reshape(4, 4)
         if previous_transform_matrix is not None:
             relative_transform = np.linalg.inv(previous_transform_matrix) @ current_transform_matrix
-            accumulated_transform = accumulated_transform @ relative_transform
+            increment = matrix_to_pose(relative_transform)
+            composed_pose = compose_positions(composed_pose, increment)
             # pointcloud_hom = tu.cart2hom(filtered_point_cloud[0])
             # transformed_pointcloud_hom = pointcloud_hom @ np.linalg.inv(accumulated_transform).T
             # transformed_pointcloud = transformed_pointcloud_hom[:, :3]
             # point_clouds.append(transformed_pointcloud)
         previous_transform_matrix = current_transform_matrix
-        projected_pointcloud = project_points_on_map(filtered_point_cloud, accumulated_transform)
+        transformation_matrix = create_homog_matrix(composed_pose)
+        projected_pointcloud = project_points_on_map(filtered_point_cloud[0], transformation_matrix)
         point_clouds.append(projected_pointcloud)
 
         # Concatenate labels of points of the 5 LiDAR

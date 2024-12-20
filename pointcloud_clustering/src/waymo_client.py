@@ -89,22 +89,22 @@ class WaymoClient:
         self.previous_transform_matrix = None
         self.transform_matrix = None
 
-        rospy.loginfo("Waiting for server processes...")
+        rospy.loginfo("CLIENT Waiting for server processes...")
         # Wait until POINTCLOUD CLUSTERING service is UP AND RUNNING
         rospy.wait_for_service('process_pointcloud')
         # Create client to call POINTCLOUD CLUSTERING
         self.pointcloud_clustering_client = rospy.ServiceProxy('process_pointcloud', clustering_srv)
-        rospy.loginfo("Clustering service is running")
+        rospy.loginfo("CLIENT Clustering service is running")
 
         # Wait until LANDMARK DETECTION service is UP AND RUNNING
         rospy.wait_for_service('landmark_detection')
         # Create client to call LANDMARK DETECTION
         self.landmark_detection_client = rospy.ServiceProxy('landmark_detection', landmark_detection_srv)
-        rospy.loginfo("Landmark service is running")
+        rospy.loginfo("CLIENT Landmark service is running")
 
         rospy.wait_for_service('data_fusion')
         self.data_fusion_client = rospy.ServiceProxy('data_fusion', data_fusion_srv)
-        rospy.loginfo("Data Fusion service is running")
+        rospy.loginfo("CLIENT Data Fusion service is running")
 
 
     def process_odometry(self, position_noise_std=0.05, orientation_noise_std=0.01):
@@ -143,8 +143,9 @@ class WaymoClient:
         self.relative_cummulative_pose = tu.comp_poses(self.relative_cummulative_pose, self.relative_pose)
         self.odometry_cummulative_pose = tu.comp_poses(self.odometry_cummulative_pose, self.odometry_pose)
 
-        rospy.loginfo(f"Vehicle relative (real) pose: {self.relative_cummulative_pose}")
-        rospy.loginfo(f"Vehicle odometry pose: {self.odometry_cummulative_pose}")
+        rospy.logdebug(f"CLIENT Vehicle relative (real) pose: {self.relative_cummulative_pose}")
+        rospy.loginfo(f"CLIENT Vehicle odometry INCREMENTAL pose: {self.odometry_pose}")
+        rospy.loginfo(f"CLIENT Vehicle odometry pose: {self.odometry_cummulative_pose}")
 
         # Add poses to generate a path
         self.relative_path.append(self.relative_cummulative_pose.tolist())
@@ -183,7 +184,7 @@ class WaymoClient:
             request.pointcloud = self.pointcloud_processor.pointcloud_msg
 
             try:
-                rospy.loginfo("Calling pointcloud clustering service...")
+                rospy.loginfo("CLIENT Calling pointcloud clustering service...")
                 response = self.pointcloud_clustering_client(request)
                 clustered_pointcloud = response.clustered_pointcloud
                 rospy.logdebug("Pointcloud received")
@@ -209,7 +210,7 @@ class WaymoClient:
             request.image = self.camera_processor.camera_msg
 
             try:
-                rospy.loginfo("Calling landmark detection service...")
+                rospy.loginfo("CLIENT Calling landmark detection service...")
                 response = self.landmark_detection_client(request)
                 image_detection = response.processed_image
                 rospy.logdebug("Detection received")
@@ -361,7 +362,7 @@ class WaymoClient:
         publish_image_to_topic(topic='/data_association_output', image=pair_image, header=header)
         # cv2.imshow("Hull Pair", pair_image)
         # cv2.waitKey(0)
-        rospy.loginfo("Data Association Associated landmarks: " + str(landmarks_associated))
+        rospy.logdebug("Data Association Associated landmarks: " + str(landmarks_associated))
 
 
     def calculate_landmark_pose(self):
@@ -384,7 +385,7 @@ class WaymoClient:
             landmark_pose = [centroid[0], centroid[1], centroid[2], roll, pitch, yaw]
             self.clusters_poses[label] = landmark_pose
 
-        rospy.loginfo("Data Association Clusters poses to send to EKF " + str(len(self.clusters_poses)))
+        rospy.logdebug("Data Association Clusters poses to send to EKF " + str(len(self.clusters_poses)))
 
             #FIXME: Remove commented lines
             # # Get pose in global frame
@@ -443,8 +444,8 @@ class WaymoClient:
         self.odometry_pose_msg.stamp    = rospy.Time.now()
         ekf_request.odometry = self.odometry_pose_msg
         
-        rospy.loginfo(f"Waymo Client Incremental odometry sent: [{self.odometry_pose[0]}, {self.odometry_pose[1]}, {self.odometry_pose[2]}, {self.odometry_pose[3]}, {self.odometry_pose[4]}, {self.odometry_pose[5]}, {rospy.Time.now()}]")
-        rospy.loginfo(f"Waymo Client Incremental odometry sent in message: [{self.odometry_pose_msg.x}, {self.odometry_pose_msg.y}, {self.odometry_pose_msg.z}, {self.odometry_pose_msg.roll}, {self.odometry_pose_msg.pitch}, {self.odometry_pose_msg.yaw}, {self.odometry_pose_msg.stamp}]")
+        rospy.logdebug(f"Waymo Client Incremental odometry sent: [{self.odometry_pose[0]}, {self.odometry_pose[1]}, {self.odometry_pose[2]}, {self.odometry_pose[3]}, {self.odometry_pose[4]}, {self.odometry_pose[5]}, {rospy.Time.now()}]")
+        rospy.logdebug(f"Waymo Client Incremental odometry sent in message: [{self.odometry_pose_msg.x}, {self.odometry_pose_msg.y}, {self.odometry_pose_msg.z}, {self.odometry_pose_msg.roll}, {self.odometry_pose_msg.pitch}, {self.odometry_pose_msg.yaw}, {self.odometry_pose_msg.stamp}]")
 
         #FIXME: Remove
         # # Populate the request with landmark poses in global frame
@@ -479,7 +480,7 @@ class WaymoClient:
 
         # Call the EKF service
         try:
-            rospy.loginfo("Calling EKF service...")
+            rospy.loginfo("CLIENT Calling EKF service...")
             ekf_response = self.data_fusion_client(ekf_request)
             rospy.logdebug("EKF service call successful")
             
@@ -495,7 +496,7 @@ class WaymoClient:
                 position_rpy.yaw
             ]
             
-            rospy.loginfo(f"Corrected EKF Pose: {self.corrected_pose}")
+            rospy.loginfo(f"CLIENT Corrected EKF Pose: {self.corrected_pose}")
 
             # Add the corrected pose to a path array
             self.corrected_path.append(self.corrected_pose)
@@ -594,7 +595,7 @@ if __name__ == "__main__":
     ## Initialize main client node
     ##############################################################################################
     rospy.init_node('waymo_client', anonymous=True)
-    rospy.loginfo("Node initialized correctly")
+    rospy.loginfo("CLIENT Node initialized correctly")
 
     rate = rospy.Rate(1/4)
 
@@ -612,7 +613,7 @@ if __name__ == "__main__":
     ##############################################################################################
     while not rospy.is_shutdown():
         scene_name = pathlib.Path(scene_path).stem
-        rospy.loginfo(f"Scene: {scene_name} processing: {scene_path}")
+        rospy.loginfo(f"CLIENT Scene: {scene_name} processing: {scene_path}")
         frame_n = 0  # Scene frames counter
 
         # Initialize CSV file and write header at the beginning of each scene
@@ -673,7 +674,7 @@ if __name__ == "__main__":
 
             rospy.logdebug("Calling processing services")
             frame_n += 1
-            rospy.loginfo(f"\n New Frame {frame_n} \n")
+            rospy.loginfo(f"\n CLIENT New Frame {frame_n} \n")
 
             ##################################################
             #TODO: DEBUG REMOVE
@@ -687,7 +688,7 @@ if __name__ == "__main__":
                         x, y, z = map(float, row[:3])
                         map_points.append((x, y, z))
             header = Header()
-            header.frame_id = "base_link"
+            header.frame_id = "map"
             header.stamp = rospy.Time.now()
             publish_pointcloud_to_topic('map_pointcloud', map_points, header)
 
@@ -818,7 +819,7 @@ if __name__ == "__main__":
                                  odo_pose[0], odo_pose[1], odo_pose[2], odo_pose[3], odo_pose[4], odo_pose[5],\
                                  corrected_pose[0], corrected_pose[1], corrected_pose[2], corrected_pose[3], corrected_pose[4], corrected_pose[5]
                 csv_writer.writerow(row)
-                rospy.loginfo(f"Frame {frame_n} data appended to CSV")
+                rospy.logdebug(f"Frame {frame_n} data appended to CSV")
             
             # Append observations landmarks (Referenced to the map Frame) data for the current frame to CSV
             with open(landmark_csv_file_path, 'a', newline='') as csvfile:
@@ -828,7 +829,7 @@ if __name__ == "__main__":
                     landmark = tu.comp_poses(corrected_pose, landmark)
                     row = [frame_n], landmark[0], landmark[1], landmark[2], landmark[3], landmark[4], landmark[5]
                     csv_writer.writerow(row)
-                rospy.loginfo(f"Frame {frame_n} data appended to CSV")
+                rospy.logdebug(f"Frame {frame_n} data appended to CSV")
 
 
             rate.sleep()

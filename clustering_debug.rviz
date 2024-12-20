@@ -8,6 +8,7 @@ Panels:
         - /Image1
         - /Odometry1/Shape1
         - /PoseArray1
+        - /Marker5
       Splitter Ratio: 0.5
     Tree Height: 747
   - Class: rviz/Selection
@@ -27,7 +28,7 @@ Panels:
   - Class: rviz/Time
     Name: Time
     SyncMode: 0
-    SyncSource: PointCloud2
+    SyncSource: ""
 Preferences:
   PromptSaveOnExit: true
 Toolbars:
@@ -86,7 +87,7 @@ Visualization Manager:
       Marker Topic: /vehicle_pose/text_marker
       Name: Marker
       Namespaces:
-        pose_text: true
+        {}
       Queue Size: 100
       Value: true
     - Class: rviz/Image
@@ -189,7 +190,7 @@ Visualization Manager:
       Marker Topic: corrected_vehicle_pose/text_marker
       Name: Marker
       Namespaces:
-        pose_text: true
+        {}
       Queue Size: 100
       Value: true
     - Class: rviz/Marker
@@ -229,7 +230,7 @@ Visualization Manager:
       Marker Topic: vehicle_odometry_pose/text_marker
       Name: Marker
       Namespaces:
-        pose_text: true
+        {}
       Queue Size: 100
       Value: true
     - Alpha: 1
@@ -276,6 +277,14 @@ Visualization Manager:
       Shape: Axes
       Topic: /observation
       Unreliable: false
+      Value: true
+    - Class: rviz/Marker
+      Enabled: true
+      Marker Topic: visualization_marker
+      Name: Marker
+      Namespaces:
+        {}
+      Queue Size: 100
       Value: true
   Enabled: true
   Global Options:

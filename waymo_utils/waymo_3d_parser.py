@@ -256,10 +256,12 @@ def get_cluster_orientation(point_cloud):
     return [roll,pitch,yaw]
 
 
-def plot_referenced_pointcloud(point_cloud, plot=True):
+def plot_referenced_pointcloud(point_cloud, size=0.6, color=None, plot=True):
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(point_cloud)
-    mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.6, origin=[0, 0, 0])
+    if color is not None:
+        pcd.paint_uniform_color(color)  # Set the color of the points
+    mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=size, origin=[0, 0, 0])
 
     if (plot):
         o3d.visualization.draw_geometries([pcd, mesh_frame])

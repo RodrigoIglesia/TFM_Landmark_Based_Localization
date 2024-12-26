@@ -460,8 +460,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
             std::vector<float> distances;
 
             // Project observation to map frame
-            pointcloud_clustering::positionRPY observation_origin = Comp(kalmanPose, observations_BL[i]);
-            // pointcloud_clustering::positionRPY observation_origin = Comp(incOdomEKF, observations_BL[i]);
+            pointcloud_clustering::positionRPY observation_origin = transformPose(observations_BL[i], kalmanPose);
             observations_map.push_back(observation_origin);
 
             for (int j = 0; j < map.size(); j++) {

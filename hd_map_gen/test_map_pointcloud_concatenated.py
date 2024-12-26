@@ -1,39 +1,14 @@
-"""
-Author: Rodrigo de la Iglesia Sánchez.
-Date: 23/03/2024.
-
-This script parses the maps in Waymo dataset along with the 3D sem seg labels to generate and enrich the HD maps.
-For each scene:
-1. Retrieve the Feature Map, which is contained in the first frame of the scene.
-    1.1. If no pointclous is found in the scene, jump to the next scene
-2. Get Scene Labeled Point
-    2.1. Read the 3D pointcloud for each frame.
-    2.2. If the frame has pointcloud with segmentation labels > Get a pointcloud only containing points labeled as signs.
-    2.3. Save each frame pointcloud in a vector.
-    2.4. Concatenate the pointcloud vectors > to do that, all pointclouds must be expressed in the same reference frame
-        For this implementation, the global frame used is the origin of movement of the vehicle in the scene (instead of waymo global frame)
-    2.5. Apply a clustering algorithm to the pointcloud vector,
-    obtaining a the point cloud vector divided in classes (clustered point cloud) and a vector with a class for each point in the point cloud.
-3. Enrich the feature map.
-    3.1. For each cluster in the clustered pointcloud, compute the centroid of the cluster and project the point to the ground.
-    3.2. Generate a protocol buffer message (type StopSign) with the coordinates of the centroid and the lane value to 100 (vertical sign) and add it to the feature map.
-    3.3. Save the new feature map as a JSON.
-4. Generate a new tfrecord file.
-    4.1. Parse the scene dataset's frames.
-    4.2. For the first frame > change the feature map for the new one with signs.
-    4.3. Serialize each frame to a String an write it in the new tfrecord file.
-    4.4. Finally, save the generated tfrecord file.
-"""
-
 import os
 import sys
 
+import random
 import logging
 import numpy as np
 import matplotlib.pyplot as plt
 import plotly.graph_objs as go
 import pathlib
-
+import pandas as pd
+import open3d.visualization.gui as gui
 import json
 import csv
 from google.protobuf.json_format import MessageToJson
@@ -133,6 +108,7 @@ def create_homog_matrix(position):
 
     return transform
 
+
 def compose_positions(accumulated_pose, increment):
     """
     Composes two poses given in positionRPY format (x, y, z, roll, pitch, yaw).
@@ -164,6 +140,7 @@ def compose_positions(accumulated_pose, increment):
         'pitch': pitch,
         'yaw': yaw
     }
+
 
 def project_points_on_map(pointcloud, transformation_matrix):
     """
@@ -310,6 +287,7 @@ def plot_cluster_bbox(figure, point_cloud, labels):
 
         figure.add_trace(vertex_trace)
 
+
 def plot_pointcloud_on_map(map, point_cloud, labels):
     # Plot the point cloud for this frame aligned with the map data.
     figure = plot_maps.plot_map_features(map)
@@ -331,14 +309,56 @@ def save_protobuf_features(protobuf_message, output):
     logging.info("Protobuf data converted to JSON and saved.")
 
 
+def visualize_pointclouds(pointclouds_dict):
+    geometries = {}
+
+    # Generar colores aleatorios
+    color_map = {}
+    for name in pointclouds_dict.keys():
+        color = [random.random(), random.random(), random.random()]
+        color_map[name] = color
+
+    # Crear geometrías de nubes de puntos
+    for name, points in pointclouds_dict.items():
+        pc = o3d.geometry.PointCloud()
+        pc.points = o3d.utility.Vector3dVector(points)
+        pc.paint_uniform_color(color_map[name])  # Asignar color aleatorio
+        geometries[name] = pc
+
+    # Crear el origen de coordenadas
+    origin = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5, origin=[0, 0, 0])
+    geometries["Origin"] = origin
+
+    # Crear ventana de visualización personalizada
+    app = gui.Application.instance
+    app.initialize()
+    vis = o3d.visualization.O3DVisualizer("Nubes de puntos", 1024, 768)
+
+    for name, geometry in geometries.items():
+        vis.add_geometry(name, geometry)
+
+    # Añadir etiquetas 3D simuladas
+    for i, (name, color) in enumerate(color_map.items()):
+        label_position = np.array([-0.6, 0.6 - 0.2 * i, 0], dtype=np.float32)
+        text_sphere = o3d.geometry.TriangleMesh.create_sphere(radius=0.08)
+        text_sphere.translate(label_position)
+        text_sphere.paint_uniform_color(color)
+        vis.add_geometry(f"{name}_sphere", text_sphere)
+
+        # Usar etiquetas de texto
+        vis.add_3d_label(label_position, name)  # Simula etiquetas cerca de las esferas
+
+    vis.reset_camera_to_default()
+
+    app.add_window(vis)
+    app.run()
+
+
 if __name__ == "__main__":
     scene_path = os.path.join(src_dir, "dataset/final_tests_scene/individual_files_training_segment-10023947602400723454_1120_000_1140_000_with_camera_labels.tfrecord")
-    json_maps_path      = os.path.join(src_dir, "dataset/hd_maps")
-    point_clouds_path   = os.path.join(src_dir, "dataset/pointclouds")
-    output_dataset_path = os.path.join(src_dir, "dataset/final_output_scenes")
-    output_csv_path     = os.path.join(src_dir, "pointcloud_clustering/map")
-
-
+    signs_map_file = os.path.join(src_dir, "dataset/pointclouds/pointcloud_concatenatedindividual_files_training_segment-10023947602400723454_1120_000_1140_000_with_camera_labels.csv")
+    signs_map = pd.read_csv(signs_map_file)
+    map_points = signs_map.iloc[:, :3].values  # Se asume que las primeras tres columnas son X, Y, Z
     ##############################################################
     ## Iterate through Dataset Scenes
     ##############################################################
@@ -350,65 +370,57 @@ if __name__ == "__main__":
     ##############################################################
     map_features_found = False
     for frame in load_frame(scene_path):
-        # Get Map Information of the scene
-        # For the first frame > Only retreive frame with map information
-        # Save map features in a variable to use it with the semantic information from the LiDAR
         if hasattr(frame, 'map_features') and frame.map_features:
-            # Retrieve map_feature in the firts frame
             map_features = frame.map_features
             map_features_found = True
             logging.info("Map feature found in scene, processing point clouds...")
-    # If no map features in the scene, jump to the next one
-    if (map_features_found == False):
+
+    if not map_features_found:
         logging.info("No Map Features found in the scene, jumping to the next one...")
-    
+
     ##############################################################
     ## Get Scene Labeled Point
     ##############################################################
-    # If map features were found, parse the 3D point clouds in the frames
-    # Array to store segmented pointclouds
     point_clouds = []
-    # Array to store pointcloud labels
     point_cloud_labels = []
 
     composed_pose = {'x': 0.0, 'y': 0.0, 'z': 0.0, 'roll': 0.0, 'pitch': 0.0, 'yaw': 0.0}
     previous_transform_matrix = None
+    translation_vector = np.array([0.01, 0, 0]) # Para desplazar ligeramente las nubes de puntos que solapan y visualizarlo mejor
     for frame_index, frame in enumerate(load_frame(scene_path)):
+        if (frame_index == 1):
+            origin = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5, origin=[0, 0, 0])
         ############################################################
         ## Process Pointclouds
         ###########################################################
         (range_images, camera_projections, segmentation_labels, range_image_top_pose) = frame_utils.parse_range_image_and_camera_projection(frame)
 
-        # Only generate information of 3D labeled frames
-        if not(segmentation_labels):
+        if not segmentation_labels:
             continue
         logging.debug("Segmentation label found")
 
-        # Get points labeled for first and second return
-        # Parse range image for lidar 1
-        def _range_image_to_pcd(ri_index = 0):
+        def _range_image_to_pcd(ri_index=0):
             points, points_cp = frame_utils.convert_range_image_to_point_cloud(
                 frame, range_images, camera_projections, range_image_top_pose,
                 ri_index=ri_index)
             return points, points_cp
-        
-        # Return of the first 2 lidar scans
+
         points_return1, _ = _range_image_to_pcd()
         points_return2, _ = _range_image_to_pcd(1)
 
-        # Semantic labels for the first 2 lidar scans
         point_labels = convert_range_image_to_point_cloud_labels(
             frame, range_images, segmentation_labels)
         point_labels_ri2 = convert_range_image_to_point_cloud_labels(
             frame, range_images, segmentation_labels, ri_index=1)
+        
+        non_empty_points = [arr for arr in points_return1 if arr.size != 0]
+        points_all = np.concatenate(non_empty_points, axis=0)
 
-        # plot_pointcloud_on_map(map_features, points_return1, point_labels)
+        filtered_point_cloud, filtered_point_labels = filter_lidar_data(points_return1, point_labels, [8, 9, 10])
+        non_empty_points2 = [arr for arr in filtered_point_cloud if arr.size != 0]
+        points_all2 = np.concatenate(non_empty_points2, axis=0)
+        points_all2 += translation_vector
 
-        filtered_point_cloud, filtered_point_labels = filter_lidar_data(points_return1, point_labels, [8,9,10])
-
-        ############################################################
-        ## Get transform from current pose to vehicle origin pose
-        ###########################################################
         current_transform_matrix = np.array(frame.pose.transform).reshape(4, 4)
         if previous_transform_matrix is not None:
             relative_transform = np.linalg.inv(previous_transform_matrix) @ current_transform_matrix
@@ -418,94 +430,17 @@ if __name__ == "__main__":
         previous_transform_matrix = current_transform_matrix
         transformation_matrix = create_homog_matrix(composed_pose)
         projected_pointcloud = project_points_on_map(filtered_point_cloud[0], transformation_matrix)
+        projected_pointcloud += translation_vector
+
+        # Visualizar las nubes de puntos
+        visualize_pointclouds({"map_points": map_points, "pointcloud_BL": points_all, "filtered_pointcloud_BL": points_all2, "projected_pointcloud_MF": projected_pointcloud})
+
+
+
         point_clouds.append(projected_pointcloud)
 
-        # Concatenate labels of points of the 5 LiDAR
         concat_point_labels = concatenate_points(filtered_point_labels)
-
-        # Get semantic and instance segmentation labels
-        semantic_labels = concat_point_labels[:,1]
-        instance_labels = concat_point_labels[:,0]
+        semantic_labels = concat_point_labels[:, 1]
+        instance_labels = concat_point_labels[:, 0]
         point_cloud_labels.append(semantic_labels)
 
-    # Concatenate pointclouds of the scene
-    if len(point_clouds) > 1:
-        point_clouds = np.concatenate(point_clouds, axis=0)
-        point_cloud_labels = np.concatenate(point_cloud_labels, axis=0)
-        logging.debug("Scene pointclouds correctly concatenated")
-    else:
-        logging.debug("No pointclouds in scene")
-
-    # Save point cloud to csv
-    out_csv_path = point_clouds_path + '/pointcloud_concatenated' + os.path.splitext(os.path.basename(scene_path))[0] + '.csv'
-    # Use savetxt to save the array to a CSV file
-    np.savetxt(out_csv_path, point_clouds, delimiter=',')
-    logging.debug(f"NumPy array has been successfully saved to {out_csv_path}.")
-
-    # Get the clustered pointclouds, each cluster corresponding to a traffic sign
-    clustered_point_cloud, cluster_labels = cluster_pointcloud(point_clouds)
-
-
-    ##############################################################
-    ## Enrich Feature Map
-    ##############################################################
-    # Add signs to map
-    sign_id = map_features[-1].id
-    for cluster in clustered_point_cloud:
-        # Get the centroid of each cluster of the pointcloud
-        cluster_centroid = get_cluster_centroid(cluster)
-
-        # Add sign centroids to feature map
-        add_sign_to_map(map_features, cluster_centroid, sign_id)
-        logging.debug("Sign message added to map features")
-        sign_id += 1
-
-
-    json_file = json_maps_path + "/signs_map_features_" + os.path.splitext(os.path.basename(scene_path))[0] + '.json'
-    save_protobuf_features(map_features, json_file)
-    logging.debug("Modified map saved as JSON")
-
-
-    ##############################################################
-    ## Save map in csv format
-    ##############################################################
-    with open(json_file, 'r') as f:
-        data = json.load(f)
-    output_csv = output_csv_path + "/signs_map_features_" + os.path.splitext(os.path.basename(scene_path))[0] + '.csv'
-    with open(output_csv, 'w', newline='') as csvfile:
-        csv_writer = csv.writer(csvfile)
-
-        # Iterate through each item in the JSON
-        for item in data:
-            if 'stopSign' in item:
-                stop_sign = item['stopSign']
-                if 'lane' in stop_sign and stop_sign['lane'] == ["100"]:
-                    # Extract x and y coordinates from position
-                    position = stop_sign['position']
-                    csv_writer.writerow([position['x'], position['y'], position['z']])
-
-
-
-    # ##############################################################
-    # ## Generate a new tfrecord file
-    # ##############################################################
-    # output_filename = output_dataset_path + '/output' + os.path.basename(scene_path)
-    # writer = tf.io.TFRecordWriter(output_filename)
-    # for frame in load_frame(scene_path):
-    #     if hasattr(frame, 'map_features') and frame.map_features:
-    #         logging.debug("Removing current map features")
-    #         # Retrieve map_feature in the firts 
-    #         del frame.map_features[:]
-
-    #         # Append the new map_features object to the cleared list
-    #         logging.debug("Adding modified map features")
-    #         for feature in map_features:
-    #             frame.map_features.append(feature)
-    #     serialized_frame = frame.SerializeToString()
-    #     writer.write(serialized_frame)
-    #     logging.info("Tfrecord saved...")
-
-    # # Close the writer
-    # writer.close()
-
-    plot_pointcloud_on_map(map_features, point_clouds, cluster_labels)

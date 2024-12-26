@@ -13,6 +13,23 @@ Vector6f RPY2Vec(pointcloud_clustering::positionRPY position){ // Conversion poi
   
   return(result);
 }
+/*----------------------------------------------------------------------------------------------*/
+pointcloud_clustering::positionRPY transformPose(pointcloud_clustering::positionRPY pose_to_project, pointcloud_clustering::positionRPY pose_in_destination_frame) {
+    Eigen::Vector4f homogeneousPosition(pose_to_project.x, pose_to_project.y, pose_to_project.z, 1.0); // Convert to homogeneous coordinates
+    Matrix4f transformationMatrix = createHomogMatr(pose_in_destination_frame); // Create the transformation matrix
+    Eigen::Vector4f transformedPosition = transformationMatrix * homogeneousPosition;
+
+    pointcloud_clustering::positionRPY transformedPose;
+    transformedPose.x = transformedPosition.x();
+    transformedPose.y = transformedPosition.y();
+    transformedPose.z = transformedPosition.z();
+    transformedPose.roll  = pose_to_project.roll;
+    transformedPose.pitch = pose_to_project.pitch;
+    transformedPose.yaw   = pose_to_project.yaw;
+    transformedPose.stamp = pose_to_project.stamp; // Copy the timestamp
+
+    return transformedPose;
+}
 
 /*----------------------------------------------------------------------------------------------*/
 pointcloud_clustering::positionRPY Comp(pointcloud_clustering::positionRPY accumulated_pose, pointcloud_clustering::positionRPY increment) {
@@ -41,19 +58,19 @@ Matrix4f createHomogMatr(pointcloud_clustering::positionRPY position){ // Homoge
     Eigen::Matrix3f Rx, Ry, Rz;
 
     // Rotation around X-axis (roll)
-    Rx << 1, 0, 0,
+    Rx << 1,          0,           0,
           0, cos(roll), -sin(roll),
-          0, sin(roll), cos(roll);
+          0, sin(roll),  cos(roll);
 
     // Rotation around Y-axis (pitch)
-    Ry << cos(pitch), 0, sin(pitch),
-          0, 1, 0,
+    Ry << cos(pitch),  0, sin(pitch),
+          0,          1,          0,
           -sin(pitch), 0, cos(pitch);
 
     // Rotation around Z-axis (yaw)
     Rz << cos(yaw), -sin(yaw), 0,
-          sin(yaw), cos(yaw), 0,
-          0, 0, 1;
+          sin(yaw),  cos(yaw), 0,
+          0,        0,        1;
 
     // Combined rotation matrix
     Eigen::Matrix3f R = Rz * Ry * Rx;

@@ -36,6 +36,7 @@ from pointcloud_clustering.srv import clustering_srv, clustering_srvRequest, lan
 from cv_bridge import CvBridge
 import cv2
 import csv
+import open3d as o3d
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorflow as tf
@@ -52,7 +53,6 @@ from waymo_utils.publisher_utils import *
 import waymo_utils.waymo_3d_parser as w3d
 import waymo_utils.transform_utils as tu
 
-import pandas as pd #TODO:REMOVE
 
 class WaymoClient:
     def __init__(self, frame, cams_order):
@@ -172,12 +172,9 @@ class WaymoClient:
         self.extrinsic_matrix_inv = self.extrinsic_matrix_inv[:3,:]
 
 
-    
-
-
     def process_pointcloud(self):
         self.clustered_pointcloud.clear()
-        self.points, points_cp = self.pointcloud_processor.get_pointcloud()
+        self.points = self.pointcloud_processor.get_pointcloud()
         if self.points is not None:
             self.pointcloud_processor.pointcloud_to_ros(self.points)
             request = clustering_srvRequest()
@@ -272,7 +269,6 @@ class WaymoClient:
         filtered_labels = positive_labels[filtered_indices]
         rospy.logdebug("Pointcloud projected from 3D camera frame to 2D image frame")
 
-        # Apply convex hull for each cluster
         # Generate clusters based on filtered labels
         unique_labels = np.unique(filtered_labels, axis=0)
         self.clustered_pointcloud_image = {tuple(label): point_cloud_image[np.all(filtered_labels == label, axis=1), :] for label in unique_labels}
@@ -305,7 +301,7 @@ class WaymoClient:
         cv2.putText(image, f'IoU: {iou:.2f}', tuple(midpoint), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
 
-    def filter_association_iou(self, debug=False, min_hull_area = 500, iou_threshold=0.1):
+    def filter_association_iou(self, debug=False, min_hull_area = 500, iou_threshold=0.2):
         """
         This method computes the IoU between the clusters projections and the segmentation masks
         Filters the projections and stores only cluster projections that intersect with segmentation masks
@@ -347,83 +343,46 @@ class WaymoClient:
                     if (iou > iou_threshold):
                         self.clustered_pointcloud_iou[label] = cluster_points
                         landmarks_associated += 1
-                    # Filter 3D clusters in vehicle frame
-                    self.clustered_pointcloud_iou_vehicle_frame = {label: self.clustered_pointcloud[label] for label in self.clustered_pointcloud_iou.keys() if label in self.clustered_pointcloud}
-
-                    # Show the image with the pair of hulls
-                    if (debug==True):
-                        ## TODO: REMOVE DEBUG
+                        # Draw hulls on the image
                         cv2.drawContours(pair_image, [seg_hull.reshape((-1, 1, 2))], -1, (255, 0, 0), 2)  # White for segmentation hull
                         cv2.drawContours(pair_image, [cluster_hull.reshape((-1, 1, 2))], -1, (0, 0, 255), 2)  # Red for cluster hull
                         self.__draw_iou_text(pair_image, cluster_hull, seg_hull, iou)
+                    # Filter 3D clusters in vehicle frame
+                    self.clustered_pointcloud_iou_vehicle_frame = {label: self.clustered_pointcloud[label] for label in self.clustered_pointcloud_iou.keys() if label in self.clustered_pointcloud}
         header = Header()
         header.frame_id = "base_link"
         header.stamp = rospy.Time.now()
         publish_image_to_topic(topic='/data_association_output', image=pair_image, header=header)
-        # cv2.imshow("Hull Pair", pair_image)
-        # cv2.waitKey(0)
-        rospy.logdebug("Data Association Associated landmarks: " + str(landmarks_associated))
+        if (debug == True):
+            # Show image with hulls
+            cv2.imshow("Hull Pair", pair_image)
+            cv2.waitKey(0)
+            rospy.logdebug("Data Association Associated landmarks: " + str(landmarks_associated))
 
 
-    def calculate_landmark_pose(self):
+    def calculate_landmark_pose(self, debug=False):
         """
         This method computes the [x,y,z, roll, pitch, yaw] coordinates of a clustered pointcloud
         """
         # Reset clusters poses dict each time process is called
         self.clusters_poses.clear()
-        #FIXME: Remove
-        # self.clusters_poses_global = {}
+        geometries = []
         for label, pointcloud in self.clustered_pointcloud_iou_vehicle_frame.items():
             centroid = w3d.get_cluster_centroid(pointcloud)
             orientation = w3d.get_cluster_orientation(pointcloud)
             # landmarks are always vertical
             roll    = 0.0
             pitch   = 0.0
-            yaw     = orientation[2] *3.141592/180.0
+            yaw     = 0.0
+            # yaw     = orientation[2] *3.141592/180.0
             
             # Generate dict label:pose
             landmark_pose = [centroid[0], centroid[1], centroid[2], roll, pitch, yaw]
             self.clusters_poses[label] = landmark_pose
 
+        if debug:
+            w3d.plot_labeled_pointcloud_with_centroids(self.clustered_pointcloud_iou_vehicle_frame, self.clusters_poses)
         rospy.logdebug("Data Association Clusters poses to send to EKF " + str(len(self.clusters_poses)))
-
-            #FIXME: Remove commented lines
-            # # Get pose in global frame
-            # # Convert the centroid to homogeneous coordinates
-            # landmark_pose_hom = np.hstack((landmark_pose[:3], [1]))
-            # landmark_global_hom = np.dot(self.transform_matrix, landmark_pose_hom)
-            # landmark_global = landmark_global_hom[:3]
-
-            # # Rotation
-            # R_x = np.array([[1, 0, 0],
-            #         [0, np.cos(orientation[0]), -np.sin(orientation[0])],
-            #         [0, np.sin(orientation[0]), np.cos(orientation[0])]])
-
-            # R_y = np.array([[np.cos(orientation[1]), 0, np.sin(orientation[1])],
-            #                 [0, 1, 0],
-            #                 [-np.sin(orientation[1]), 0, np.cos(orientation[1])]])
-            
-            # R_z = np.array([[np.cos(orientation[2]), -np.sin(orientation[2]), 0],
-            #                 [np.sin(orientation[2]), np.cos(orientation[2]), 0],
-            #                 [0, 0, 1]])
-            
-            # landmark_rotation_matrix = np.dot(R_z, np.dot(R_y, R_x))
-            # # Transform the orientation using the rotation matrix
-            # global_rotation_matrix = np.dot(self.transform_matrix[:3,:3], landmark_rotation_matrix)
-
-            # # Convert the global rotation matrix back to euler angles
-            # sy = math.sqrt(global_rotation_matrix[0, 0] ** 2 + global_rotation_matrix[1, 0] ** 2)
-            # singular = sy < 1e-6
-            # if not singular:
-            #     global_roll = math.atan2(global_rotation_matrix[2, 1], global_rotation_matrix[2, 2])
-            #     global_pitch = math.atan2(-global_rotation_matrix[2, 0], sy)
-            #     global_yaw = math.atan2(global_rotation_matrix[1, 0], global_rotation_matrix[0, 0])
-            # else:
-            #     global_roll = math.atan2(-global_rotation_matrix[1, 2], global_rotation_matrix[1, 1])
-            #     global_pitch = math.atan2(-global_rotation_matrix[2, 0], sy)
-            #     global_yaw = 0
-
-            # self.clusters_poses_global[label] = [landmark_global[0],landmark_global[1],landmark_global[2], global_roll, global_pitch, global_yaw]
 
 
     def process_EKF(self):
@@ -526,10 +485,12 @@ class PointCloudProcessor(WaymoClient):
 
     def get_pointcloud(self):
         range_images, camera_projections, segmentation_labels, range_image_top_pose = frame_utils.parse_range_image_and_camera_projection(self.frame)
-        points_return1 = self._range_image_to_pcd(self.frame, range_images, camera_projections, range_image_top_pose)
-        points_return2 = self._range_image_to_pcd(self.frame, range_images, camera_projections, range_image_top_pose, ri_index=1)
-        points, points_cp = w3d.concatenate_pcd_returns(points_return1, points_return2)
-        return points, points_cp
+        points_return1, _ = self._range_image_to_pcd(self.frame, range_images, camera_projections, range_image_top_pose)
+        points_return2, _ = self._range_image_to_pcd(self.frame, range_images, camera_projections, range_image_top_pose, ri_index=1)
+        # points = w3d.concatenate_pcd_returns(points_return1, points_return2)
+        non_empty_points = [arr for arr in points_return1 if arr.size != 0]
+        points_all = np.concatenate(non_empty_points, axis=0)
+        return points_all
     
     def _range_image_to_pcd(self, frame, range_images, camera_projections, range_image_top_pose, ri_index=0):
         points, points_cp = frame_utils.convert_range_image_to_point_cloud(
@@ -590,7 +551,16 @@ class CameraProcessor(WaymoClient):
 
 
 if __name__ == "__main__":
-
+    #TODO: REMOVE > Load map pointcloud
+    map_pc_file_path = "/home/rodrigo/catkin_ws/src/TFM_Landmark_Based_Localization/dataset/pointclouds/pointcloud_concatenatedindividual_files_training_segment-10023947602400723454_1120_000_1140_000_with_camera_labels.csv"
+    map_points = []
+    map_published = False
+    with open(map_pc_file_path, "r") as csvfile:
+        reader = csv.reader(csvfile)
+        for row in reader:
+            if len(row) >= 3:
+                x, y, z = map(float, row[:3])
+                map_points.append((x, y, z))
     ##############################################################################################
     ## Initialize main client node
     ##############################################################################################
@@ -600,7 +570,6 @@ if __name__ == "__main__":
     rate = rospy.Rate(1/4)
 
     # Read dataset
-    # scene_path = os.path.join(src_dir, "dataset/final_tests_scene/individual_files_training_segment-10072140764565668044_4060_000_4080_000_with_camera_labels.tfrecord")
     scene_path = os.path.join(src_dir, "dataset/final_tests_scene/individual_files_training_segment-10023947602400723454_1120_000_1140_000_with_camera_labels.tfrecord")
 
     # Initialize classes outside the loop
@@ -676,23 +645,13 @@ if __name__ == "__main__":
             frame_n += 1
             rospy.loginfo(f"\n CLIENT New Frame {frame_n} \n")
 
+            #TODO: Debug - Publish map
             ##################################################
-            #TODO: DEBUG REMOVE
-            #Plot saved map elements
-            map_pc_file_path = "/home/rodrigo/catkin_ws/src/TFM_Landmark_Based_Localization/dataset/pointclouds/pointcloud_concatenatedindividual_files_training_segment-10023947602400723454_1120_000_1140_000_with_camera_labels.csv"
-            map_points = []
-            with open(map_pc_file_path, "r") as csvfile:
-                reader = csv.reader(csvfile)
-                for row in reader:
-                    if len(row) >= 3:
-                        x, y, z = map(float, row[:3])
-                        map_points.append((x, y, z))
+            #TODO: Remove Plot saved map elements
             header = Header()
-            header.frame_id = "map"
+            header.frame_id = "base_link"
             header.stamp = rospy.Time.now()
             publish_pointcloud_to_topic('map_pointcloud', map_points, header)
-
-
 
             """ 
             PROCESS ODOMETRY --> GET INCREMENTAL VEHICLE POSITION ON EACH FRAME
@@ -766,7 +725,7 @@ if __name__ == "__main__":
             # Pointclouds filtering > get the IoU of pointcloud clusters and segmentation masks
             # This method generates a dictionary of the classes and those clusters that match the segmentations.
             # Generates clusters in the camera and vehicle frame
-            wc.filter_association_iou(debug=True,iou_threshold=0.1)
+            wc.filter_association_iou(iou_threshold=0.1)
 
             # DEBUG - Publish filtered pointcloud only with landmarks
             header = Header()
@@ -777,18 +736,10 @@ if __name__ == "__main__":
             # Get cluster landmarks pose
             wc.calculate_landmark_pose()
 
-            # # DEBUG - Publish landmark poses in vehicle frame
-            # header = Header()
-            # header.frame_id = "base_link"
-            # header.stamp = rospy.Time.now()
-            # publish_multiple_poses_to_topic("landmark_poses", wc.clusters_poses, header)
-
             """
             DATA FUSION > CORRECT ODOMETRY POSITION WITH LANDMARK OBSERVATIONS
             """
             rospy.logdebug("Data Fusion processing service")
-            # wc.landmark_poses_msg.header.frame_id = f"base_link_{scene_name}"
-            # wc.landmark_poses_msg.header.stamp = rospy.Time.now()
             wc.process_EKF()
 
             if wc.corrected_pose is None:

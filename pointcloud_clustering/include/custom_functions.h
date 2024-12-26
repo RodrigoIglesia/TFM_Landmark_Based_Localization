@@ -16,6 +16,7 @@ typedef Eigen::Matrix<float, 6, 1> Vector6f;
 
 Matrix4f createHomogMatr(pointcloud_clustering::positionRPY pos);
 pointcloud_clustering::positionRPY coordRPY(Matrix4f pos);
+pointcloud_clustering::positionRPY transformPose(pointcloud_clustering::positionRPY pose_to_project, pointcloud_clustering::positionRPY pose_in_destination_frame);
 pointcloud_clustering::positionRPY Comp(pointcloud_clustering::positionRPY pos1, pointcloud_clustering::positionRPY pos2);
 pointcloud_clustering::positionRPY Inv(pointcloud_clustering::positionRPY pos);
 Matrix4f createHomogMatrInv(pointcloud_clustering::positionRPY pos);

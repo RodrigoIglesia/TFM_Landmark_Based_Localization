@@ -107,7 +107,7 @@ class WaymoClient:
         rospy.loginfo("CLIENT Data Fusion service is running")
 
 
-    def process_odometry(self, position_noise_std=0.05, orientation_noise_std=0.01):
+    def process_odometry(self, position_noise_std=0.02, orientation_noise_std=0):
         """
         Get incremental pose of the vehicle with cumulative Gaussian noise.
         """
@@ -117,7 +117,7 @@ class WaymoClient:
         # Initialize the initial frame as the origin if not already done
         if self.previous_transform_matrix is None:
             rospy.logdebug("Initial frame pose")
-            self.relative_pose = [0, 0, 0, 0, 0, 0]  # Explicitly set the first pose
+            self.relative_pose = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # Explicitly set the first pose --> can have an initial error
             self.odometry_pose = np.array(self.relative_pose)  # Initialize the noisy pose
         else:
             # Compute the relative pose to the previous pose
@@ -649,7 +649,7 @@ if __name__ == "__main__":
             ##################################################
             #TODO: Remove Plot saved map elements
             header = Header()
-            header.frame_id = "base_link"
+            header.frame_id = "map"
             header.stamp = rospy.Time.now()
             publish_pointcloud_to_topic('map_pointcloud', map_points, header)
 
@@ -729,7 +729,7 @@ if __name__ == "__main__":
 
             # DEBUG - Publish filtered pointcloud only with landmarks
             header = Header()
-            header.frame_id = "base_link"
+            header.frame_id = "map"
             header.stamp = rospy.Time.now()
             publish_labeled_pointcloud_to_topic('filtered_pointcloud', wc.clustered_pointcloud_iou_vehicle_frame, header)
             
@@ -767,8 +767,8 @@ if __name__ == "__main__":
             with open(csv_file_path, 'a', newline='') as csvfile:
                 csv_writer = csv.writer(csvfile)
                 row = [frame_n], rel_pose[0], rel_pose[1], rel_pose[2], rel_pose[3], rel_pose[4], rel_pose[5],\
-                                 odo_pose[0], odo_pose[1], odo_pose[2], odo_pose[3], odo_pose[4], odo_pose[5],\
-                                 corrected_pose[0], corrected_pose[1], corrected_pose[2], corrected_pose[3], corrected_pose[4], corrected_pose[5]
+                                    odo_pose[0], odo_pose[1], odo_pose[2], odo_pose[3], odo_pose[4], odo_pose[5],\
+                                    corrected_pose[0], corrected_pose[1], corrected_pose[2], corrected_pose[3], corrected_pose[4], corrected_pose[5]
                 csv_writer.writerow(row)
                 rospy.logdebug(f"Frame {frame_n} data appended to CSV")
             

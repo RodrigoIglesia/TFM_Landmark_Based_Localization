@@ -74,9 +74,9 @@ class DataFusion
 public:
     DataFusion(const std::string& configFilePath, const std::string& mapFilePath);
     bool dataFusionService(pointcloud_clustering::data_fusion_srv::Request &req, pointcloud_clustering::data_fusion_srv::Response &res);
-    std::vector<pointcloud_clustering::observationRPY> processPoseArray(const geometry_msgs::PoseArray& poseArray);
-    std::vector<pointcloud_clustering::observationRPY> loadMapFromCSV();
-    void publishPoseElements(std::vector<pointcloud_clustering::observationRPY> pose_array, ros::Publisher publisher);
+    std::vector<pointcloud_clustering::positionRPY> processPoseArray(const geometry_msgs::PoseArray& poseArray);
+    std::vector<pointcloud_clustering::positionRPY> loadMapFromCSV();
+    void publishPoseElements(std::vector<pointcloud_clustering::positionRPY> pose_array, ros::Publisher publisher);
 
 private:
     void readConfig(const std::string &filename);
@@ -95,11 +95,14 @@ private:
     float QFactor;  // Factor for the covariance matrix scaling
     pointcloud_clustering::positionRPY sigma_odom;
     pointcloud_clustering::positionRPY sigma_obs;
-    std::vector<pointcloud_clustering::observationRPY> map;
+    std::vector<pointcloud_clustering::positionRPY> map;
 
     // Debug publishers -> publisher to debug processing results in RVIZ topics
     ros::Publisher observation_pub_;
+    ros::Publisher observation_BL_pub_;
     ros::Publisher map_element_pub_;
+    ros::Publisher line_marker_pub;
+
 
 };
 
@@ -111,7 +114,9 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     */
     ros::NodeHandle nh;
     observation_pub_ = nh.advertise<geometry_msgs::PoseArray>("observation", 10);
+    observation_BL_pub_ = nh.advertise<geometry_msgs::PoseArray>("observation_BL", 10);
     map_element_pub_ = nh.advertise<geometry_msgs::PoseArray>("map_element", 10, true);
+    line_marker_pub = nh.advertise<visualization_msgs::Marker>("mahalanobis_distance", 10);
 
     // Read configuration file
     readConfig(configFilePath);
@@ -144,8 +149,8 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     P(3,3) = config_.P33_init;
     P(4,4) = config_.P44_init;
     P(5,5) = config_.P55_init;
-    // PFactor = config_.PFactor;
-    // P = P*PFactor;
+    PFactor = config_.PFactor;
+    P = P*PFactor;
 
     // std::cout << "Initial P: " << std::endl;
     // std::cout << P << std::endl;
@@ -182,8 +187,8 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     Q(4, 4) = std::pow(sigma_odom.pitch, 2);
     Q(5, 5) = std::pow(sigma_odom.yaw, 2);
 
-    // QFactor = config_.QFactor;
-    // Q = Q*QFactor;
+    QFactor = config_.QFactor;
+    Q = Q*QFactor;
 
     // std::cout << "Initial Q: " << std::endl;
     // std::cout << Q << std::endl;
@@ -233,21 +238,21 @@ void DataFusion::readConfig(const std::string &filename)
 }
 
 
-std::vector<pointcloud_clustering::observationRPY> DataFusion::processPoseArray(const geometry_msgs::PoseArray& poseArray)
+std::vector<pointcloud_clustering::positionRPY> DataFusion::processPoseArray(const geometry_msgs::PoseArray& poseArray)
 {
     /*
     Method to parse an array of poses and convert it to Roll-Pitch-Yaw format
     */
-    std::vector<pointcloud_clustering::observationRPY> observations;
+    std::vector<pointcloud_clustering::positionRPY> observations;
 
     for (const auto& pose : poseArray.poses) {
-        pointcloud_clustering::observationRPY obs;
+        pointcloud_clustering::positionRPY obs;
         tf::Quaternion quat;
 
         // Extract position
-        obs.position.x = pose.position.x;
-        obs.position.y = pose.position.y;
-        obs.position.z = pose.position.z;
+        obs.x = pose.position.x;
+        obs.y = pose.position.y;
+        obs.z = pose.position.z;
 
         // Convert quaternion to roll-pitch-yaw
         quat.setX(pose.orientation.x);
@@ -256,7 +261,7 @@ std::vector<pointcloud_clustering::observationRPY> DataFusion::processPoseArray(
         quat.setW(pose.orientation.w);
 
         tf::Matrix3x3 quaternionToRPY(quat);
-        quaternionToRPY.getEulerYPR(obs.position.yaw, obs.position.pitch, obs.position.roll);
+        quaternionToRPY.getEulerYPR(obs.yaw, obs.pitch, obs.roll);
 
         // Add to observations vector
         observations.push_back(obs);
@@ -266,13 +271,13 @@ std::vector<pointcloud_clustering::observationRPY> DataFusion::processPoseArray(
 }
 
 
-std::vector<pointcloud_clustering::observationRPY> DataFusion::loadMapFromCSV()
+std::vector<pointcloud_clustering::positionRPY> DataFusion::loadMapFromCSV()
 {
     /*
     Load CSV map with landmark known coordinates in the scene.
     */
-    std::vector<pointcloud_clustering::observationRPY> map; // To store VE positions
-    pointcloud_clustering::observationRPY map_aux;
+    std::vector<pointcloud_clustering::positionRPY> map; // To store VE positions
+    pointcloud_clustering::positionRPY map_aux;
     std::ifstream inputFile(mapFilePath.c_str());
     ROS_INFO("EKF Map file: %s", mapFilePath.c_str());
 
@@ -309,12 +314,12 @@ std::vector<pointcloud_clustering::observationRPY> DataFusion::loadMapFromCSV()
         }
 
         // Fill map_aux with parsed data
-        map_aux.position.x = record[0];
-        map_aux.position.y = record[1];
-        map_aux.position.z = record[2];
-        map_aux.position.roll = 0.0;
-        map_aux.position.pitch = 0.0;
-        map_aux.position.yaw = 0.0;
+        map_aux.x = record[0];
+        map_aux.y = record[1];
+        map_aux.z = record[2];
+        map_aux.roll = 0.0;
+        map_aux.pitch = 0.0;
+        map_aux.yaw = 0.0;
         map.push_back(map_aux);
 
         lineNumber++;
@@ -328,7 +333,7 @@ std::vector<pointcloud_clustering::observationRPY> DataFusion::loadMapFromCSV()
 }
 
 
-void DataFusion::publishPoseElements(std::vector<pointcloud_clustering::observationRPY> pose_array, ros::Publisher publisher)
+void DataFusion::publishPoseElements(std::vector<pointcloud_clustering::positionRPY> pose_array, ros::Publisher publisher)
 {
     ROS_DEBUG("EKF publishing elements...");
     geometry_msgs::PoseArray pose_array_msg;
@@ -339,13 +344,13 @@ void DataFusion::publishPoseElements(std::vector<pointcloud_clustering::observat
         geometry_msgs::Pose pose_msg;
 
         // Set position
-        pose_msg.position.x = pose.position.x;
-        pose_msg.position.y = pose.position.y;
-        pose_msg.position.z = pose.position.z;
+        pose_msg.position.x = pose.x;
+        pose_msg.position.y = pose.y;
+        pose_msg.position.z = pose.z;
 
         // Convert RPY to quaternion
         tf2::Quaternion q;
-        q.setRPY(pose.position.roll, pose.position.pitch, pose.position.yaw);
+        q.setRPY(pose.roll, pose.pitch, pose.yaw);
 
         // Set orientation
         pose_msg.orientation.x = q.x();
@@ -381,7 +386,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     incOdomEKF.roll = req.odometry.roll;
     incOdomEKF.pitch = req.odometry.pitch;
     incOdomEKF.yaw = req.odometry.yaw;
-    ROS_INFO("EKF Frame %d", frame_n);
+    ROS_DEBUG("EKF Frame %d", frame_n);
     ROS_INFO("EKF Incremental odometry received: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]", 
          incOdomEKF.x, incOdomEKF.y, incOdomEKF.z, 
          incOdomEKF.roll, incOdomEKF.pitch, incOdomEKF.yaw);
@@ -390,8 +395,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     geometry_msgs::PoseArray verticalElements_BL = req.verticalElements_BL; // Detected vertical elements in vehicle frame
 
     // Transform observations to Roll-Pitch-Yaw format
-    std::vector<pointcloud_clustering::observationRPY> observations_BL = processPoseArray(verticalElements_BL);
-    publishPoseElements(observations_BL, observation_pub_);
+    std::vector<pointcloud_clustering::positionRPY> observations_BL = processPoseArray(verticalElements_BL);
 
 
     // Initialize B matrix
@@ -435,7 +439,6 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
 
     if (observations_BL.empty()) {
         ROS_DEBUG("EKF No observations received. Skipping update.");
-
         // std::cout << "P:" << std::endl;
         // std::cout << P << std::endl;
 
@@ -446,22 +449,27 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
         ROS_DEBUG("EKF OBSERVATIONS FOUND >> MATCHING....");
         std::vector<int> i_vec; // Indices of matched observations
         std::vector<int> j_vec; // Indices of matched map elements
+
         // Data Fusion: Match observations with map elements
+        std::vector<pointcloud_clustering::positionRPY> observations_map;
+        
         for (int i = 0; i < observations_BL.size(); i++) {
             float minMahalanobis = mahalanobisDistanceThreshold;
             int bestMatchIndex = -1;
             //TODO: Remove >> Check distances computed
             std::vector<float> distances;
 
+            // Project observation to map frame
+            pointcloud_clustering::positionRPY observation_origin = Comp(kalmanPose, observations_BL[i]);
+            observations_map.push_back(observation_origin);
+
             for (int j = 0; j < map.size(); j++) {
                 // Compute innovation vector
-                // Project observation to map frame
-                pointcloud_clustering::positionRPY observation_origin = Comp(kalmanPose, observations_BL[i].position);
-                auto h_ij = computeInnovation(observation_origin, map[j].position, B);
+                auto h_ij = computeInnovation(observation_origin, map[j], B);
 
                 // Compute Jacobians
-                auto H_z_ij = B * J2_n(Inv(map[j].position), observation_origin) * J2_n(kalmanPose, observations_BL[i].position);
-                auto H_x_ij = B * J2_n(Inv(map[j].position), observation_origin) * J1_n(kalmanPose, observations_BL[i].position);
+                auto H_z_ij = B * J2_n(Inv(map[j]), observation_origin) * J2_n(kalmanPose, observations_BL[i]);
+                auto H_x_ij = B * J2_n(Inv(map[j]), observation_origin) * J1_n(kalmanPose, observations_BL[i]);
 
                 // Innovation covariance
                 auto S_ij = H_x_ij * P * H_x_ij.transpose() + H_z_ij * R * H_z_ij.transpose();
@@ -474,7 +482,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
                 if (distance < minMahalanobis) {
                     // Match found
                     ROS_INFO("EKF MATCH FOUND in observation %d with map element %d. Distance = %4f", i, j, distance);
-                    std::cout << "Distance: " << distance << std::endl;
+                    ROS_DEBUG("UPDATE");
                     minMahalanobis = distance;
                     bestMatchIndex = j;
                 }
@@ -485,15 +493,66 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
                 i_vec.push_back(i);
                 j_vec.push_back(bestMatchIndex);
             }
-            //TODO: Remove
+            //TODO: Remove - Element with the minimum distance between them
             if (!distances.empty()) {
                 float minDistance = *std::min_element(distances.begin(), distances.end());
-                std::cout << "Frame: " << frame_n << " - Minimum Mahalanobis distance for observation " << i << ": " << minDistance << std::endl;
-            } else {
-                std::cout << "Frame: " << frame_n << " - No distances computed for observation " << i << "." << std::endl;
+                int minDistanceIndex = std::distance(distances.begin(), std::min_element(distances.begin(), distances.end()));
+                // std::cout << "Map Element: " << map[minDistanceIndex] << std::endl;
+                std::cout << "Frame: " << frame_n << " - Minimum Mahalanobis distance for Observation " << i << " and Map Element " << minDistanceIndex << " : " << minDistance << std::endl;
+
+                // Draw line between observation and map point and publish it to ROS
+                visualization_msgs::Marker line_marker;
+                line_marker.header.frame_id = "map"; // Adjust the frame id as needed
+                line_marker.header.stamp = ros::Time::now();
+                line_marker.ns = "mahalanobis_lines";
+                line_marker.id = i; // Unique ID for the marker
+                line_marker.type = visualization_msgs::Marker::LINE_STRIP;
+                line_marker.action = visualization_msgs::Marker::ADD;
+                geometry_msgs::Point p1, p2;
+                // Map point
+                p1.x = map[minDistanceIndex].x;
+                p1.y = map[minDistanceIndex].y;
+                p1.z = map[minDistanceIndex].z;
+                // Observation point in map frame
+                p2.x = observation_origin.x;
+                p2.y = observation_origin.y;
+                p2.z = observation_origin.z;
+                line_marker.points.push_back(p1);
+                line_marker.points.push_back(p2);
+                // Set line properties
+                line_marker.scale.x = 0.1; // Line width
+                // Line color (RGBA)
+                line_marker.color.r = 1.0;
+                line_marker.color.g = 0.0;
+                line_marker.color.b = 0.0;
+                line_marker.color.a = 1.0;
+                // Publish the marker
+                line_marker_pub.publish(line_marker);
+
+                // Add text for the distance
+                visualization_msgs::Marker text;
+                text.header.frame_id = "map";
+                text.header.stamp = ros::Time::now();
+                text.ns = "distance_text";
+                text.id = 1; // Set a unique ID
+                text.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
+                text.action = visualization_msgs::Marker::ADD;
+                text.pose.position.x = (p1.x + p2.x) / 2.0;
+                text.pose.position.y = (p1.y + p2.y) / 2.0;
+                text.pose.position.z = (p1.z + p2.z) / 2.0;
+                text.scale.z = 0.5;
+                text.text = std::to_string(minDistance);
+                text.color.r = 1.0;
+                text.color.g = 1.0;
+                text.color.b = 1.0;
+                text.color.a = 1.0;
+                line_marker_pub.publish(text);
             }
         }
 
+        // DEBUG: Publish observations in map frame
+        publishPoseElements(observations_map, observation_pub_);
+        publishPoseElements(observations_BL, observation_BL_pub_);
         // If no matches were found, skip update
         if (!matched) {
             ROS_DEBUG("EKF No matches found. Using predicted state.");
@@ -520,16 +579,16 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
                 int i = i_vec[m];
                 int j = j_vec[m];
                 // Project observation to map frame
-                pointcloud_clustering::positionRPY observation_origin = Comp(kalmanPose, observations_BL[i].position);
+                pointcloud_clustering::positionRPY observation_origin = Comp(kalmanPose, observations_BL[i]);
                 // Compute innovation
-                auto h_i = computeInnovation(observation_origin, map[j].position, B);
+                auto h_i = computeInnovation(observation_origin, map[j], B);
                 h_k.block(m * B.rows(), 0, B.rows(), 1) = h_i;
 
                 // Compute Jacobians
-                auto H_x_i = B * J2_n(Inv(map[j].position), observation_origin) * J1_n(kalmanPose, observations_BL[i].position);
+                auto H_x_i = B * J2_n(Inv(map[j]), observation_origin) * J1_n(kalmanPose, observations_BL[i]);
                 H_x_k.block(m * B.rows(), 0, B.rows(), 6) = H_x_i;
 
-                auto H_z_i = B * J2_n(Inv(map[j].position), observation_origin) * J2_n(kalmanPose, observations_BL[i].position);
+                auto H_z_i = B * J2_n(Inv(map[j]), observation_origin) * J2_n(kalmanPose, observations_BL[i]);
                 
                 H_z_k.block(m * B.rows(), m * 6, B.rows(), 6) = H_z_i;
                 // Add observation noise

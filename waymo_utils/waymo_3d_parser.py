@@ -310,56 +310,58 @@ if __name__ == "__main__":
     src_dir = os.path.abspath(os.path.join(current_script_directory, ".."))
     sys.path.append(src_dir)
 
-    dataset_path = os.path.join(src_dir, "dataset/final_tests_scene")
+    scene_path = os.path.join(src_dir, "dataset/final_tests_scene/individual_files_training_segment-10023947602400723454_1120_000_1140_000_with_camera_labels.tfrecord")
 
-    tfrecord_list = list(
-        sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
-    
-    for scene_index, scene_path in enumerate(sorted(tfrecord_list)):
-        for frame in load_frame(scene_path):
-            (range_images, camera_projections, segmentation_labels, range_image_top_pose) = frame_utils.parse_range_image_and_camera_projection(frame)
-            if not(segmentation_labels):
-                continue
+    for frame_index, frame in enumerate(load_frame(scene_path)):
+        (range_images, camera_projections, segmentation_labels, range_image_top_pose) = frame_utils.parse_range_image_and_camera_projection(frame)
+        if not(segmentation_labels):
+            continue
 
-            frame.lasers.sort(key=lambda laser: laser.name)
-            show_semseg_label_image(range_images[open_dataset.LaserName.TOP][0])
-            plt.show()
+        frame.lasers.sort(key=lambda laser: laser.name)
+        show_semseg_label_image(range_images[open_dataset.LaserName.TOP][0])
+        plt.show()
 
 
-            # Get points labeled for first and second return
-            # Parse range image for lidar 1
-            def _range_image_to_pcd(ri_index = 0):
-                points, points_cp = frame_utils.convert_range_image_to_point_cloud(
-                    frame, range_images, camera_projections, range_image_top_pose,
-                    ri_index=ri_index)
-                return points, points_cp
-            
-            # Return of the first 2 lidar scans
-            points_return1, _ = _range_image_to_pcd()
-            points_return2, _ = _range_image_to_pcd(1)
+        # Get points labeled for first and second return
+        # Parse range image for lidar 1
+        def _range_image_to_pcd(ri_index = 0):
+            points, points_cp = frame_utils.convert_range_image_to_point_cloud(
+                frame, range_images, camera_projections, range_image_top_pose,
+                ri_index=ri_index)
+            return points, points_cp
+        
+        # Return of the first 2 lidar scans
+        points_return1, _ = _range_image_to_pcd()
+        points_return2, _ = _range_image_to_pcd(1)
 
-            # Semantic labels for the first 2 lidar scans
-            point_labels = convert_range_image_to_point_cloud_labels(
-                frame, range_images, segmentation_labels)
-            point_labels_ri2 = convert_range_image_to_point_cloud_labels(
-                frame, range_images, segmentation_labels, ri_index=1)
-            
-            filtered_point_cloud, filtered_point_labels = filter_lidar_data(points_return1, point_labels, [8, 10])
+        # Semantic labels for the first 2 lidar scans
+        point_labels = convert_range_image_to_point_cloud_labels(
+            frame, range_images, segmentation_labels)
+        point_labels_ri2 = convert_range_image_to_point_cloud_labels(
+            frame, range_images, segmentation_labels, ri_index=1)
+        
+        filtered_point_cloud, filtered_point_labels = filter_lidar_data(points_return1, point_labels, [8, 10])
+        # plot_referenced_pointcloud(filtered_point_cloud[0], plot=True)
 
-            # Concatenate points of the 5 LiDAR
-            concat_point_cloud = concatenate_points(filtered_point_cloud)
-            # Concatenate labels of points of the 5 LiDA
-            concat_point_labels = concatenate_points(filtered_point_labels)
+        # Concatenate points of the 5 LiDAR
+        concat_point_cloud = concatenate_points(filtered_point_cloud)
+        # Concatenate labels of points of the 5 LiDA
+        concat_point_labels = concatenate_points(filtered_point_labels)
 
-            # Get semantic and instance segmentation labels
-            concat_semantic_labels = concat_point_labels[:,1]
-            concat_instance_labels = concat_point_labels[:,0]
+        # Get semantic and instance segmentation labels
+        concat_semantic_labels = concat_point_labels[:,1]
+        concat_instance_labels = concat_point_labels[:,0]
 
-            # # Cluster filtered pointcloud
-            clustered_point_clouds, cluster_labels = cluster_pointcloud(concat_point_cloud)
+        # # Cluster filtered pointcloud
+        clustered_point_clouds, cluster_labels = cluster_pointcloud(concat_point_cloud)
 
-            plt.figure()
-            plt.scatter(concat_point_cloud[:,0], concat_point_cloud[:,1], c=cluster_labels)
-            plt.show()
+        plt.figure()
+        plt.scatter(concat_point_cloud[:,0], concat_point_cloud[:,1], c=cluster_labels)
+        plt.title(f"Clustering Visualization for Frame {frame_index}")
+        plt.xlabel("X Coordinate")
+        plt.ylabel("Y Coordinate")
+        plt.legend()
+        plt.grid(True)
+        plt.show()
 
-            # show_point_cloud_with_labels(concat_point_cloud, cluster_labels)
+        # show_point_cloud_with_labels(concat_point_cloud, concat_semantic_labels)

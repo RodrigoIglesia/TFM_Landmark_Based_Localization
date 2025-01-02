@@ -375,6 +375,16 @@ if __name__ == "__main__":
     previous_transform_matrix = None
     for frame_index, frame in enumerate(load_frame(scene_path)):
         ############################################################
+        ## Accumulate Pose
+        ###########################################################
+        current_transform_matrix = np.array(frame.pose.transform).reshape(4, 4)
+        if previous_transform_matrix is not None:
+            relative_transform = np.linalg.inv(previous_transform_matrix) @ current_transform_matrix
+            increment = matrix_to_pose(relative_transform)
+            composed_pose = compose_positions(composed_pose, increment)
+
+        previous_transform_matrix = current_transform_matrix
+        ############################################################
         ## Process Pointclouds
         ###########################################################
         (range_images, camera_projections, segmentation_labels, range_image_top_pose) = frame_utils.parse_range_image_and_camera_projection(frame)
@@ -409,13 +419,6 @@ if __name__ == "__main__":
         ############################################################
         ## Get transform from current pose to vehicle origin pose
         ###########################################################
-        current_transform_matrix = np.array(frame.pose.transform).reshape(4, 4)
-        if previous_transform_matrix is not None:
-            relative_transform = np.linalg.inv(previous_transform_matrix) @ current_transform_matrix
-            increment = matrix_to_pose(relative_transform)
-            composed_pose = compose_positions(composed_pose, increment)
-
-        previous_transform_matrix = current_transform_matrix
         transformation_matrix = create_homog_matrix(composed_pose)
         projected_pointcloud = project_points_on_map(filtered_point_cloud[0], transformation_matrix)
         point_clouds.append(projected_pointcloud)

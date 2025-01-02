@@ -16,15 +16,14 @@ typedef Eigen::Matrix<float, 6, 1> Vector6f;
 
 Matrix4f createHomogMatr(pointcloud_clustering::positionRPY pos);
 pointcloud_clustering::positionRPY coordRPY(Matrix4f pos);
+pointcloud_clustering::positionRPY transformPose(pointcloud_clustering::positionRPY pose_to_project, pointcloud_clustering::positionRPY pose_in_destination_frame);
 pointcloud_clustering::positionRPY Comp(pointcloud_clustering::positionRPY pos1, pointcloud_clustering::positionRPY pos2);
 pointcloud_clustering::positionRPY Inv(pointcloud_clustering::positionRPY pos);
 Matrix4f createHomogMatrInv(pointcloud_clustering::positionRPY pos);
 Matrix6f J1_n(pointcloud_clustering::positionRPY pos1, pointcloud_clustering::positionRPY pos2);
 Matrix6f J2_n(pointcloud_clustering::positionRPY pos1, pointcloud_clustering::positionRPY pos2);
-Matrix6f computeHx2(pointcloud_clustering::observationRPY obs, pointcloud_clustering::positionRPY pos);
-Vector6f computeInnovation(pointcloud_clustering::positionRPY pos, pointcloud_clustering::observationRPY obs, pointcloud_clustering::observationRPY map);
-Matrix6f computeHz2(pointcloud_clustering::observationRPY obs, pointcloud_clustering::positionRPY pos);
+Vector4f computeInnovation(pointcloud_clustering::positionRPY obs, pointcloud_clustering::positionRPY map_landmark, Matrix <float, 4, 6> B);
 float mahalanobisDistance(const MatrixXf& h, const MatrixXf& S);
-float AngRango(float ang);
+// float AngRango(float ang);
 pointcloud_clustering::positionRPY vec2RPY(Vector6f pos);
 Vector6f RPY2Vec(pointcloud_clustering::positionRPY pos);

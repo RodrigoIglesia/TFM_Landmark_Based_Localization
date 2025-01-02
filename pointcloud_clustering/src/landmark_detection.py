@@ -25,6 +25,10 @@ from cv_bridge import CvBridge
 from pointcloud_clustering.srv import landmark_detection_srv, landmark_detection_srvResponse
 import configparser
 
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="transformers.utils.deprecation")
+
+
 
 # Add project src root to python path
 current_script_directory = os.path.dirname(os.path.realpath(__file__))
@@ -177,7 +181,7 @@ if __name__ == "__main__":
     rospy.init_node('landmark_detection', anonymous=True)
     rospy.logdebug("Landmark detection server initialized correctly")
     # Load the model and feature extractor from Hugging Face
-    model_name = "nvidia/segformer-b0-finetuned-cityscapes-1024-1024"
+    model_name = "nvidia/segformer-b5-finetuned-cityscapes-1024-1024"
     model = SegformerForSemanticSegmentation.from_pretrained(model_name)
     feature_extractor = SegformerFeatureExtractor.from_pretrained(model_name)
     model.to('cpu').eval()

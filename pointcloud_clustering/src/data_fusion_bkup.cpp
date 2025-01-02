@@ -437,60 +437,68 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
 
     bool matched = false;
 
-    if (!observations_BL.empty()) {
-        ROS_DEBUG("EKF OBSERVATIONS FOUND >> MATCHING AND UPDATING....");
-        std::vector<int> matched_indices;
+    if (observations_BL.empty()) {
+        ROS_DEBUG("EKF No observations received. Skipping update.");
+        // std::cout << "P:" << std::endl;
+        // std::cout << P << std::endl;
 
-        // Initialize matrices for correction
-        int M = observations_BL.size();
-        MatrixXf h_k(M * B_rows, 1);
-        MatrixXf H_x_k(M * B_rows, 6);
-        MatrixXf H_z_k(M * B_rows, M * 6);
-        MatrixXf R_k(M * 6, M * 6);
+        // Set the response
+        res.corrected_position = kalmanPose;
+    }
+    else {
+        ROS_DEBUG("EKF OBSERVATIONS FOUND >> MATCHING....");
+        std::vector<int> i_vec; // Indices of matched observations
+        std::vector<int> j_vec; // Indices of matched map elements
 
-        h_k.setZero();
-        H_x_k.setZero();
-        H_z_k.setZero();
-        R_k.setZero();
-
-        int match_count = 0;
+        // Data Fusion: Match observations with map elements
         std::vector<pointcloud_clustering::positionRPY> observations_map;
-        for (int i = 0; i < observations_BL.size(); ++i) {
-            pointcloud_clustering::positionRPY obs_origin = Comp(kalmanPose, observations_BL[i]);
-            obs_origin.roll = 0.0;
-            obs_origin.pitch = 0.0;
-            obs_origin.yaw = 0.0;
-            observations_map.push_back(obs_origin);
-            int best_match = -1;
-            float min_mahalanobis = config_.mahalanobisDistanceThreshold;
+        
+        for (int i = 0; i < observations_BL.size(); i++) {
+            float minMahalanobis = mahalanobisDistanceThreshold;
+            int bestMatchIndex = -1;
+            //TODO: Remove >> Check distances computed
             std::vector<float> distances;
 
-            for (int j = 0; j < map.size(); ++j) {
-                // Compute innovation and Jacobians
-                auto h_ij = computeInnovation(obs_origin, map[j], B);
-                auto H_x_ij = B * J2_n(Inv(map[j]), obs_origin) * J1_n(kalmanPose, observations_BL[i]);
-                auto H_z_ij = B * J2_n(Inv(map[j]), obs_origin) * J2_n(kalmanPose, observations_BL[i]);
+            // Project observation to map frame
+            pointcloud_clustering::positionRPY observation_origin = Comp(kalmanPose, observations_BL[i]);
+            observations_map.push_back(observation_origin);
+
+            for (int j = 0; j < map.size(); j++) {
+                // Compute innovation vector
+                auto h_ij = computeInnovation(observation_origin, map[j], B);
+
+                // Compute Jacobians
+                auto H_z_ij = B * J2_n(Inv(map[j]), observation_origin) * J2_n(kalmanPose, observations_BL[i]);
+                auto H_x_ij = B * J2_n(Inv(map[j]), observation_origin) * J1_n(kalmanPose, observations_BL[i]);
+
+                // Innovation covariance
                 auto S_ij = H_x_ij * P * H_x_ij.transpose() + H_z_ij * R * H_z_ij.transpose();
 
                 // Compute Mahalanobis distance
-                float distance = mahalanobisDistance(h_ij, S_ij);
+                float distance = sqrt(mahalanobisDistance(h_ij, S_ij));
+
+                //TODO: Remove
                 distances.push_back(distance);
-                if (distance < min_mahalanobis) {
+                if (distance < minMahalanobis) {
+                    // Match found
                     ROS_INFO("EKF MATCH FOUND in observation %d with map element %d. Distance = %4f", i, j, distance);
-                    min_mahalanobis = distance;
-                    best_match = j;
+                    ROS_DEBUG("UPDATE");
+                    minMahalanobis = distance;
+                    bestMatchIndex = j;
                 }
             }
+            // Register match if found
+            if (bestMatchIndex != -1) {
+                matched = true;
+                i_vec.push_back(i);
+                j_vec.push_back(bestMatchIndex);
+            }
+            //TODO: Remove - Element with the minimum distance between them
             if (!distances.empty()) {
                 float minDistance = *std::min_element(distances.begin(), distances.end());
                 int minDistanceIndex = std::distance(distances.begin(), std::min_element(distances.begin(), distances.end()));
                 // std::cout << "Map Element: " << map[minDistanceIndex] << std::endl;
-                std::cout << "\n";
                 std::cout << "Frame: " << frame_n << " - Minimum Mahalanobis distance for Observation " << i << " and Map Element " << minDistanceIndex << " : " << minDistance << std::endl;
-                std::cout << "Observation: " << observations_map[i] << std::endl;
-                std::cout << "Map Element: " << map[minDistanceIndex] << std::endl;
-                std::cout << "Kalman Pose: " << kalmanPose << std::endl;
-                std::cout << "\n";
 
                 // Draw line between observation and map point and publish it to ROS
                 visualization_msgs::Marker line_marker;
@@ -506,9 +514,9 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
                 p1.y = map[minDistanceIndex].y;
                 p1.z = map[minDistanceIndex].z;
                 // Observation point in map frame
-                p2.x = obs_origin.x;
-                p2.y = obs_origin.y;
-                p2.z = obs_origin.z;
+                p2.x = observation_origin.x;
+                p2.y = observation_origin.y;
+                p2.z = observation_origin.z;
                 line_marker.points.push_back(p1);
                 line_marker.points.push_back(p2);
                 // Set line properties
@@ -540,49 +548,75 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
                 text.color.a = 1.0;
                 line_marker_pub.publish(text);
             }
-
-            if (best_match != -1) {
-                // Accumulate matched observation data
-                pointcloud_clustering::positionRPY map_elem = map[best_match];
-                auto h_i = computeInnovation(obs_origin, map_elem, B);
-                auto H_x_i = B * J2_n(Inv(map_elem), obs_origin) * J1_n(kalmanPose, observations_BL[i]);
-                auto H_z_i = B * J2_n(Inv(map_elem), obs_origin) * J2_n(kalmanPose, observations_BL[i]);
-
-                h_k.block(match_count * B_rows, 0, B_rows, 1) = h_i;
-                H_x_k.block(match_count * B_rows, 0, B_rows, 6) = H_x_i;
-                H_z_k.block(match_count * B_rows, match_count * 6, B_rows, 6) = H_z_i;
-                R_k.block(match_count * 6, match_count * 6, 6, 6) = R;
-
-                ++match_count;
-            }
         }
 
+        // DEBUG: Publish observations in map frame
         publishPoseElements(observations_map, observation_pub_);
         publishPoseElements(observations_BL, observation_BL_pub_);
+        // If no matches were found, skip update
+        if (!matched) {
+            ROS_DEBUG("EKF No matches found. Using predicted state.");
+            // Set the response
+            res.corrected_position = kalmanPose;
+        }
+        else {
+            //TODO: Refactorizar, se repiten fórmulas que ya se han hecho anteriormente
+            // Initialize matrices for correction
+            int M = i_vec.size(); // Number of matches
+            ROS_DEBUG("EKF Matches found: %d", M);
+            MatrixXf h_k(M * B.rows(), 1);
+            MatrixXf H_x_k(M * B.rows(), 6);
+            MatrixXf H_z_k(M * B.rows(), M * 6);
+            MatrixXf R_k(M * 6, M * 6);
 
-        if (match_count > 0) {
-            h_k.conservativeResize(match_count * B_rows, 1);
-            H_x_k.conservativeResize(match_count * B_rows, 6);
-            H_z_k.conservativeResize(match_count * B_rows, match_count * 6);
-            R_k.conservativeResize(match_count * 6, match_count * 6);
+            h_k.setZero();
+            H_x_k.setZero();
+            H_z_k.setZero();
+            R_k.setZero();
 
-            // Update step
+            // Populate matrices based on matches
+            for (int m = 0; m < M; m++) {
+                int i = i_vec[m];
+                int j = j_vec[m];
+                // Project observation to map frame
+                pointcloud_clustering::positionRPY observation_origin = Comp(kalmanPose, observations_BL[i]);
+                // Compute innovation
+                auto h_i = computeInnovation(observation_origin, map[j], B);
+                h_k.block(m * B.rows(), 0, B.rows(), 1) = h_i;
+
+                // Compute Jacobians
+                auto H_x_i = B * J2_n(Inv(map[j]), observation_origin) * J1_n(kalmanPose, observations_BL[i]);
+                H_x_k.block(m * B.rows(), 0, B.rows(), 6) = H_x_i;
+
+                auto H_z_i = B * J2_n(Inv(map[j]), observation_origin) * J2_n(kalmanPose, observations_BL[i]);
+                
+                H_z_k.block(m * B.rows(), m * 6, B.rows(), 6) = H_z_i;
+                // Add observation noise
+                R_k.block(m * 6, m * 6, 6, 6) = R;
+            }
+
+            // Compute innovation covariance
             auto S_k = H_x_k * P * H_x_k.transpose() + H_z_k * R_k * H_z_k.transpose();
+
+            // Compute Kalman gain
             auto W = P * H_x_k.transpose() * S_k.inverse();
+
+            // Update state
             kalmanPose = vec2RPY(RPY2Vec(kalmanPose) - W * h_k);
-            P = (Matrix6f::Identity() - W * H_x_k) * P;
+
+            // Update covariance
+            Matrix6f updatedP = (Matrix6f::Identity() - W * H_x_k) * P;
 
             ROS_INFO("EKF Corrected Position: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]",
                     kalmanPose.x, kalmanPose.y, kalmanPose.z,
                     kalmanPose.roll, kalmanPose.pitch, kalmanPose.yaw);
-        } else {
-            ROS_DEBUG("EKF No valid matches. Using predicted state.");
-        }
-    } else {
-        ROS_DEBUG("EKF No observations. Skipping update.");
-    }
 
-    res.corrected_position = kalmanPose;
+            P = updatedP;
+
+            // Set the response
+            res.corrected_position = kalmanPose;
+        }
+    }
 
     // Clear received input
     // req.verticalElements_BL.poses.clear();

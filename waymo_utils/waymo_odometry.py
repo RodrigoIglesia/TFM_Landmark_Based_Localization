@@ -68,7 +68,7 @@ def get_pose(T):
 
 
 if __name__ == "__main__":
-    dataset_path = os.path.join(src_dir, "dataset/waymo_test_scene")
+    dataset_path = os.path.join(src_dir, "dataset/final_tests_scene")
 
     tfrecord_list = list(
         sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
@@ -82,18 +82,18 @@ if __name__ == "__main__":
     scene_path = tfrecord_list[0]
     frame_i = 0
     for frame in load_frame(scene_path):
-        print(frame.context.name)
+        # print(frame.context.name)
 
         point_cloud, points_cp = get_pointcloud(frame)
         vehicle_pose_vector = frame.pose.transform
         transform_matrix = np.array(vehicle_pose_vector).reshape(4, 4)
         pose = get_pose(transform_matrix)
-        print("X: ",        pose[0])
-        print("Y: ",        pose[1])
-        print("Z: ",        pose[2])
-        print("Roll: ",     pose[3])
-        print("Pitch: ",    pose[4])
-        print("Yaw: ",      pose[5])
+        # print("X: ",        pose[0])
+        # print("Y: ",        pose[1])
+        # print("Z: ",        pose[2])
+        # print("Roll: ",     pose[3])
+        # print("Pitch: ",    pose[4])
+        # print("Yaw: ",      pose[5])
         poses.append(pose[:3])
 
 

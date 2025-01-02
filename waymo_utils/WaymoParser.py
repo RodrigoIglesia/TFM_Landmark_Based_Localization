@@ -1,12 +1,14 @@
 import os
 import matplotlib.pyplot as plt
-import tensorflow as tf
 import numpy as np
 import cv2
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
+import tensorflow as tf
 if not tf.executing_eagerly():
   tf.compat.v1.enable_eager_execution()
+
 
 from waymo_open_dataset.utils import  frame_utils
 from waymo_open_dataset import dataset_pb2 as open_dataset
@@ -23,6 +25,8 @@ def load_frame(scene):
     """
     dataset = tf.data.TFRecordDataset(scene, compression_type='')
     for data in dataset:
+        if not data:
+            break
         frame_object = open_dataset.Frame()
         frame_object.ParseFromString(bytearray(data.numpy()))
 

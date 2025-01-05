@@ -10,9 +10,11 @@ src_dir = os.path.abspath(os.path.join(current_script_directory, ".."))
 sys.path.append(src_dir)
 
 # Cargar datos de los CSV
-landmarks_file = os.path.join(src_dir, "results/landmarks_individual_files_training_segment-10023947602400723454_1120_000_1140_000_with_camera_labels.csv")
-poses_file = os.path.join(src_dir, "results/poses_individual_files_training_segment-10023947602400723454_1120_000_1140_000_with_camera_labels.csv")
-signs_map_file = os.path.join(src_dir, "dataset/pointclouds/pointcloud_concatenatedindividual_files_training_segment-10023947602400723454_1120_000_1140_000_with_camera_labels.csv")
+scene = "individual_files_training_segment-10072140764565668044_4060_000_4080_000_with_camera_labels"
+
+landmarks_file = os.path.join(src_dir, "results/landmarks_" + scene +".csv")
+poses_file = os.path.join(src_dir, "results/poses_" + scene + ".csv")
+signs_map_file = os.path.join(src_dir, "dataset/pointclouds/pointcloud_concatenated" + scene +".csv")
 
 # Leer los CSV
 signs_map = pd.read_csv(signs_map_file)

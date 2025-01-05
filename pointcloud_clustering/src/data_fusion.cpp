@@ -152,9 +152,6 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     PFactor = config_.PFactor;
     P = P*PFactor;
 
-    // std::cout << "Initial P: " << std::endl;
-    // std::cout << P << std::endl;
-
     sigma_obs.x = config_.sigma_obs_x;
     sigma_obs.y = config_.sigma_obs_y;
     sigma_obs.z = config_.sigma_obs_z;
@@ -168,9 +165,6 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     R(3, 3) = std::pow(sigma_obs.roll, 2);
     R(4, 4) = std::pow(sigma_obs.pitch, 2);
     R(5, 5) = std::pow(sigma_obs.yaw, 2);
-
-    // std::cout << "Initial R: " << std::endl;
-    // std::cout << R << std::endl;
 
 
     sigma_odom.x = config_.sigma_odom_x;
@@ -189,9 +183,6 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
 
     QFactor = config_.QFactor;
     Q = Q*QFactor;
-
-    // std::cout << "Initial Q: " << std::endl;
-    // std::cout << Q << std::endl;
 }
 
 void DataFusion::readConfig(const std::string &filename)
@@ -457,9 +448,9 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
         std::vector<pointcloud_clustering::positionRPY> observations_map;
         for (int i = 0; i < observations_BL.size(); ++i) {
             pointcloud_clustering::positionRPY obs_origin = Comp(kalmanPose, observations_BL[i]);
-            obs_origin.roll = 0.0;
-            obs_origin.pitch = 0.0;
-            obs_origin.yaw = 0.0;
+            // obs_origin.roll = 0.0;
+            // obs_origin.pitch = 0.0;
+            // obs_origin.yaw = 0.0;
             observations_map.push_back(obs_origin);
             int best_match = -1;
             float min_mahalanobis = config_.mahalanobisDistanceThreshold;
@@ -483,21 +474,15 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
             }
             if (!distances.empty()) {
                 float minDistance = *std::min_element(distances.begin(), distances.end());
+                std::cout << "Min distance for observation " << i << ": " << minDistance << std::endl;
                 int minDistanceIndex = std::distance(distances.begin(), std::min_element(distances.begin(), distances.end()));
-                // std::cout << "Map Element: " << map[minDistanceIndex] << std::endl;
-                std::cout << "\n";
-                std::cout << "Frame: " << frame_n << " - Minimum Mahalanobis distance for Observation " << i << " and Map Element " << minDistanceIndex << " : " << minDistance << std::endl;
-                std::cout << "Observation: " << observations_map[i] << std::endl;
-                std::cout << "Map Element: " << map[minDistanceIndex] << std::endl;
-                std::cout << "Kalman Pose: " << kalmanPose << std::endl;
-                std::cout << "\n";
 
                 // Draw line between observation and map point and publish it to ROS
                 visualization_msgs::Marker line_marker;
                 line_marker.header.frame_id = "map"; // Adjust the frame id as needed
                 line_marker.header.stamp = ros::Time::now();
                 line_marker.ns = "mahalanobis_lines";
-                line_marker.id = i; // Unique ID for the marker
+                line_marker.id = 1; // Unique ID for the marker
                 line_marker.type = visualization_msgs::Marker::LINE_STRIP;
                 line_marker.action = visualization_msgs::Marker::ADD;
                 geometry_msgs::Point p1, p2;
@@ -569,6 +554,9 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
             // Update step
             auto S_k = H_x_k * P * H_x_k.transpose() + H_z_k * R_k * H_z_k.transpose();
             auto W = P * H_x_k.transpose() * S_k.inverse();
+            std::cout << "Incertidumbre del estado:\n" << P << std::endl;
+            std::cout << "Incertidumbre de las observaciones:\n" << R << std::endl;
+            std::cout << "Ganancia de Kalman (W):\n" << W << std::endl;
             kalmanPose = vec2RPY(RPY2Vec(kalmanPose) - W * h_k);
             P = (Matrix6f::Identity() - W * H_x_k) * P;
 

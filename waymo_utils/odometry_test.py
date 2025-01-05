@@ -1,9 +1,8 @@
 import os
 import sys
-import pathlib
 import numpy as np
 import open3d as o3d
-import csv  # Necesario para leer el CSV
+import pandas as pd
 from scipy.spatial.transform import Rotation as R
 
 # Add project root to python path
@@ -25,9 +24,46 @@ def normalize_angle(angle):
     """ Normalize the angle to be within the range [-\u03c0, \u03c0] """
     return (angle + np.pi) % (2 * np.pi) - np.pi
 
-def process_odometry(frame, position_noise_cumulative, orientation_noise_cumulative, initial_transform_matrix=None, position_noise_std=0.1, orientation_noise_std=0.01):
+# def process_odometry(frame, position_noise_cumulative, orientation_noise_cumulative, initial_transform_matrix=None, position_noise_std=0.05, orientation_noise_std=0.01):
+#     """
+#     Get incremental pose of the vehicle with cumulative noise.
+#     """
+#     transform_matrix = np.array(frame.pose.transform).reshape(4, 4)
+#     if initial_transform_matrix is None:
+#         initial_transform_matrix = transform_matrix
+
+#     relative_transform = np.linalg.inv(initial_transform_matrix) @ transform_matrix
+#     relative_pose = get_pose(relative_transform)
+#     position_noise = [
+#         np.random.normal(0, position_noise_std) if i < 2 else np.random.normal(0, position_noise_std * 0.1)
+#         for i in range(3)
+#     ]  # Reduce Z noise significantly
+#     orientation_noise = [
+#         np.random.normal(0, orientation_noise_std) for _ in range(3)
+#     ]
+
+#     position_noise_cumulative = [
+#         position_noise_cumulative[i] * 0.8 + position_noise[i]
+#         for i in range(3)
+#     ]
+#     orientation_noise_cumulative = [
+#         orientation_noise_cumulative[i] * 0.8 + orientation_noise[i]
+#         for i in range(3)
+#     ]
+
+#     noisy_position = [
+#         relative_pose[i] + position_noise_cumulative[i] for i in range(3)
+#     ]
+#     noisy_orientation = [
+#         relative_pose[i+3] + orientation_noise_cumulative[i] for i in range(3)
+#     ]
+
+#     odometry_pose = noisy_position + noisy_orientation
+#     return relative_pose, odometry_pose, transform_matrix, initial_transform_matrix
+
+def process_odometry(frame, position_noise_std=0.05, orientation_noise_std=0.01, initial_transform_matrix=None):
     """
-    Get incremental pose of the vehicle with cumulative noise.
+    Get incremental pose of the vehicle with constant Gaussian noise.
     """
     transform_matrix = np.array(frame.pose.transform).reshape(4, 4)
     if initial_transform_matrix is None:
@@ -35,24 +71,25 @@ def process_odometry(frame, position_noise_cumulative, orientation_noise_cumulat
 
     relative_transform = np.linalg.inv(initial_transform_matrix) @ transform_matrix
     relative_pose = get_pose(relative_transform)
-
-    position_noise_cumulative = [
-        position_noise_cumulative[i] + np.random.normal(0, position_noise_std)
+    position_noise = [
+        np.random.normal(0, position_noise_std) if i < 2 else np.random.normal(0, position_noise_std * 0.1)
         for i in range(3)
-    ]
-    orientation_noise_cumulative = [
-        orientation_noise_cumulative[i] + np.random.normal(0, orientation_noise_std)
-        for i in range(3)
+    ]  # Reduce Z noise significantly
+    orientation_noise = [
+        np.random.normal(0, orientation_noise_std) for _ in range(3)
     ]
 
+    # Aplicar ruido directamente a la pose relativa
     noisy_position = [
-        relative_pose[i] + position_noise_cumulative[i] for i in range(3)
+        relative_pose[i] + position_noise[i] for i in range(3)
     ]
     noisy_orientation = [
-        relative_pose[i+3] + orientation_noise_cumulative[i] for i in range(3)
+        relative_pose[i+3] + orientation_noise[i] for i in range(3)
     ]
 
+    # Generar la pose odométrica con ruido
     odometry_pose = noisy_position + noisy_orientation
+
     return relative_pose, odometry_pose, transform_matrix, initial_transform_matrix
 
 def concatenate_pcd_returns(pcd_return_1, pcd_return_2):
@@ -62,17 +99,8 @@ def concatenate_pcd_returns(pcd_return_1, pcd_return_2):
     points_cp_concat = np.concatenate(points_cp + points_cp_ri2, axis=0)
     return points_concat, points_cp_concat
 
-# Ruta del CSV con los elementos verticales
-csv_path = os.path.join(src_dir, "pointcloud_clustering/map/signs_map_features_individual_files_training_segment-10072140764565668044_4060_000_4080_000_with_camera_labels.csv")
-vertical_elements = []
-with open(csv_path, newline='') as csvfile:
-    reader = csv.reader(csvfile)
-    for row in reader:
-        x, y, z = float(row[0]), float(row[1]), float(row[2])
-        vertical_elements.append([x, y, z, 0.0, 0.0, 0.0])
-
-dataset_path = os.path.join(src_dir, "dataset/final_tests_scene")
-tfrecord_list = list(sorted(pathlib.Path(dataset_path).glob('*.tfrecord')))
+scene = "individual_files_training_segment-10072140764565668044_4060_000_4080_000_with_camera_labels"
+scene_path = os.path.join(src_dir, "dataset/final_tests_scene/" + scene + ".tfrecord")
 points = []
 noisy_points = []
 lines = []
@@ -80,79 +108,89 @@ noisy_lines = []
 line_set = o3d.geometry.LineSet()
 noisy_line_set = o3d.geometry.LineSet()
 
-for scene_index, scene_path in enumerate(tfrecord_list):
-    vis = o3d.visualization.Visualizer()
-    vis.create_window()
+vis = o3d.visualization.Visualizer()
+vis.create_window()
 
-    scene_name = scene_path.stem
-    frame_n = 0
-    prev_point = None
-    prev_noisy_point = None
-    initial_transform_matrix = None
-    position_noise_cumulative = [0, 0, 0]
-    orientation_noise_cumulative = [0, 0, 0]
+frame_n = 0
+prev_point = None
+prev_noisy_point = None
+initial_transform_matrix = None
+position_noise_cumulative = [0, 0, 0]
+orientation_noise_cumulative = [0, 0, 0]
 
-    for frame in load_frame(scene_path):
-        if frame is None:
-            continue
+## Draw map landmarks
+signs_map_file = os.path.join(src_dir, "dataset/pointclouds/pointcloud_concatenated" + scene +".csv")
+signs_map = pd.read_csv(signs_map_file)
+map_points = signs_map.iloc[:, :3].values
+map_point_cloud = o3d.geometry.PointCloud()
+map_point_cloud.points = o3d.utility.Vector3dVector(map_points)
+color = np.array([[1.0, 0.0, 0.0]] * len(map_points))
+map_point_cloud.colors = o3d.utility.Vector3dVector(color)
+vis.add_geometry(map_point_cloud)
 
-        relative_pose, noisy_relative_pose, transform_matrix, initial_transform_matrix = process_odometry(frame, position_noise_cumulative, orientation_noise_cumulative, initial_transform_matrix)
+for frame in load_frame(scene_path):
+    if frame is None:
+        continue
 
-        point = [relative_pose[0], relative_pose[1], relative_pose[2]]
-        points.append(point)
+    relative_pose, noisy_relative_pose, transform_matrix, initial_transform_matrix = process_odometry(frame, position_noise_std=0.05, orientation_noise_std=0.01, initial_transform_matrix=initial_transform_matrix)
 
-        noisy_point = [noisy_relative_pose[0], noisy_relative_pose[1], noisy_relative_pose[2]]
-        noisy_points.append(noisy_point)
+    point = [relative_pose[0], relative_pose[1], relative_pose[2]]
+    points.append(point)
 
-        if prev_point is not None:
-            lines.append([len(points) - 2, len(points) - 1])
-        if prev_noisy_point is not None:
-            noisy_lines.append([len(noisy_points) - 2, len(noisy_points) - 1])
+    noisy_point = [noisy_relative_pose[0], noisy_relative_pose[1], noisy_relative_pose[2]]
+    noisy_points.append(noisy_point)
 
-        prev_point = point
-        prev_noisy_point = noisy_point
-        frame_n += 1
+    if prev_point is not None:
+        lines.append([len(points) - 2, len(points) - 1])
+    if prev_noisy_point is not None:
+        noisy_lines.append([len(noisy_points) - 2, len(noisy_points) - 1])
 
-        if frame_n != 10:
-            continue
+    prev_point = point
+    prev_noisy_point = noisy_point
+    frame_n += 1
 
-        range_images, camera_projections, segmentation_labels, range_image_top_pose = frame_utils.parse_range_image_and_camera_projection(frame)
+    if frame_n != 1:
+        continue
 
-        def _range_image_to_pcd(ri_index=0):
-            points, points_cp = frame_utils.convert_range_image_to_point_cloud(
-                frame, range_images, camera_projections, range_image_top_pose, ri_index=ri_index)
-            return points, points_cp
+    range_images, camera_projections, segmentation_labels, range_image_top_pose = frame_utils.parse_range_image_and_camera_projection(frame)
 
-        points_return1 = _range_image_to_pcd()
-        points_return2 = _range_image_to_pcd(1)
+    def _range_image_to_pcd(ri_index=0):
+        points, points_cp = frame_utils.convert_range_image_to_point_cloud(
+            frame, range_images, camera_projections, range_image_top_pose, ri_index=ri_index)
+        return points, points_cp
 
-        pointcloud, points_cp = concatenate_pcd_returns(points_return1, points_return2)
-        transform = np.reshape(np.array(frame.pose.transform), [4, 4])
-        points_homogeneous = np.hstack((pointcloud, np.ones((pointcloud.shape[0], 1))))
-        global_points = np.dot(transform, points_homogeneous.T).T
-        global_points = global_points[:, :3]
+    points_return1 = _range_image_to_pcd()
+    points_return2 = _range_image_to_pcd(1)
 
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(pointcloud)
+    pointcloud, points_cp = concatenate_pcd_returns(points_return1, points_return2)
+    transform = np.reshape(np.array(frame.pose.transform), [4, 4])
+    points_homogeneous = np.hstack((pointcloud, np.ones((pointcloud.shape[0], 1))))
+    global_points = np.dot(transform, points_homogeneous.T).T
+    global_points = global_points[:, :3]
 
-        mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.6, origin=[0, 0, 0])
-        vis.add_geometry(mesh_frame)
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(pointcloud)
 
-        vis.add_geometry(pcd)
-        opt = vis.get_render_option()
-        opt.point_size = 1.0
+    mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.6, origin=[0, 0, 0])
+    vis.add_geometry(mesh_frame)
 
-    points_o3d = o3d.utility.Vector3dVector(points)
-    line_set.points = points_o3d
-    line_set.lines = o3d.utility.Vector2iVector(lines)
-    line_set.paint_uniform_color([0, 0, 1])
-    vis.add_geometry(line_set)
+    vis.add_geometry(pcd)
+    opt = vis.get_render_option()
+    opt.point_size = 1.0
 
-    noisy_line_set.points = o3d.utility.Vector3dVector(noisy_points)
-    noisy_line_set.lines = o3d.utility.Vector2iVector(noisy_lines)
-    noisy_line_set.paint_uniform_color([1, 0, 0])
-    vis.add_geometry(noisy_line_set)
+points_o3d = o3d.utility.Vector3dVector(points)
+line_set.points = points_o3d
+line_set.lines = o3d.utility.Vector2iVector(lines)
+line_set.paint_uniform_color([0, 0, 1])
+vis.add_geometry(line_set)
 
-    vis.run()
-    vis.clear_geometries()
-    vis.destroy_window()
+noisy_line_set.points = o3d.utility.Vector3dVector(noisy_points)
+noisy_line_set.lines = o3d.utility.Vector2iVector(noisy_lines)
+noisy_line_set.paint_uniform_color([1, 0, 0])
+vis.add_geometry(noisy_line_set)
+
+vis.run()
+vis.clear_geometries()
+vis.destroy_window()
+
+print(frame_n)

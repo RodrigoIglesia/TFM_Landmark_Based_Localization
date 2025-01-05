@@ -332,7 +332,7 @@ def save_protobuf_features(protobuf_message, output):
 
 
 if __name__ == "__main__":
-    scene_path = os.path.join(src_dir, "dataset/final_tests_scene/individual_files_training_segment-10023947602400723454_1120_000_1140_000_with_camera_labels.tfrecord")
+    scene_path = os.path.join(src_dir, "dataset/final_tests_scene/individual_files_validation_segment-10247954040621004675_2180_000_2200_000_with_camera_labels.tfrecord")
     json_maps_path      = os.path.join(src_dir, "dataset/hd_maps")
     point_clouds_path   = os.path.join(src_dir, "dataset/pointclouds")
     output_dataset_path = os.path.join(src_dir, "dataset/final_output_scenes")

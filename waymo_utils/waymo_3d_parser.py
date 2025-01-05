@@ -229,9 +229,7 @@ def calculate_centroid(points):
 
 
 def get_cluster_centroid(point_cloud):
-    # Define ground normal (example: [0, 1, 0] for a horizontal ground)
     min_z = np.min(point_cloud[:,2], axis=0)
-
     # Calculate centroid of the projected points
     centroid = calculate_centroid(point_cloud)
     centroid_projected = np.array([centroid[0], centroid[1], min_z])

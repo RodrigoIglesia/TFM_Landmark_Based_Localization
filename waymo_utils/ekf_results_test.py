@@ -54,9 +54,11 @@ def compute_mahalanobis_distances(observation, map_points, inv_cov_matrix):
     return distances
 
 # Load the files
-landmarks_file = os.path.join(src_dir, "results/landmarks_individual_files_training_segment-10023947602400723454_1120_000_1140_000_with_camera_labels.csv")
-poses_file = os.path.join(src_dir, "results/poses_individual_files_training_segment-10023947602400723454_1120_000_1140_000_with_camera_labels.csv")
-signs_map_file = os.path.join(src_dir, "pointcloud_clustering/map/signs_map_features_individual_files_training_segment-10023947602400723454_1120_000_1140_000_with_camera_labels.csv")
+scene = "individual_files_training_segment-10072140764565668044_4060_000_4080_000_with_camera_labels"
+
+landmarks_file = os.path.join(src_dir, "results/050120252325/landmarks_" + scene +".csv")
+poses_file = os.path.join(src_dir, "results/050120252325/poses_" + scene + ".csv")
+signs_map_file = os.path.join(src_dir, "pointcloud_clustering/map/signs_map_features_" + scene +".csv")
 
 landmarks_data = pd.read_csv(landmarks_file)
 poses_data = pd.read_csv(poses_file)
@@ -67,8 +69,20 @@ cov_matrix = np.cov(map_coords, rowvar=False)
 inv_cov_matrix = np.linalg.pinv(cov_matrix)
 
 unique_frames = landmarks_data['frame'].unique()
+fig, ax = plt.subplots(figsize=(12, 8))
+
+# Graficar el mapa y definir etiquetas fuera del bucle
+map_x, map_y = map_coords[:, 0], map_coords[:, 1]
+ax.plot(map_x, map_y, 'o', markersize=8, markeredgecolor='blue', markerfacecolor='none', label='Landmarks (Map)')
+
+real_x, real_z = poses_data['real_x'], poses_data['real_z']
+ax.plot(real_x, real_z, '-r', label='Real Pose')
+odom_x, odom_z = poses_data['odometry_x'], poses_data['odometry_y']
+ax.plot(odom_x, odom_z, '-g', label='Odometry Pose')
+corrected_x, corrected_z = poses_data['corrected_x'], poses_data['corrected_z']
+ax.plot(corrected_x, corrected_z, '-b', label='Corrected Pose')
+
 for frame in unique_frames:
-    fig, ax = plt.subplots(figsize=(12, 8))
     frame_data = landmarks_data[landmarks_data['frame'] == frame]
     observed_coords = frame_data[['Landmark_X', 'Landmark_Y', 'Landmark_Z', 'Landmark_Roll', 'Landmark_Pitch', 'Landmark_Yaw']].values
 
@@ -79,21 +93,16 @@ for frame in unique_frames:
         min_distance = distances[closest_idx]
 
         ax.plot([obs[0], closest_point[0]], [obs[1], closest_point[1]], 'k--', alpha=0.5)
-        ax.text((obs[0] + closest_point[0]) / 2, (obs[1] + closest_point[1]) / 2,
-                f"{min_distance:.2f}", fontsize=8, color='red', alpha=0.7)
+        # ax.text((obs[0] + closest_point[0]) / 2, (obs[1] + closest_point[1]) / 2,
+        #         f"{min_distance:.2f}", fontsize=8, color='red', alpha=0.7)
 
-    map_x, map_y = map_coords[:, 0], map_coords[:, 1]
-    ax.plot(map_x, map_y, 'o', markersize=8, markeredgecolor='blue', markerfacecolor='none', label='Landmarks (Map)')
-    
     observed_x, observed_y = frame_data['Landmark_X'], frame_data['Landmark_Y']
-    ax.scatter(observed_x, observed_y, c='green', label='Landmarks Observed', alpha=0.6)
+    ax.scatter(observed_x, observed_y, c='green', alpha=0.6)
 
-    real_x, real_y = poses_data['real_x'], poses_data['real_y']
-    ax.plot(real_x, real_y, '-r', label='Real Pose')
-
-    ax.set_title(f'Mahalanobis Distance (Frame {frame})')
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.legend()
-    ax.grid(True)
-    plt.show()
+noise_text = "position_noise_std=0.1, orientation_noise_std=0.0"
+ax.set_title(f'Mahalanobis Distance - {noise_text}')
+ax.set_xlabel('X')
+ax.set_ylabel('Y')
+ax.legend()
+ax.grid(True)
+plt.show()

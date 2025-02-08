@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Main file
+Main file with optimizations in pre- and post-processing (Option 3)
 """
 
 import os
@@ -27,8 +27,6 @@ import configparser
 
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="transformers.utils.deprecation")
-
-
 
 # Add project src root to python path
 current_script_directory = os.path.dirname(os.path.realpath(__file__))
@@ -107,86 +105,80 @@ def predict(model, extractor, image, device):
 
 def draw_segmentation_map(labels, palette):
     """
-    :param labels: Label array from the model.Should be of shape 
-        <height x width>. No channel information required.
-    :param palette: List containing color information.
-        e.g. [[0, 255, 0], [255, 255, 0]] 
+    Vectoriza la asignación de colores a cada etiqueta utilizando operaciones de NumPy.
+    
+    :param labels: Array de etiquetas en formato h x w. Si es un tensor, se convierte a numpy.
+    :param palette: Lista con la información de color para cada clase.
+    Returns:
+        segmentation_map: Imagen de segmentación en formato h x w x 3.
     """
-    # create Numpy arrays containing zeros
-    # later to be used to fill them with respective red, green, and blue pixels
-    red_map = np.zeros_like(labels).astype(np.uint8)
-    green_map = np.zeros_like(labels).astype(np.uint8)
-    blue_map = np.zeros_like(labels).astype(np.uint8)
-    for label_num in range(0, len(palette)):
-        index = labels == label_num
-        red_map[index] = np.array(palette)[label_num, 0]
-        green_map[index] = np.array(palette)[label_num, 1]
-        blue_map[index] = np.array(palette)[label_num, 2]
-        
-    segmentation_map = np.stack([red_map, green_map, blue_map], axis=2)
+    # Convertir labels a numpy si aún no lo es
+    if not isinstance(labels, np.ndarray):
+        labels = labels.numpy()
+    palette_array = np.array(palette, dtype=np.uint8)
+    # Asignar colores de forma vectorizada
+    segmentation_map = palette_array[labels]
     return segmentation_map
 
 def image_overlay(image, segmented_image):
     """
-    :param image: Image in RGB format.
-    :param segmented_image: Segmentation map in RGB format. 
+    Optimiza la superposición de imágenes realizando conversiones mínimas.
+    
+    :param image: Imagen original en RGB.
+    :param segmented_image: Mapa de segmentación en RGB.
+    Returns:
+        Imagen resultante en formato BGR para su visualización.
     """
-    alpha = 0.5 # transparency for the original image
-    beta = 1.0 # transparency for the segmentation map
-    gamma = 0 # scalar added to each sum
-    segmented_image = cv2.cvtColor(segmented_image, cv2.COLOR_RGB2BGR)
-    image = np.array(image)
-    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-    cv2.addWeighted(image, alpha, segmented_image, beta, gamma, image)
-    return image
-
+    alpha = 0.5  # transparencia para la imagen original
+    beta = 1.0   # transparencia para el mapa de segmentación
+    gamma = 0    # valor escalar a sumar
+    # Convertir ambas imágenes a BGR una sola vez
+    image_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+    segmented_bgr = cv2.cvtColor(segmented_image, cv2.COLOR_RGB2BGR)
+    overlay = cv2.addWeighted(image_bgr, alpha, segmented_bgr, beta, gamma)
+    return overlay
 
 def process_image_service(req, model, feature_extractor):
     rospy.logdebug("Image received for processing")
 
-    # Convert ROS Image message to OpenCV image
+    # Convertir el mensaje ROS Image a una imagen OpenCV (BGR)
     bridge = CvBridge()
     image = bridge.imgmsg_to_cv2(req.image, desired_encoding="bgr8")
 
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    # DEBUG publishing -> input image
-    publish_image_to_topic(topic='/landmark_detection_input', image=image, header=req.image.header)
+    # Convertir la imagen a RGB solo una vez para el procesamiento
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    # DEBUG publishing -> imagen de entrada
+    publish_image_to_topic(topic='/landmark_detection_input', image=image_rgb, header=req.image.header)
 
-
-    # Get labels.
-    labels = predict(model, feature_extractor, image, 'cpu')
-    # Get segmentation map.
-    seg_map = draw_segmentation_map(
-        labels.cpu(), cityscapes_palette
-    )
-    # DEBUG publishing -> segmentation map
+    # Obtener etiquetas mediante el modelo
+    labels = predict(model, feature_extractor, image_rgb, 'cpu')
+    # Obtener el mapa de segmentación utilizando la versión vectorizada
+    seg_map = draw_segmentation_map(labels.cpu(), cityscapes_palette)
+    # DEBUG publishing -> mapa de segmentación
     publish_image_to_topic(topic='/landmark_detection_seg_map', image=seg_map, header=req.image.header)
 
-    outputs = image_overlay(image, seg_map)
-    # DEBUG publishing -> output result
+    # Superponer la imagen original y el mapa de segmentación
+    outputs = image_overlay(image_rgb, seg_map)
+    # DEBUG publishing -> imagen con superposición
     publish_image_to_topic(topic='/landmark_detection_output', image=outputs, header=req.image.header)
 
-    # cv2.imshow('Image', outputs)
-    # cv2.waitKey(0)
-    # Convert result back to ROS Image message
-
-    # Create response mesage of the service
+    # Convertir el mapa de segmentación a mensaje ROS para la respuesta
     detection_msg = bridge.cv2_to_imgmsg(seg_map, encoding="bgr8")
-    detection_msg.header = req.image.header  # Maintain image header
+    detection_msg.header = req.image.header  # Mantener el header original
 
     return landmark_detection_srvResponse(processed_image=detection_msg)
 
 if __name__ == "__main__":
-    # Initialize ROS node
+    # Inicializar el nodo ROS
     rospy.init_node('landmark_detection', anonymous=True)
     rospy.logdebug("Landmark detection server initialized correctly")
-    # Load the model and feature extractor from Hugging Face
+    # Cargar el modelo y extractor de Hugging Face
     model_name = "nvidia/segformer-b5-finetuned-cityscapes-1024-1024"
     model = SegformerForSemanticSegmentation.from_pretrained(model_name)
     feature_extractor = SegformerFeatureExtractor.from_pretrained(model_name)
     model.to('cpu').eval()
 
-    # Create service
+    # Crear el servicio ROS
     service = rospy.Service('landmark_detection', landmark_detection_srv,  lambda req: process_image_service(req, model, feature_extractor))
     rospy.logdebug("Service 'landmark_detection' is ready")
 

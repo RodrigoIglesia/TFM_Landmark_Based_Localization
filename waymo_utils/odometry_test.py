@@ -99,7 +99,7 @@ def concatenate_pcd_returns(pcd_return_1, pcd_return_2):
     points_cp_concat = np.concatenate(points_cp + points_cp_ri2, axis=0)
     return points_concat, points_cp_concat
 
-scene = "individual_files_training_segment-10072140764565668044_4060_000_4080_000_with_camera_labels"
+scene = "individual_files_training_segment-10017090168044687777_6380_000_6400_000_with_camera_labels"
 scene_path = os.path.join(src_dir, "dataset/final_tests_scene/" + scene + ".tfrecord")
 points = []
 noisy_points = []

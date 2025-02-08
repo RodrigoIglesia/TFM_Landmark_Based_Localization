@@ -56,8 +56,8 @@ def compute_mahalanobis_distances(observation, map_points, inv_cov_matrix):
 # Load the files
 scene = "individual_files_training_segment-10072140764565668044_4060_000_4080_000_with_camera_labels"
 
-landmarks_file = os.path.join(src_dir, "results/050120252325/landmarks_" + scene +".csv")
-poses_file = os.path.join(src_dir, "results/050120252325/poses_" + scene + ".csv")
+landmarks_file = os.path.join(src_dir, "results/" + scene + "/190120251935/landmarks_" + scene +".csv")
+poses_file = os.path.join(src_dir, "results/" + scene + "/190120251935/poses_" + scene + ".csv")
 signs_map_file = os.path.join(src_dir, "pointcloud_clustering/map/signs_map_features_" + scene +".csv")
 
 landmarks_data = pd.read_csv(landmarks_file)
@@ -75,11 +75,11 @@ fig, ax = plt.subplots(figsize=(12, 8))
 map_x, map_y = map_coords[:, 0], map_coords[:, 1]
 ax.plot(map_x, map_y, 'o', markersize=8, markeredgecolor='blue', markerfacecolor='none', label='Landmarks (Map)')
 
-real_x, real_z = poses_data['real_x'], poses_data['real_z']
+real_x, real_z = poses_data['real_x'], poses_data['real_y']
 ax.plot(real_x, real_z, '-r', label='Real Pose')
 odom_x, odom_z = poses_data['odometry_x'], poses_data['odometry_y']
 ax.plot(odom_x, odom_z, '-g', label='Odometry Pose')
-corrected_x, corrected_z = poses_data['corrected_x'], poses_data['corrected_z']
+corrected_x, corrected_z = poses_data['corrected_x'], poses_data['corrected_y']
 ax.plot(corrected_x, corrected_z, '-b', label='Corrected Pose')
 
 for frame in unique_frames:

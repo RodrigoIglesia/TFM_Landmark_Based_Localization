@@ -28,6 +28,7 @@ import sensor_msgs.point_cloud2 as pc2
 from pointcloud_clustering.msg import positionRPY
 from sensor_msgs.msg import PointCloud2, PointField, Image
 from geometry_msgs.msg import PoseStamped, PoseArray, Point, Quaternion
+
 from pointcloud_clustering.srv import clustering_srv, clustering_srvRequest, landmark_detection_srv, landmark_detection_srvRequest, data_fusion_srv, data_fusion_srvRequest
 from cv_bridge import CvBridge
 import cv2
@@ -49,6 +50,21 @@ from waymo_utils.WaymoParser import *
 from waymo_utils.publisher_utils import *
 import waymo_utils.waymo_3d_parser as w3d
 import waymo_utils.transform_utils as tu
+
+import configparser
+
+def load_config():
+    config_file = rospy.get_param("~client_config_file_path")
+    config = configparser.ConfigParser()
+    config.read(config_file)
+    try:
+        position_noise_std = float(config["NOISE"]["position_noise_std"])
+        orientation_noise_std = float(config["NOISE"]["orientation_noise_std"])
+    except KeyError as e:
+        rospy.logerr(f"Missing parameter in config file: {e}")
+        position_noise_std = 0.1  # Deffect value
+        orientation_noise_std = 0.005  # Deffect value
+    return position_noise_std, orientation_noise_std
 
 
 class WaymoClient:
@@ -96,7 +112,7 @@ class WaymoClient:
         self.data_fusion_client = rospy.ServiceProxy('data_fusion', data_fusion_srv)
         rospy.loginfo("CLIENT Data Fusion service is running")
 
-    def process_odometry(self, position_noise_std=0.1, orientation_noise_std=0.0):
+    def process_odometry(self):
         """
         Get incremental pose of the vehicle with constant Gaussian noise.
         This method, based on the global position of the vehicle, computes the relative pose to the previous frame.
@@ -117,9 +133,8 @@ class WaymoClient:
 
             # Add constant Gaussian noise to the relative pose
             position_noise = [
-                np.random.normal(0, position_noise_std) if i < 2 else np.random.normal(0, position_noise_std * 0.1)
-                for i in range(3)
-            ]  # Reduce Z noise significantly
+                np.random.normal(0, position_noise_std) for _ in range(3)
+            ]
             orientation_noise = [
                 np.random.normal(0, orientation_noise_std) for _ in range(3)
             ]
@@ -145,66 +160,6 @@ class WaymoClient:
         self.relative_path.append(self.relative_cummulative_pose.tolist())
         self.odometry_path.append(self.odometry_cummulative_pose.tolist())
         self.previous_transform_matrix = self.transform_matrix  # Update for the next iteration
-
-
-    # def process_odometry(self, position_noise_std=0.05, orientation_noise_std=0.01):
-    #     """
-    #     Get incremental pose of the vehicle with cumulative Gaussian noise.
-    #     """
-    #     # Extract the transform matrix for the current frame
-    #     self.transform_matrix = np.array(self.frame.pose.transform).reshape(4, 4)
-        
-    #     # Initialize the initial frame as the origin if not already done
-    #     if self.previous_transform_matrix is None:
-    #         rospy.logdebug("Initial frame pose")
-    #         self.relative_pose = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # Explicitly set the first pose --> can have an initial error
-    #         self.odometry_pose = np.array(self.relative_pose)  # Initialize the noisy pose
-    #         self.position_noise_cumulative = [0.0, 0.0, 0.0]
-    #         self.orientation_noise_cumulative = [0.0, 0.0, 0.0]
-    #     else:
-    #         # Compute the relative pose to the previous pose
-    #         relative_transform = np.linalg.inv(self.previous_transform_matrix) @ self.transform_matrix
-    #         self.relative_pose = tu.get_pose(relative_transform)
-
-    #         # Add Gaussian noise to the relative pose
-    #         # Generar ruido gaussiano y acumularlo en las variables de ruido acumulado
-    #         position_noise = [
-    #             np.random.normal(0, position_noise_std) if i < 2 else np.random.normal(0, position_noise_std * 0.1)
-    #             for i in range(3)
-    #         ]  # Reduce Z noise significantly
-    #         orientation_noise = [
-    #             np.random.normal(0, orientation_noise_std) for _ in range(3)
-    #         ]
-
-    #         # Accumulate noise but apply a decay factor to limit excessive accumulation
-    #         self.position_noise_cumulative = [
-    #             self.position_noise_cumulative[i] * 0.9 + position_noise[i] for i in range(3)
-    #         ]  # Apply decay factor to position noise
-    #         self.orientation_noise_cumulative = [
-    #             self.orientation_noise_cumulative[i] * 0.9 + orientation_noise[i] for i in range(3)
-    #         ]  # Apply decay factor to orientation noise
-
-    #         noisy_position = [
-    #             self.relative_pose[i] + self.position_noise_cumulative[i] for i in range(3)
-    #         ]
-    #         noisy_orientation = [
-    #             self.relative_pose[i+3] + self.orientation_noise_cumulative[i] for i in range(3)
-    #         ]
-
-    #         self.odometry_pose = noisy_position + noisy_orientation
-
-    #     # Accumulate the odometry and real pose to get the pose relative to the origin
-    #     self.relative_cummulative_pose = tu.comp_poses(self.relative_cummulative_pose, self.relative_pose)
-    #     self.odometry_cummulative_pose = tu.comp_poses(self.odometry_cummulative_pose, self.odometry_pose)
-
-    #     rospy.logdebug(f"CLIENT Vehicle relative (real) pose: {self.relative_cummulative_pose}")
-    #     rospy.loginfo(f"CLIENT Vehicle odometry INCREMENTAL pose: {self.odometry_pose}")
-    #     rospy.loginfo(f"CLIENT Vehicle odometry pose: {self.odometry_cummulative_pose}")
-
-    #     # Add poses to generate a path
-    #     self.relative_path.append(self.relative_cummulative_pose.tolist())
-    #     self.odometry_path.append(self.odometry_cummulative_pose.tolist())
-    #     self.previous_transform_matrix = self.transform_matrix  # Update for the next iteration
 
 
     def process_pointcloud(self):
@@ -523,6 +478,11 @@ class DataAssociationProcessor:
 
 if __name__ == "__main__":
     ##############################################################################################
+    ## Load configuration
+    ##############################################################################################
+    position_noise_std, orientation_noise_std = load_config()
+
+    ##############################################################################################
     ## Initialize main client node
     ##############################################################################################
     rospy.init_node('waymo_client', anonymous=True)
@@ -572,7 +532,7 @@ if __name__ == "__main__":
         today_date = datetime.now().strftime("%d%m%Y%H%M")
 
         # Crear el nombre de la carpeta
-        results_folder = os.path.join(src_dir, f"results/{today_date}")
+        results_folder = os.path.join(src_dir, f"results/{scene_name}/{today_date}")
 
         # Crear la carpeta si no existe
         if not os.path.exists(results_folder):
@@ -658,7 +618,7 @@ if __name__ == "__main__":
             """
 
             # Obtain odometry increment (in frame 0 will be 0)
-            wc.process_odometry()
+            wc.process_odometry(position_noise_std, orientation_noise_std)
             #TODO: REMOVE
             relative_pose = np.array(wc.relative_cummulative_pose)
 

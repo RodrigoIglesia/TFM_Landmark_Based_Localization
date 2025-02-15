@@ -189,19 +189,11 @@ Matrix6f J2_n(pointcloud_clustering::positionRPY ab, pointcloud_clustering::posi
 
 /*----------------------------------------------------------------------------------------------*/
 
-float mahalanobisDistance(const MatrixXf& h, const MatrixXf& S){ 
-  
-//  Vector6f diff;
-//  float result;
+float mahalanobisDistance(const MatrixXf& h, const MatrixXf& S){
   MatrixXf hTSih(1, 1); hTSih = hTSih.Zero(1, 1);
-//  std::cout << "h:" << std::endl << h << std::endl;
-//  std::cout << "S:" << std::endl << S << std::endl;
-//  diff = RPY2Vec(map.position) - RPY2Vec(candidate.position);
   hTSih = h.transpose()*S.inverse()*h;
-//  hTSih = hTSih.sqrt();
-//  std::cout<< "fun mahalan: " << (h.transpose()*S.inverse()*h) << std::endl;
   
-  return hTSih(0, 0);
+  return std::sqrt(hTSih(0, 0));
 }
 
 // /*----------------------------------------------------------------------------------------------*/

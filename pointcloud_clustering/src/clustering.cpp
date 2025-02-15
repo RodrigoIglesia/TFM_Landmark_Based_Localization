@@ -50,7 +50,8 @@
 #include "pointcloud_clustering/clustering_srv.h"
 
 // Configuration structure
-struct Config {
+struct Config
+{
     float low_lim_x, low_lim_y, low_lim_z, up_lim_x, up_lim_y, up_lim_z;
     int minPointsVoxel;
     float KSearchGround;
@@ -67,11 +68,13 @@ struct Config {
 };
 
 // PointCloudProcessor class
-class PointCloudProcessor {
+class PointCloudProcessor
+{
 public:
-    PointCloudProcessor(const std::string& configFilePath);
+    PointCloudProcessor(const std::string &configFilePath);
     bool processPointCloudService(pointcloud_clustering::clustering_srv::Request &req,
                                   pointcloud_clustering::clustering_srv::Response &res);
+
 private:
     void readConfig(const std::string &filename);
     pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloudCrop(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud);
@@ -92,7 +95,8 @@ private:
     ros::Publisher clustering_pub_;
 };
 
-PointCloudProcessor::PointCloudProcessor(const std::string& configFilePath) {
+PointCloudProcessor::PointCloudProcessor(const std::string &configFilePath)
+{
     ros::NodeHandle nh;
     input_pub_ = nh.advertise<sensor_msgs::PointCloud2>("input_pointcloud", 1);
     crop_pub_ = nh.advertise<sensor_msgs::PointCloud2>("cropped_pointcloud", 1);
@@ -102,32 +106,16 @@ PointCloudProcessor::PointCloudProcessor(const std::string& configFilePath) {
     readConfig(configFilePath);
 }
 
-void PointCloudProcessor::readConfig(const std::string &filename) {
+void PointCloudProcessor::readConfig(const std::string &filename)
+{
     namespace po = boost::program_options;
     po::options_description config("Configuration");
-    config.add_options()
-        ("cropping.do_cropping", po::value<bool>(&config_.do_cropping)->default_value(true), "Cropping flag")
-        ("cropping.low_lim_x", po::value<float>(&config_.low_lim_x)->default_value(-10.0), "Lower limit for x axis")
-        ("cropping.low_lim_y", po::value<float>(&config_.low_lim_y)->default_value(-10.0), "Lower limit for y axis")
-        ("cropping.low_lim_z", po::value<float>(&config_.low_lim_z)->default_value(-2.0), "Lower limit for z axis")
-        ("cropping.up_lim_x", po::value<float>(&config_.up_lim_x)->default_value(10.0), "Upper limit for x axis")
-        ("cropping.up_lim_y", po::value<float>(&config_.up_lim_y)->default_value(10.0), "Upper limit for y axis")
-        ("cropping.up_lim_z", po::value<float>(&config_.up_lim_z)->default_value(2.0), "Upper limit for z axis")
-        ("downsampling.do_downsampling", po::value<bool>(&config_.do_downsampling)->default_value(true), "Downsampling flag")
-        ("downsampling.minPointsVoxel", po::value<int>(&config_.minPointsVoxel)->default_value(1), "Minimum points per voxel")
-        ("downsampling.leafSize", po::value<float>(&config_.leafSize)->default_value(0.2), "Leaf size for downsampling")
-        ("ground_extraction.KSearchGround", po::value<float>(&config_.KSearchGround)->default_value(50), "K search for ground extraction")
-        ("ground_extraction.OptimizeCoefficientsGround", po::value<bool>(&config_.OptimizeCoefficientsGround)->default_value(true), "Optimize coefficients for ground extraction")
-        ("ground_extraction.NormalDistanceWeightGround", po::value<float>(&config_.NormalDistanceWeightGround)->default_value(0.1), "Normal distance weight for ground extraction")
-        ("ground_extraction.MaxIterationsGround", po::value<float>(&config_.MaxIterationsGround)->default_value(1000), "Max iterations for ground extraction")
-        ("ground_extraction.DistanceThresholdGround", po::value<float>(&config_.DistanceThresholdGround)->default_value(0.05), "Distance threshold for ground extraction")
-        ("clustering.clusterTolerance", po::value<float>(&config_.clusterTolerance)->default_value(0.02), "Cluster tolerance for euclidean clustering")
-        ("clustering.clusterMinSize", po::value<int>(&config_.clusterMinSize)->default_value(100), "Cluster minimum points number")
-        ("clustering.clusterMaxSize", po::value<int>(&config_.clusterMaxSize)->default_value(1000), "Cluster maximum points number");
+    config.add_options()("cropping.do_cropping", po::value<bool>(&config_.do_cropping)->default_value(true), "Cropping flag")("cropping.low_lim_x", po::value<float>(&config_.low_lim_x)->default_value(-10.0), "Lower limit for x axis")("cropping.low_lim_y", po::value<float>(&config_.low_lim_y)->default_value(-10.0), "Lower limit for y axis")("cropping.low_lim_z", po::value<float>(&config_.low_lim_z)->default_value(-2.0), "Lower limit for z axis")("cropping.up_lim_x", po::value<float>(&config_.up_lim_x)->default_value(10.0), "Upper limit for x axis")("cropping.up_lim_y", po::value<float>(&config_.up_lim_y)->default_value(10.0), "Upper limit for y axis")("cropping.up_lim_z", po::value<float>(&config_.up_lim_z)->default_value(2.0), "Upper limit for z axis")("downsampling.do_downsampling", po::value<bool>(&config_.do_downsampling)->default_value(true), "Downsampling flag")("downsampling.minPointsVoxel", po::value<int>(&config_.minPointsVoxel)->default_value(1), "Minimum points per voxel")("downsampling.leafSize", po::value<float>(&config_.leafSize)->default_value(0.2), "Leaf size for downsampling")("ground_extraction.KSearchGround", po::value<float>(&config_.KSearchGround)->default_value(50), "K search for ground extraction")("ground_extraction.OptimizeCoefficientsGround", po::value<bool>(&config_.OptimizeCoefficientsGround)->default_value(true), "Optimize coefficients for ground extraction")("ground_extraction.NormalDistanceWeightGround", po::value<float>(&config_.NormalDistanceWeightGround)->default_value(0.1), "Normal distance weight for ground extraction")("ground_extraction.MaxIterationsGround", po::value<float>(&config_.MaxIterationsGround)->default_value(1000), "Max iterations for ground extraction")("ground_extraction.DistanceThresholdGround", po::value<float>(&config_.DistanceThresholdGround)->default_value(0.05), "Distance threshold for ground extraction")("clustering.clusterTolerance", po::value<float>(&config_.clusterTolerance)->default_value(0.02), "Cluster tolerance for euclidean clustering")("clustering.clusterMinSize", po::value<int>(&config_.clusterMinSize)->default_value(100), "Cluster minimum points number")("clustering.clusterMaxSize", po::value<int>(&config_.clusterMaxSize)->default_value(1000), "Cluster maximum points number");
 
     po::variables_map vm;
     std::ifstream ifs(filename.c_str());
-    if (!ifs) {
+    if (!ifs)
+    {
         throw std::runtime_error("Cannot open config file: " + filename);
     }
     po::store(po::parse_config_file(ifs, config), vm);
@@ -273,7 +261,6 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr PointCloudProcessor::euclideanClustering(
     // clusterMinSize = -25.0 * config_.leafSize + 17.5;
     // clusterMaxSize = -500.0 * config_.leafSize + 350.0;
 
-
     ec.setMinClusterSize(config_.clusterMinSize);
     ec.setMaxClusterSize(config_.clusterMaxSize);
     ec.setSearchMethod(treeClusters);
@@ -348,7 +335,6 @@ bool PointCloudProcessor::processPointCloudService(pointcloud_clustering::cluste
     {
         cloudCropped = cloud;
     }
-    
 
     if (config_.do_downsampling)
     {
@@ -378,24 +364,31 @@ int main(int argc, char **argv)
 
     // Current working directory
     char cwd[PATH_MAX];
-    if (getcwd(cwd, sizeof(cwd)) != NULL) {
+    if (getcwd(cwd, sizeof(cwd)) != NULL)
+    {
         ROS_DEBUG("Current working directory: %s", cwd);
-    } else {
+    }
+    else
+    {
         ROS_ERROR("Error getting current working directory");
     }
 
     std::string configFilePath;
-    if (!nh.getParam("config_file_path", configFilePath)) {
+    if (!nh.getParam("config_file_path", configFilePath))
+    {
         ROS_ERROR("Failed to get param 'config_file_path'");
         return -1;
     }
-    try {
+    try
+    {
         PointCloudProcessor processor(configFilePath);
         ros::ServiceServer service = nh.advertiseService("process_pointcloud", &PointCloudProcessor::processPointCloudService, &processor);
         ROS_DEBUG("Service clustering initialized correctly");
 
         ros::spin();
-    } catch (const std::exception &e) {
+    }
+    catch (const std::exception &e)
+    {
         ROS_ERROR("Error initializing PointCloudProcessor: %s", e.what());
         return -1;
     }

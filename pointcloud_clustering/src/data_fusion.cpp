@@ -2,11 +2,6 @@
 //      Author: pdelapuente
 //      Updated (Dec 01, 2024): Rodrigo de la Iglesia
 
-//TODO: Comprobar si las observaciones en el sistema de referencia del vehículo son necesitadas
-//TODO: Cambiar observations por observations_BL y hacer transformaciones a global frame
-//TODO: De momento el EKF frame es referenciado a 0,0,0 como pose inicial del vehículo
-//TODO: comprobar que los incrementos de odometría recibidos son respecto a la pose anterior, no respecto a la primera pose, si son respecto a la primera pose ya es la pose referenciada del frame del EKF
-
 #include <ros/ros.h>
 #include <time.h>
 #include <math.h>
@@ -72,9 +67,9 @@ struct Config
 class DataFusion
 {
 public:
-    DataFusion(const std::string& configFilePath, const std::string& mapFilePath);
+    DataFusion(const std::string &configFilePath, const std::string &mapFilePath);
     bool dataFusionService(pointcloud_clustering::data_fusion_srv::Request &req, pointcloud_clustering::data_fusion_srv::Response &res);
-    std::vector<pointcloud_clustering::positionRPY> processPoseArray(const geometry_msgs::PoseArray& poseArray);
+    std::vector<pointcloud_clustering::positionRPY> processPoseArray(const geometry_msgs::PoseArray &poseArray);
     std::vector<pointcloud_clustering::positionRPY> loadMapFromCSV();
     void publishPoseElements(std::vector<pointcloud_clustering::positionRPY> pose_array, ros::Publisher publisher);
 
@@ -88,11 +83,11 @@ private:
 
     // Member variables to store the state across service calls
     pointcloud_clustering::positionRPY kalmanPose; // Kalman corrected pose
-    Matrix6f P;  // Covariance matrix
-    Matrix6f Q;  // Process noise covariance
-    Matrix6f R;  // Observation noise covariance
-    float PFactor;  // Factor for the covariance matrix scaling
-    float QFactor;  // Factor for the covariance matrix scaling
+    Matrix6f P;                                    // Covariance matrix
+    Matrix6f Q;                                    // Process noise covariance
+    Matrix6f R;                                    // Observation noise covariance
+    float PFactor;                                 // Factor for the covariance matrix scaling
+    float QFactor;                                 // Factor for the covariance matrix scaling
     pointcloud_clustering::positionRPY sigma_odom;
     pointcloud_clustering::positionRPY sigma_obs;
     std::vector<pointcloud_clustering::positionRPY> map;
@@ -102,15 +97,13 @@ private:
     ros::Publisher observation_BL_pub_;
     ros::Publisher map_element_pub_;
     ros::Publisher line_marker_pub;
-
-
 };
 
-DataFusion::DataFusion(const std::string& configFilePath, const std::string& mapFilePath)
-: mapFilePath(mapFilePath)
+DataFusion::DataFusion(const std::string &configFilePath, const std::string &mapFilePath)
+    : mapFilePath(mapFilePath)
 {
     /*
-    DataFusion Class constructor 
+    DataFusion Class constructor
     */
     ros::NodeHandle nh;
     observation_pub_ = nh.advertise<geometry_msgs::PoseArray>("observation", 10);
@@ -123,7 +116,7 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
 
     // Read map
     map = loadMapFromCSV();
-    //DEBUG >> Publish map elements
+    // DEBUG >> Publish map elements
     publishPoseElements(map, map_element_pub_);
 
     int mapSize = map.size();
@@ -141,16 +134,15 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     kalmanPose.pitch = config_.pitch_init;
     kalmanPose.yaw = config_.yaw_init;
 
-
     P = P.Zero();
-    P(0,0) = config_.P00_init;
-    P(1,1) = config_.P11_init;
-    P(2,2) = config_.P22_init;
-    P(3,3) = config_.P33_init;
-    P(4,4) = config_.P44_init;
-    P(5,5) = config_.P55_init;
+    P(0, 0) = config_.P00_init;
+    P(1, 1) = config_.P11_init;
+    P(2, 2) = config_.P22_init;
+    P(3, 3) = config_.P33_init;
+    P(4, 4) = config_.P44_init;
+    P(5, 5) = config_.P55_init;
     PFactor = config_.PFactor;
-    P = P*PFactor;
+    P = P * PFactor;
 
     sigma_obs.x = config_.sigma_obs_x;
     sigma_obs.y = config_.sigma_obs_y;
@@ -165,7 +157,6 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     R(3, 3) = std::pow(sigma_obs.roll, 2);
     R(4, 4) = std::pow(sigma_obs.pitch, 2);
     R(5, 5) = std::pow(sigma_obs.yaw, 2);
-
 
     sigma_odom.x = config_.sigma_odom_x;
     sigma_odom.y = config_.sigma_odom_y;
@@ -182,61 +173,34 @@ DataFusion::DataFusion(const std::string& configFilePath, const std::string& map
     Q(5, 5) = std::pow(sigma_odom.yaw, 2);
 
     QFactor = config_.QFactor;
-    Q = Q*QFactor;
+    Q = Q * QFactor;
 }
 
 void DataFusion::readConfig(const std::string &filename)
 {
     namespace po = boost::program_options;
     po::options_description config("Configuration");
-    config.add_options()
-        ("data_fusion.x_init", po::value<float>(&config_.x_init)->default_value(0.0), "Initial Global X")
-        ("data_fusion.y_init", po::value<float>(&config_.y_init)->default_value(0.0), "Initial Global Y")
-        ("data_fusion.z_init", po::value<float>(&config_.z_init)->default_value(0.0), "Initial Global Z")
-        ("data_fusion.roll_init", po::value<float>(&config_.roll_init)->default_value(0.0), "Initial Global Roll")
-        ("data_fusion.pitch_init", po::value<float>(&config_.pitch_init)->default_value(0.0), "Initial Global Pitch")
-        ("data_fusion.yaw_init", po::value<float>(&config_.yaw_init)->default_value(0.0), "Initial Global Yaw")
-        ("data_fusion.sigma_odom_x", po::value<float>(&config_.sigma_odom_x)->default_value(0.0), "Odometry sigma X")
-        ("data_fusion.sigma_odom_y", po::value<float>(&config_.sigma_odom_y)->default_value(0.0), "Odometry sigma Y")
-        ("data_fusion.sigma_odom_z", po::value<float>(&config_.sigma_odom_z)->default_value(0.0), "Odometry sigma Z")
-        ("data_fusion.sigma_odom_roll", po::value<float>(&config_.sigma_odom_roll)->default_value(0.0), "Odometry sigma ROLL")
-        ("data_fusion.sigma_odom_pitch", po::value<float>(&config_.sigma_odom_pitch)->default_value(0.0), "Odometry sigma PITCH")
-        ("data_fusion.sigma_odom_yaw", po::value<float>(&config_.sigma_odom_yaw)->default_value(0.0), "Odometry sigma YAW")
-        ("data_fusion.sigma_obs_x", po::value<float>(&config_.sigma_obs_x)->default_value(0.0), "Observation sigma X")
-        ("data_fusion.sigma_obs_y", po::value<float>(&config_.sigma_obs_y)->default_value(0.0), "Observation sigma Y")
-        ("data_fusion.sigma_obs_z", po::value<float>(&config_.sigma_obs_z)->default_value(0.0), "Observation sigma Z")
-        ("data_fusion.sigma_obs_roll", po::value<float>(&config_.sigma_obs_roll)->default_value(0.0), "Observation sigma ROLL")
-        ("data_fusion.sigma_obs_pitch", po::value<float>(&config_.sigma_obs_pitch)->default_value(0.0), "Observation sigma PITCH")
-        ("data_fusion.sigma_obs_yaw", po::value<float>(&config_.sigma_obs_yaw)->default_value(0.0), "Observation sigma YAW")
-        ("data_fusion.mahalanobisDistanceThreshold", po::value<float>(&config_.mahalanobisDistanceThreshold)->default_value(0.0), "Mahalanobis distance threshold")
-        ("data_fusion.QFactor", po::value<float>(&config_.QFactor)->default_value(0.00015), "Q Factor")
-        ("data_fusion.P00_init", po::value<float>(&config_.P00_init)->default_value(0.1), "P00 init")
-        ("data_fusion.P11_init", po::value<float>(&config_.P11_init)->default_value(0.1), "P11 init")
-        ("data_fusion.P22_init", po::value<float>(&config_.P22_init)->default_value(1.0), "P22 init")
-        ("data_fusion.P33_init", po::value<float>(&config_.P33_init)->default_value(1.0), "P33 init")
-        ("data_fusion.P44_init", po::value<float>(&config_.P44_init)->default_value(1.0), "P44 init")
-        ("data_fusion.P55_init", po::value<float>(&config_.P55_init)->default_value(0.1), "P55 init")
-        ("data_fusion.PFactor", po::value<float>(&config_.PFactor)->default_value(0.0001), "P Factor");
-
+    config.add_options()("data_fusion.x_init", po::value<float>(&config_.x_init)->default_value(0.0), "Initial Global X")("data_fusion.y_init", po::value<float>(&config_.y_init)->default_value(0.0), "Initial Global Y")("data_fusion.z_init", po::value<float>(&config_.z_init)->default_value(0.0), "Initial Global Z")("data_fusion.roll_init", po::value<float>(&config_.roll_init)->default_value(0.0), "Initial Global Roll")("data_fusion.pitch_init", po::value<float>(&config_.pitch_init)->default_value(0.0), "Initial Global Pitch")("data_fusion.yaw_init", po::value<float>(&config_.yaw_init)->default_value(0.0), "Initial Global Yaw")("data_fusion.sigma_odom_x", po::value<float>(&config_.sigma_odom_x)->default_value(0.0), "Odometry sigma X")("data_fusion.sigma_odom_y", po::value<float>(&config_.sigma_odom_y)->default_value(0.0), "Odometry sigma Y")("data_fusion.sigma_odom_z", po::value<float>(&config_.sigma_odom_z)->default_value(0.0), "Odometry sigma Z")("data_fusion.sigma_odom_roll", po::value<float>(&config_.sigma_odom_roll)->default_value(0.0), "Odometry sigma ROLL")("data_fusion.sigma_odom_pitch", po::value<float>(&config_.sigma_odom_pitch)->default_value(0.0), "Odometry sigma PITCH")("data_fusion.sigma_odom_yaw", po::value<float>(&config_.sigma_odom_yaw)->default_value(0.0), "Odometry sigma YAW")("data_fusion.sigma_obs_x", po::value<float>(&config_.sigma_obs_x)->default_value(0.0), "Observation sigma X")("data_fusion.sigma_obs_y", po::value<float>(&config_.sigma_obs_y)->default_value(0.0), "Observation sigma Y")("data_fusion.sigma_obs_z", po::value<float>(&config_.sigma_obs_z)->default_value(0.0), "Observation sigma Z")("data_fusion.sigma_obs_roll", po::value<float>(&config_.sigma_obs_roll)->default_value(0.0), "Observation sigma ROLL")("data_fusion.sigma_obs_pitch", po::value<float>(&config_.sigma_obs_pitch)->default_value(0.0), "Observation sigma PITCH")("data_fusion.sigma_obs_yaw", po::value<float>(&config_.sigma_obs_yaw)->default_value(0.0), "Observation sigma YAW")("data_fusion.mahalanobisDistanceThreshold", po::value<float>(&config_.mahalanobisDistanceThreshold)->default_value(0.0), "Mahalanobis distance threshold")("data_fusion.QFactor", po::value<float>(&config_.QFactor)->default_value(0.00015), "Q Factor")("data_fusion.P00_init", po::value<float>(&config_.P00_init)->default_value(0.1), "P00 init")("data_fusion.P11_init", po::value<float>(&config_.P11_init)->default_value(0.1), "P11 init")("data_fusion.P22_init", po::value<float>(&config_.P22_init)->default_value(1.0), "P22 init")("data_fusion.P33_init", po::value<float>(&config_.P33_init)->default_value(1.0), "P33 init")("data_fusion.P44_init", po::value<float>(&config_.P44_init)->default_value(1.0), "P44 init")("data_fusion.P55_init", po::value<float>(&config_.P55_init)->default_value(0.1), "P55 init")("data_fusion.PFactor", po::value<float>(&config_.PFactor)->default_value(0.0001), "P Factor");
 
     po::variables_map vm;
     std::ifstream ifs(filename.c_str());
-    if (!ifs) {
+    if (!ifs)
+    {
         throw std::runtime_error("Cannot open config file: " + filename);
     }
     po::store(po::parse_config_file(ifs, config), vm);
     po::notify(vm);
 }
 
-
-std::vector<pointcloud_clustering::positionRPY> DataFusion::processPoseArray(const geometry_msgs::PoseArray& poseArray)
+std::vector<pointcloud_clustering::positionRPY> DataFusion::processPoseArray(const geometry_msgs::PoseArray &poseArray)
 {
     /*
     Method to parse an array of poses and convert it to Roll-Pitch-Yaw format
     */
     std::vector<pointcloud_clustering::positionRPY> observations;
 
-    for (const auto& pose : poseArray.poses) {
+    for (const auto &pose : poseArray.poses)
+    {
         pointcloud_clustering::positionRPY obs;
         tf::Quaternion quat;
 
@@ -261,7 +225,6 @@ std::vector<pointcloud_clustering::positionRPY> DataFusion::processPoseArray(con
     return observations;
 }
 
-
 std::vector<pointcloud_clustering::positionRPY> DataFusion::loadMapFromCSV()
 {
     /*
@@ -272,34 +235,44 @@ std::vector<pointcloud_clustering::positionRPY> DataFusion::loadMapFromCSV()
     std::ifstream inputFile(mapFilePath.c_str());
     ROS_INFO("EKF Map file: %s", mapFilePath.c_str());
 
-    if (!inputFile.is_open()) {
+    if (!inputFile.is_open())
+    {
         throw std::runtime_error("Cannot open map file: " + mapFilePath);
     }
 
     int lineNumber = 0;
-    while (inputFile) {
+    while (inputFile)
+    {
         std::string line;
-        if (!std::getline(inputFile, line)) break;
+        if (!std::getline(inputFile, line))
+            break;
 
         // Skip comments
-        if (line[0] == '#') continue;
+        if (line[0] == '#')
+            continue;
 
         std::istringstream lineStream(line);
         std::vector<double> record;
 
-        while (lineStream) {
+        while (lineStream)
+        {
             std::string value;
-            if (!std::getline(lineStream, value, ',')) break;
-            try {
+            if (!std::getline(lineStream, value, ','))
+                break;
+            try
+            {
                 record.push_back(std::stod(value));
-            } catch (const std::invalid_argument& e) {
+            }
+            catch (const std::invalid_argument &e)
+            {
                 ROS_WARN("Invalid value found in map file at line %d", lineNumber + 1);
                 continue;
             }
         }
 
         // Check for exactly 3 values (x, y, z)
-        if (record.size() != 3) {
+        if (record.size() != 3)
+        {
             ROS_WARN("Invalid data at line %d in map file", lineNumber + 1);
             continue;
         }
@@ -316,13 +289,13 @@ std::vector<pointcloud_clustering::positionRPY> DataFusion::loadMapFromCSV()
         lineNumber++;
     }
 
-    if (!inputFile.eof()) {
+    if (!inputFile.eof())
+    {
         ROS_ERROR("Error reading map file");
     }
 
     return map;
 }
-
 
 void DataFusion::publishPoseElements(std::vector<pointcloud_clustering::positionRPY> pose_array, ros::Publisher publisher)
 {
@@ -331,7 +304,8 @@ void DataFusion::publishPoseElements(std::vector<pointcloud_clustering::position
     pose_array_msg.header.stamp = ros::Time::now();
     pose_array_msg.header.frame_id = "map"; // Replace with your fixed frame
 
-    for (const auto& pose : pose_array) {
+    for (const auto &pose : pose_array)
+    {
         geometry_msgs::Pose pose_msg;
 
         // Set position
@@ -357,15 +331,13 @@ void DataFusion::publishPoseElements(std::vector<pointcloud_clustering::position
     publisher.publish(pose_array_msg);
 }
 
-
-
 bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Request &req, pointcloud_clustering::data_fusion_srv::Response &res)
 {
-    /* 
+    /*
     MAIN FUNCTION
     Receives the request and generates a response
     */
-   frame_n = frame_n + 1;
+    frame_n = frame_n + 1;
 
     /* Service Input values*/
     // Odometry input
@@ -378,9 +350,9 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     incOdomEKF.pitch = req.odometry.pitch;
     incOdomEKF.yaw = req.odometry.yaw;
     ROS_DEBUG("EKF Frame %d", frame_n);
-    ROS_INFO("EKF Incremental odometry received: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]", 
-         incOdomEKF.x, incOdomEKF.y, incOdomEKF.z, 
-         incOdomEKF.roll, incOdomEKF.pitch, incOdomEKF.yaw);
+    ROS_INFO("EKF Incremental odometry received: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]",
+             incOdomEKF.x, incOdomEKF.y, incOdomEKF.z,
+             incOdomEKF.roll, incOdomEKF.pitch, incOdomEKF.yaw);
 
     // Observations input
     geometry_msgs::PoseArray verticalElements_BL = req.verticalElements_BL; // Detected vertical elements in vehicle frame
@@ -388,19 +360,16 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     // Transform observations to Roll-Pitch-Yaw format
     std::vector<pointcloud_clustering::positionRPY> observations_BL = processPoseArray(verticalElements_BL);
 
-
     // Initialize B matrix
-    Matrix <float, 4, 6> B; // Binding matrix for EKF
-    B << 
-    1, 0, 0, 0, 0, 0, // x
-    0, 1, 0, 0, 0, 0, // y
-    // 0, 0, 1, 0, 0, 0, // z
-    0, 0, 0, 1, 0, 0, // roll
-    0, 0, 0, 0, 1, 0; // pitch
+    Matrix<float, 4, 6> B; // Binding matrix for EKF
+    B << 1, 0, 0, 0, 0, 0, // x
+        0, 1, 0, 0, 0, 0,  // y
+        // 0, 0, 1, 0, 0, 0, // z
+        0, 0, 0, 1, 0, 0, // roll
+        0, 0, 0, 0, 1, 0; // pitch
     // 0, 0, 0, 0, 0, 1; // yaw
 
     int B_rows = B.rows();
-
 
     // Initialize Mahalanobis distance threshold for matching step
     float mahalanobisDistanceThreshold = config_.mahalanobisDistanceThreshold;
@@ -410,9 +379,9 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     ///////////////////////////////////////////////////////
     /* 1. Pose Prediction*/
     kalmanPose = Comp(kalmanPose, incOdomEKF);
-    ROS_INFO("EKF Pose Predicted: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]", 
-         kalmanPose.x, kalmanPose.y, kalmanPose.z, 
-         kalmanPose.roll, kalmanPose.pitch, kalmanPose.yaw);
+    ROS_INFO("EKF Pose Predicted: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]",
+             kalmanPose.x, kalmanPose.y, kalmanPose.z,
+             kalmanPose.roll, kalmanPose.pitch, kalmanPose.yaw);
 
     // Position covariance matrix update
     Matrix6f Fx, Fu;
@@ -420,7 +389,7 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
     Fu = J2_n(kalmanPose, incOdomEKF);
 
     // State coveriance
-    P = Fx*P*Fx.transpose() + Fu*Q*Fu.transpose();
+    P = Fx * P * Fx.transpose() + Fu * Q * Fu.transpose();
 
     /* 2. Get observations (Matches)*/
     int obsSize = observations_BL.size(); // Number of observations
@@ -428,7 +397,8 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
 
     bool matched = false;
 
-    if (!observations_BL.empty()) {
+    if (!observations_BL.empty())
+    {
         ROS_DEBUG("EKF OBSERVATIONS FOUND >> MATCHING AND UPDATING....");
         std::vector<int> matched_indices;
 
@@ -446,7 +416,8 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
 
         int match_count = 0;
         std::vector<pointcloud_clustering::positionRPY> observations_map;
-        for (int i = 0; i < observations_BL.size(); ++i) {
+        for (int i = 0; i < observations_BL.size(); ++i)
+        {
             pointcloud_clustering::positionRPY obs_origin = Comp(kalmanPose, observations_BL[i]);
             // obs_origin.roll = 0.0;
             // obs_origin.pitch = 0.0;
@@ -456,7 +427,8 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
             float min_mahalanobis = config_.mahalanobisDistanceThreshold;
             std::vector<float> distances;
 
-            for (int j = 0; j < map.size(); ++j) {
+            for (int j = 0; j < map.size(); ++j)
+            {
                 // Compute innovation and Jacobians
                 auto h_ij = computeInnovation(obs_origin, map[j], B);
                 auto H_x_ij = B * J2_n(Inv(map[j]), obs_origin) * J1_n(kalmanPose, observations_BL[i]);
@@ -466,13 +438,15 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
                 // Compute Mahalanobis distance
                 float distance = mahalanobisDistance(h_ij, S_ij);
                 distances.push_back(distance);
-                if (distance < min_mahalanobis) {
+                if (distance < min_mahalanobis)
+                {
                     ROS_INFO("EKF MATCH FOUND in observation %d with map element %d. Distance = %4f", i, j, distance);
                     min_mahalanobis = distance;
                     best_match = j;
                 }
             }
-            if (!distances.empty()) {
+            if (!distances.empty())
+            {
                 float minDistance = *std::min_element(distances.begin(), distances.end());
                 std::cout << "Min distance for observation " << i << ": " << minDistance << std::endl;
                 int minDistanceIndex = std::distance(distances.begin(), std::min_element(distances.begin(), distances.end()));
@@ -526,7 +500,8 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
                 line_marker_pub.publish(text);
             }
 
-            if (best_match != -1) {
+            if (best_match != -1)
+            {
                 // Accumulate matched observation data
                 pointcloud_clustering::positionRPY map_elem = map[best_match];
                 auto h_i = computeInnovation(obs_origin, map_elem, B);
@@ -545,7 +520,8 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
         publishPoseElements(observations_map, observation_pub_);
         publishPoseElements(observations_BL, observation_BL_pub_);
 
-        if (match_count > 0) {
+        if (match_count > 0)
+        {
             h_k.conservativeResize(match_count * B_rows, 1);
             H_x_k.conservativeResize(match_count * B_rows, 6);
             H_z_k.conservativeResize(match_count * B_rows, match_count * 6);
@@ -554,19 +530,26 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
             // Update step
             auto S_k = H_x_k * P * H_x_k.transpose() + H_z_k * R_k * H_z_k.transpose();
             auto W = P * H_x_k.transpose() * S_k.inverse();
-            std::cout << "Incertidumbre del estado:\n" << P << std::endl;
-            std::cout << "Incertidumbre de las observaciones:\n" << R << std::endl;
-            std::cout << "Ganancia de Kalman (W):\n" << W << std::endl;
+            std::cout << "Incertidumbre del estado:\n"
+                      << P << std::endl;
+            std::cout << "Incertidumbre de las observaciones:\n"
+                      << R << std::endl;
+            std::cout << "Ganancia de Kalman (W):\n"
+                      << W << std::endl;
             kalmanPose = vec2RPY(RPY2Vec(kalmanPose) - W * h_k);
             P = (Matrix6f::Identity() - W * H_x_k) * P;
 
             ROS_INFO("EKF Corrected Position: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]",
-                    kalmanPose.x, kalmanPose.y, kalmanPose.z,
-                    kalmanPose.roll, kalmanPose.pitch, kalmanPose.yaw);
-        } else {
+                     kalmanPose.x, kalmanPose.y, kalmanPose.z,
+                     kalmanPose.roll, kalmanPose.pitch, kalmanPose.yaw);
+        }
+        else
+        {
             ROS_DEBUG("EKF No valid matches. Using predicted state.");
         }
-    } else {
+    }
+    else
+    {
         ROS_DEBUG("EKF No observations. Skipping update.");
     }
 
@@ -586,35 +569,42 @@ int main(int argc, char **argv)
 
     // Current working directory
     char cwd[PATH_MAX];
-    if (getcwd(cwd, sizeof(cwd)) != NULL) {
+    if (getcwd(cwd, sizeof(cwd)) != NULL)
+    {
         ROS_DEBUG("Current working directory: %s", cwd);
-    } else {
+    }
+    else
+    {
         ROS_ERROR("Error getting current working directory");
     }
 
     // Get config path parameter
     std::string configFilePath;
-    if (!nh.getParam("data_fusion_config_file_path", configFilePath)) {
+    if (!nh.getParam("data_fusion_config_file_path", configFilePath))
+    {
         ROS_ERROR("Failed to get param 'data_fusion_config_file_path'");
         return -1;
     }
     // Get map path parameter
     std::string mapFilePath;
-    if (!nh.getParam("data_fusion_map_file_path", mapFilePath)) {
+    if (!nh.getParam("data_fusion_map_file_path", mapFilePath))
+    {
         ROS_ERROR("Failed to get param 'data_fusion_map_file_path'");
         return -1;
     }
-    try {
+    try
+    {
         DataFusion df(configFilePath, mapFilePath);
         ros::ServiceServer service = nh.advertiseService("data_fusion", &DataFusion::dataFusionService, &df);
         ROS_DEBUG("Service Data Fusion initialized correctly");
 
         ros::spin();
-    } catch (const std::exception &e) {
+    }
+    catch (const std::exception &e)
+    {
         ROS_ERROR("Error initializing DataFusionService: %s", e.what());
         return -1;
     }
-
 
     return 0;
 }

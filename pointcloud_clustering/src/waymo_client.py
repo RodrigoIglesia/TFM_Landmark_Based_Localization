@@ -54,23 +54,25 @@ import waymo_utils.transform_utils as tu
 import configparser
 
 def load_config():
-    config_file = rospy.get_param("~client_config_file_path")
+    config_file = rospy.get_param("/client_config_file_path")
     config = configparser.ConfigParser()
     config.read(config_file)
     try:
         position_noise_std = float(config["NOISE"]["position_noise_std"])
         orientation_noise_std = float(config["NOISE"]["orientation_noise_std"])
+        cameras_str = config["CAMERAS"]["cameras"]
+        cameras = [int(x.strip()) for x in cameras_str.split(",")]  # Convert to a list of integers
     except KeyError as e:
         rospy.logerr(f"Missing parameter in config file: {e}")
         position_noise_std = 0.1  # Deffect value
         orientation_noise_std = 0.005  # Deffect value
-    return position_noise_std, orientation_noise_std
+        cameras = [1] # Deffect value central camera
+    return position_noise_std, orientation_noise_std, cameras
 
 
 class WaymoClient:
-    def __init__(self, frame, cams_order):
+    def __init__(self, frame):
         self.frame = frame
-        self.cams_order = cams_order
         self.points = np.zeros((0,3)) # Received clustered pointcloud
         self.pointcloud = np.zeros((0, 3))
         self.cluster_labels = np.zeros((0, 3))
@@ -112,7 +114,7 @@ class WaymoClient:
         self.data_fusion_client = rospy.ServiceProxy('data_fusion', data_fusion_srv)
         rospy.loginfo("CLIENT Data Fusion service is running")
 
-    def process_odometry(self):
+    def process_odometry(self, position_noise_std, orientation_noise_std):
         """
         Get incremental pose of the vehicle with constant Gaussian noise.
         This method, based on the global position of the vehicle, computes the relative pose to the previous frame.
@@ -189,8 +191,10 @@ class WaymoClient:
             rospy.logdebug("No pointcloud in frame")
 
 
-    def process_image(self):
-        self.image = self.camera_processor.get_camera_image()[0]
+    def process_image(self, cameras):
+        self.image = self.camera_processor.get_camera_image(cameras)
+        if (len(cameras) == 1):
+            self.image = self.image[0]
         if self.image is not None:
             self.camera_processor.camera_to_ros(self.image)
             request = landmark_detection_srvRequest()
@@ -276,7 +280,7 @@ class WaymoClient:
 
 class PointCloudProcessor(WaymoClient):
     def __init__(self, frame):
-        super().__init__(frame, None)
+        super().__init__(frame)
         self.pointcloud_msg = self.init_pointcloud_msg()
 
     def init_pointcloud_msg(self):
@@ -333,7 +337,7 @@ class PointCloudProcessor(WaymoClient):
 
 class CameraProcessor(WaymoClient):
     def __init__(self, frame):
-        super().__init__(frame, None)
+        super().__init__(frame)
         self.camera_msg = self.init_camera_msg()
 
     def init_camera_msg(self):
@@ -342,9 +346,9 @@ class CameraProcessor(WaymoClient):
         camera_msg.is_bigendian = False
         return camera_msg
 
-    def get_camera_image(self):
+    def get_camera_image(self, cameras):
         cameras_images = {image.name: get_frame_image(image)[..., ::-1] for image in self.frame.images}
-        ordered_images = [cameras_images[1]]
+        ordered_images = [cameras_images[cameras[i]] for i in range(len(cameras))]
         return ordered_images
 
     def camera_to_ros(self, image):
@@ -480,7 +484,7 @@ if __name__ == "__main__":
     ##############################################################################################
     ## Load configuration
     ##############################################################################################
-    position_noise_std, orientation_noise_std = load_config()
+    position_noise_std, orientation_noise_std, cameras = load_config()
 
     ##############################################################################################
     ## Initialize main client node
@@ -490,7 +494,7 @@ if __name__ == "__main__":
 
     rate = rospy.Rate(1/4)
 
-    #TODO: REMOVE > Load map pointcloud
+    #TODO: REMOVE > Load map pointcloud for debugging porpuses
     try:
         map_pc_file_path = rospy.get_param('map_pointcloud')
     except KeyError as e:
@@ -528,18 +532,13 @@ if __name__ == "__main__":
         rospy.loginfo(f"CLIENT Scene: {scene_name} processing: {scene_path}")
         frame_n = 0  # Scene frames counter
 
-        # Create a folder to save the results with today datetime
-        today_date = datetime.now().strftime("%d%m%Y%H%M")
-
-        # Crear el nombre de la carpeta
+        ## Create a folder to save the results with today datetime
+        today_date = datetime.now().strftime("%Y%m%d%H%M")
         results_folder = os.path.join(src_dir, f"results/{scene_name}/{today_date}")
-
-        # Crear la carpeta si no existe
         if not os.path.exists(results_folder):
             os.makedirs(results_folder)
         else:
             rospy.logwarn(f"Folder'{results_folder}' already exists.")
-
         # Initialize CSV file and write header at the beginning of each scene
         csv_file_path = os.path.join(results_folder, f'poses_{scene_name}.csv')
         with open(csv_file_path, 'w', newline='') as csvfile:
@@ -552,11 +551,11 @@ if __name__ == "__main__":
                 'corrected_x', 'corrected_y', 'corrected_z', 'corrected_roll', 'corrected_pitch', 'corrected_yaw'
             ]
             csv_writer.writerow(header)
-        #TODO: REMOVE > Save detected landmarks
+
+        #TODO: REMOVE > Save detected landmarks for debugging porpuses
         landmark_csv_file_path = os.path.join(results_folder, f'landmarks_{scene_name}.csv')
         with open(landmark_csv_file_path, 'w', newline='') as csvfile:
             csv_writer = csv.writer(csvfile)
-            
             # Write header once at the beginning
             header = [
                 'frame', 'Landmark_X', 'Landmark_Y', 'Landmark_Z', 'Landmark_Roll', 'Landmark_Pitch', 'Landmark_Yaw'
@@ -564,7 +563,7 @@ if __name__ == "__main__":
             csv_writer.writerow(header)
 
         # Reset odometry cumulative error every scene
-        #TODO Odometría simulada, en caso de tener odometría con error real > eliminar
+        #TODO Simulated odometry >> REMOVE IN CASE REAL DATA IS AVAILABLE
         if wc is not None:
             wc.position_noise_cumulative = [0, 0, 0]
             wc.orientation_noise_cumulative = [0, 0, 0]
@@ -576,7 +575,7 @@ if __name__ == "__main__":
 
             # Initialize classes if not already done
             if wc is None:
-                wc = WaymoClient(frame, [2, 1, 3])
+                wc = WaymoClient(frame)
             if pointcloud_processor is None:
                 pointcloud_processor = PointCloudProcessor(frame)
             if camera_processor is None:
@@ -616,7 +615,6 @@ if __name__ == "__main__":
             Odometry service also get the transformation matrix of the vehicle
             In this version, incremental odometry is also calculated by the client service
             """
-
             # Obtain odometry increment (in frame 0 will be 0)
             wc.process_odometry(position_noise_std, orientation_noise_std)
             #TODO: REMOVE
@@ -666,7 +664,7 @@ if __name__ == "__main__":
             rospy.logdebug("Landmark detection processing service")
             wc.camera_processor.camera_msg.header.frame_id = f"base_link_{scene_name}"
             wc.camera_processor.camera_msg.header.stamp = rospy.Time.now()
-            wc.process_image()
+            wc.process_image(cameras)
             if wc.processed_image is None:
                 rospy.logerr("Image received is empty")
                 continue

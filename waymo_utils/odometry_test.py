@@ -24,42 +24,6 @@ def normalize_angle(angle):
     """ Normalize the angle to be within the range [-\u03c0, \u03c0] """
     return (angle + np.pi) % (2 * np.pi) - np.pi
 
-# def process_odometry(frame, position_noise_cumulative, orientation_noise_cumulative, initial_transform_matrix=None, position_noise_std=0.05, orientation_noise_std=0.01):
-#     """
-#     Get incremental pose of the vehicle with cumulative noise.
-#     """
-#     transform_matrix = np.array(frame.pose.transform).reshape(4, 4)
-#     if initial_transform_matrix is None:
-#         initial_transform_matrix = transform_matrix
-
-#     relative_transform = np.linalg.inv(initial_transform_matrix) @ transform_matrix
-#     relative_pose = get_pose(relative_transform)
-#     position_noise = [
-#         np.random.normal(0, position_noise_std) if i < 2 else np.random.normal(0, position_noise_std * 0.1)
-#         for i in range(3)
-#     ]  # Reduce Z noise significantly
-#     orientation_noise = [
-#         np.random.normal(0, orientation_noise_std) for _ in range(3)
-#     ]
-
-#     position_noise_cumulative = [
-#         position_noise_cumulative[i] * 0.8 + position_noise[i]
-#         for i in range(3)
-#     ]
-#     orientation_noise_cumulative = [
-#         orientation_noise_cumulative[i] * 0.8 + orientation_noise[i]
-#         for i in range(3)
-#     ]
-
-#     noisy_position = [
-#         relative_pose[i] + position_noise_cumulative[i] for i in range(3)
-#     ]
-#     noisy_orientation = [
-#         relative_pose[i+3] + orientation_noise_cumulative[i] for i in range(3)
-#     ]
-
-#     odometry_pose = noisy_position + noisy_orientation
-#     return relative_pose, odometry_pose, transform_matrix, initial_transform_matrix
 
 def process_odometry(frame, position_noise_std=0.05, orientation_noise_std=0.01, initial_transform_matrix=None):
     """
@@ -99,7 +63,7 @@ def concatenate_pcd_returns(pcd_return_1, pcd_return_2):
     points_cp_concat = np.concatenate(points_cp + points_cp_ri2, axis=0)
     return points_concat, points_cp_concat
 
-scene = "individual_files_training_segment-10017090168044687777_6380_000_6400_000_with_camera_labels"
+scene = "individual_files_validation_segment-10335539493577748957_1372_870_1392_870_with_camera_labels"
 scene_path = os.path.join(src_dir, "dataset/final_tests_scene/" + scene + ".tfrecord")
 points = []
 noisy_points = []
@@ -128,6 +92,8 @@ color = np.array([[1.0, 0.0, 0.0]] * len(map_points))
 map_point_cloud.colors = o3d.utility.Vector3dVector(color)
 vis.add_geometry(map_point_cloud)
 
+distance = 0
+
 for frame in load_frame(scene_path):
     if frame is None:
         continue
@@ -139,6 +105,9 @@ for frame in load_frame(scene_path):
 
     noisy_point = [noisy_relative_pose[0], noisy_relative_pose[1], noisy_relative_pose[2]]
     noisy_points.append(noisy_point)
+
+    incremental_distance = np.linalg.norm(np.array(point) - np.array(prev_point)) if prev_point is not None else 0
+    distance += incremental_distance
 
     if prev_point is not None:
         lines.append([len(points) - 2, len(points) - 1])
@@ -194,3 +163,4 @@ vis.clear_geometries()
 vis.destroy_window()
 
 print(frame_n)
+print("Distance traveled by the car: ", distance)

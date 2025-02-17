@@ -23,6 +23,8 @@ import rospy
 from shapely.geometry import Polygon
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial import ConvexHull
+from sklearn.linear_model import RANSACRegressor
+from tf.transformations import quaternion_from_euler
 from std_msgs.msg import Header
 import sensor_msgs.point_cloud2 as pc2
 from pointcloud_clustering.msg import positionRPY
@@ -374,6 +376,8 @@ class DataAssociationProcessor:
         self.clustered_pointcloud_iou_vehicle_frame = {}
         self.clusters_poses = {}
         self.init_camera_params()
+        self.clusters_poses = {}
+        self.clustered_pointcloud_iou_vehicle_frame = {}
 
     def init_camera_params(self):
         camera_intrinsic = np.array(self.frame.context.camera_calibrations[0].intrinsic)
@@ -472,12 +476,42 @@ class DataAssociationProcessor:
                             self.__draw_iou_text(pair_image, cluster_hull, seg_hull, iou)
                         self.clustered_pointcloud_iou_vehicle_frame[label] = clustered_pointcloud[label]
 
+    def fit_line_ransac(self, points):
+            X = np.array(points)[:, :2]  # Solo usar X e Y
+            Z = np.array(points)[:, 2]   # Coordenada Z
+            
+            model = RANSACRegressor()
+            model.fit(X, Z)
+            
+            coef = model.estimator_.coef_
+            intercept = model.estimator_.intercept_
+            
+            return coef, intercept
+
     def calculate_landmark_pose(self):
         self.clusters_poses = {}
+        
         for label, pointcloud in self.clustered_pointcloud_iou_vehicle_frame.items():
-            centroid = w3d.get_cluster_centroid(pointcloud)
-            roll, pitch, yaw = 0.0, 0.0, 0.0
-            self.clusters_poses[label] = [centroid[0], centroid[1], centroid[2], roll, pitch, yaw]
+            if len(pointcloud) < 2:
+                continue  # No se puede ajustar una línea con menos de dos puntos
+            
+            coef, intercept = self.fit_line_ransac(pointcloud)
+            
+            xpLine, ypLine = np.mean(pointcloud, axis=0)[:2]
+            zpLine = intercept
+            xdLine, ydLine = coef
+            zdLine = 1.0  # Suponemos que la dirección es principalmente en Z
+            
+            u = np.array([-ydLine, xdLine, 0.0]) / np.linalg.norm([xdLine, ydLine])
+            theta = np.arccos(zdLine / np.linalg.norm([xdLine, ydLine, zdLine]))
+            tfQuat = quaternion_from_euler(u[0] * np.sin(theta / 2),
+                                           u[1] * np.sin(theta / 2),
+                                           u[2] * np.sin(theta / 2),
+                                           np.cos(theta / 2))
+                
+            self.clusters_poses[label] = [xpLine, ypLine, zpLine, tfQuat[0], tfQuat[1], tfQuat[2], tfQuat[3]]
+
+        return self.clusters_poses
 
 
 if __name__ == "__main__":

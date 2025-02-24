@@ -60,6 +60,7 @@ def load_config():
     config = configparser.ConfigParser()
     config.read(config_file)
     try:
+        save_results = int(config["GENERAL"]["save_results"])
         position_noise_std = float(config["NOISE"]["position_noise_std"])
         orientation_noise_std = float(config["NOISE"]["orientation_noise_std"])
         cameras_str = config["CAMERAS"]["cameras"]
@@ -69,7 +70,7 @@ def load_config():
         position_noise_std = 0.1  # Deffect value
         orientation_noise_std = 0.005  # Deffect value
         cameras = [1] # Deffect value central camera
-    return position_noise_std, orientation_noise_std, cameras
+    return save_results, position_noise_std, orientation_noise_std, cameras
 
 
 class WaymoClient:
@@ -240,6 +241,7 @@ class WaymoClient:
 
         # Populate the request with landmark poses in Base Line frame
         for label, pose in clusters_poses.items():
+            print(pose)
             landmark_pose_BL = PoseStamped()
             landmark_pose_BL.pose.position.x = pose[0]
             landmark_pose_BL.pose.position.y = pose[1]
@@ -477,39 +479,34 @@ class DataAssociationProcessor:
                         self.clustered_pointcloud_iou_vehicle_frame[label] = clustered_pointcloud[label]
 
     def fit_line_ransac(self, points):
-            X = np.array(points)[:, :2]  # Solo usar X e Y
-            Z = np.array(points)[:, 2]   # Coordenada Z
-            
-            model = RANSACRegressor()
-            model.fit(X, Z)
-            
-            coef = model.estimator_.coef_
-            intercept = model.estimator_.intercept_
-            
-            return coef, intercept
+        X = np.array(points)[:, :2]
+        Z = np.array(points)[:, 2]
+        
+        model = RANSACRegressor()
+        model.fit(X, Z)
+        
+        coef = model.estimator_.coef_
+        intercept = model.estimator_.intercept_
+        
+        return coef, intercept
 
     def calculate_landmark_pose(self):
         self.clusters_poses = {}
         
         for label, pointcloud in self.clustered_pointcloud_iou_vehicle_frame.items():
             if len(pointcloud) < 2:
-                continue  # No se puede ajustar una línea con menos de dos puntos
+                continue
             
             coef, intercept = self.fit_line_ransac(pointcloud)
             
             xpLine, ypLine = np.mean(pointcloud, axis=0)[:2]
             zpLine = intercept
             xdLine, ydLine = coef
-            zdLine = 1.0  # Suponemos que la dirección es principalmente en Z
+            zdLine = 1.0 # Direction is Z
             
-            u = np.array([-ydLine, xdLine, 0.0]) / np.linalg.norm([xdLine, ydLine])
-            theta = np.arccos(zdLine / np.linalg.norm([xdLine, ydLine, zdLine]))
-            tfQuat = quaternion_from_euler(u[0] * np.sin(theta / 2),
-                                           u[1] * np.sin(theta / 2),
-                                           u[2] * np.sin(theta / 2),
-                                           np.cos(theta / 2))
+            roll, pitch, yaw = 0.0, np.arctan2(ydLine, xdLine), np.arccos(zdLine / np.linalg.norm([xdLine, ydLine, zdLine]))
                 
-            self.clusters_poses[label] = [xpLine, ypLine, zpLine, tfQuat[0], tfQuat[1], tfQuat[2], tfQuat[3]]
+            self.clusters_poses[label] = [xpLine, ypLine, zpLine, roll, pitch, yaw]
 
         return self.clusters_poses
 
@@ -518,7 +515,7 @@ if __name__ == "__main__":
     ##############################################################################################
     ## Load configuration
     ##############################################################################################
-    position_noise_std, orientation_noise_std, cameras = load_config()
+    save_results, position_noise_std, orientation_noise_std, cameras = load_config()
 
     ##############################################################################################
     ## Initialize main client node
@@ -527,22 +524,6 @@ if __name__ == "__main__":
     rospy.loginfo("CLIENT Node initialized correctly")
 
     rate = rospy.Rate(1/4)
-
-    #TODO: REMOVE > Load map pointcloud for debugging porpuses
-    try:
-        map_pc_file_path = rospy.get_param('map_pointcloud')
-    except KeyError as e:
-        rospy.logerr(f"No param: {e}")
-    except rospy.ROSException as e:
-        rospy.logerr(f"Error reading param: {e}")
-    map_points = []
-    map_published = False
-    with open(map_pc_file_path, "r") as csvfile:
-        reader = csv.reader(csvfile)
-        for row in reader:
-            if len(row) >= 3:
-                x, y, z = map(float, row[:3])
-                map_points.append((x, y, z))
 
     # Read dataset
     try:
@@ -566,35 +547,56 @@ if __name__ == "__main__":
         rospy.loginfo(f"CLIENT Scene: {scene_name} processing: {scene_path}")
         frame_n = 0  # Scene frames counter
 
-        ## Create a folder to save the results with today datetime
-        today_date = datetime.now().strftime("%Y%m%d%H%M")
-        results_folder = os.path.join(src_dir, f"results/{scene_name}/{today_date}")
-        if not os.path.exists(results_folder):
-            os.makedirs(results_folder)
-        else:
-            rospy.logwarn(f"Folder'{results_folder}' already exists.")
-        # Initialize CSV file and write header at the beginning of each scene
-        csv_file_path = os.path.join(results_folder, f'poses_{scene_name}.csv')
-        with open(csv_file_path, 'w', newline='') as csvfile:
-            csv_writer = csv.writer(csvfile)
-            
-            # Write header once at the beginning
-            header = [
-                'frame', 'real_x', 'real_y', 'real_z', 'real_roll', 'real_pitch', 'real_yaw',
-                'odometry_x', 'odometry_y', 'odometry_z', 'odometry_roll', 'odometry_pitch', 'odometry_yaw',
-                'corrected_x', 'corrected_y', 'corrected_z', 'corrected_roll', 'corrected_pitch', 'corrected_yaw'
-            ]
-            csv_writer.writerow(header)
+        if save_results == 1:
+            ##############################################################################################
+            ## Save results
+            ##############################################################################################
+            ## Create a folder to save the results with today datetime
+            today_date = datetime.now().strftime("%Y%m%d%H%M")
+            results_folder = os.path.join(src_dir, f"results/{scene_name}/{today_date}")
+            if not os.path.exists(results_folder):
+                os.makedirs(results_folder)
+            else:
+                rospy.logwarn(f"Folder'{results_folder}' already exists.")
+            # Initialize CSV file and write header at the beginning of each scene
+            csv_file_path = os.path.join(results_folder, f'poses_{scene_name}.csv')
+            with open(csv_file_path, 'w', newline='') as csvfile:
+                csv_writer = csv.writer(csvfile)
+                
+                # Write header once at the beginning
+                header = [
+                    'frame', 'real_x', 'real_y', 'real_z', 'real_roll', 'real_pitch', 'real_yaw',
+                    'odometry_x', 'odometry_y', 'odometry_z', 'odometry_roll', 'odometry_pitch', 'odometry_yaw',
+                    'corrected_x', 'corrected_y', 'corrected_z', 'corrected_roll', 'corrected_pitch', 'corrected_yaw'
+                ]
+                csv_writer.writerow(header)
 
-        #TODO: REMOVE > Save detected landmarks for debugging porpuses
-        landmark_csv_file_path = os.path.join(results_folder, f'landmarks_{scene_name}.csv')
-        with open(landmark_csv_file_path, 'w', newline='') as csvfile:
-            csv_writer = csv.writer(csvfile)
-            # Write header once at the beginning
-            header = [
-                'frame', 'Landmark_X', 'Landmark_Y', 'Landmark_Z', 'Landmark_Roll', 'Landmark_Pitch', 'Landmark_Yaw'
-            ]
-            csv_writer.writerow(header)
+            #TODO: REMOVE > Save detected landmarks for debugging porpuses
+            landmark_csv_file_path = os.path.join(results_folder, f'landmarks_{scene_name}.csv')
+            with open(landmark_csv_file_path, 'w', newline='') as csvfile:
+                csv_writer = csv.writer(csvfile)
+                # Write header once at the beginning
+                header = [
+                    'frame', 'Landmark_X', 'Landmark_Y', 'Landmark_Z', 'Landmark_Roll', 'Landmark_Pitch', 'Landmark_Yaw'
+                ]
+                csv_writer.writerow(header)
+
+        #TODO: REMOVE > Load map pointcloud for debugging porpuses
+        try:
+            map_pc_file_path = rospy.get_param('map_pointcloud')
+        except KeyError as e:
+            rospy.logerr(f"No param: {e}")
+        except rospy.ROSException as e:
+            rospy.logerr(f"Error reading param: {e}")
+        map_points = []
+        map_published = False
+        with open(map_pc_file_path, "r") as csvfile:
+            reader = csv.reader(csvfile)
+            for row in reader:
+                if len(row) >= 3:
+                    x, y, z = map(float, row[:3])
+                    map_points.append((x, y, z))
+
 
         # Reset odometry cumulative error every scene
         #TODO Simulated odometry >> REMOVE IN CASE REAL DATA IS AVAILABLE
@@ -754,6 +756,11 @@ if __name__ == "__main__":
             vehicle_corrected_path = np.array(wc.corrected_path)
             publish_path("corrected_vehicle_path", vehicle_corrected_path, header)
 
+            if save_results == 0:
+                continue
+            ######################################################################################################
+            ## Save iteration results
+            ######################################################################################################
             # Append pose (Referenced to the map Frame) data for the current frame to CSV
             rel_pose = wc.relative_cummulative_pose
             odo_pose = wc.odometry_cummulative_pose

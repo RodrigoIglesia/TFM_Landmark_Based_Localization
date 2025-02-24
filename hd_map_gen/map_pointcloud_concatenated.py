@@ -332,7 +332,7 @@ def save_protobuf_features(protobuf_message, output):
 
 
 if __name__ == "__main__":
-    scene_path = os.path.join(src_dir, "dataset/final_tests_scene/individual_files_validation_segment-10289507859301986274_4200_000_4220_000_with_camera_labels.tfrecord")
+    scene_path = os.path.join(src_dir, "dataset/final_tests_scene/individual_files_validation_segment-10689101165701914459_2072_300_2092_300_with_camera_labels.tfrecord")
     json_maps_path      = os.path.join(src_dir, "dataset/hd_maps")
     point_clouds_path   = os.path.join(src_dir, "dataset/pointclouds")
     output_dataset_path = os.path.join(src_dir, "dataset/final_output_scenes")
@@ -448,6 +448,10 @@ if __name__ == "__main__":
     # Get the clustered pointclouds, each cluster corresponding to a traffic sign
     clustered_point_cloud, cluster_labels = cluster_pointcloud(point_clouds)
 
+    if (len(clustered_point_cloud) == 0):
+        logging.debug("No clusters found in the point cloud")
+    else:
+        logging.debug("Point cloud clustered correctly")
 
     ##############################################################
     ## Enrich Feature Map
@@ -477,7 +481,6 @@ if __name__ == "__main__":
     output_csv = output_csv_path + "/signs_map_features_" + os.path.splitext(os.path.basename(scene_path))[0] + '.csv'
     with open(output_csv, 'w', newline='') as csvfile:
         csv_writer = csv.writer(csvfile)
-
         # Iterate through each item in the JSON
         for item in data:
             if 'stopSign' in item:

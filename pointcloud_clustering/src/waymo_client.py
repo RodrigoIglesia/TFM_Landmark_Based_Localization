@@ -723,7 +723,7 @@ if __name__ == "__main__":
 
             # DEBUG - Publish filtered pointcloud only with landmarks
             header = Header()
-            header.frame_id = "base_link"
+            header.frame_id = "map"
             header.stamp = rospy.Time.now()
             publish_labeled_pointcloud_to_topic('filtered_pointcloud', data_association_processor.clustered_pointcloud_iou_vehicle_frame, header)
             

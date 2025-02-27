@@ -1,8 +1,8 @@
 <launch>
   <!-- Definir un argumento para la escena -->
-  <arg name="scene_name" default="individual_files_validation_segment-10335539493577748957_1372_870_1392_870_with_camera_labels" />
+  <arg name="scene_name" default="individual_files_training_segment-10023947602400723454_1120_000_1140_000_with_camera_labels" />
 
-  <node type="rviz" name="rviz" pkg="rviz" args="-d /home/rodrigo/catkin_ws/src/TFM_Landmark_Based_Localization/landmark_localization.rviz" />
+  <node type="rviz" name="rviz" pkg="rviz" args="-d /home/rodrigo/catkin_ws/src/TFM_Landmark_Based_Localization/ekf_debug.rviz" />
   
   <node pkg="pointcloud_clustering" type="waymo_client.py" name="waymo_client" output="screen" args="_log:=debug"/>
     <param name="client_config_file_path" value="$(find pointcloud_clustering)/config/client_config.conf"/>

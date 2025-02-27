@@ -58,6 +58,7 @@ def load_config():
     config = configparser.ConfigParser()
     config.read(config_file)
     try:
+        save_results = int(config["GENERAL"]["save_results"])
         position_noise_std = float(config["NOISE"]["position_noise_std"])
         orientation_noise_std = float(config["NOISE"]["orientation_noise_std"])
         cameras_str = config["CAMERAS"]["cameras"]
@@ -67,7 +68,7 @@ def load_config():
         position_noise_std = 0.1  # Deffect value
         orientation_noise_std = 0.005  # Deffect value
         cameras = [1] # Deffect value central camera
-    return position_noise_std, orientation_noise_std, cameras
+    return save_results, position_noise_std, orientation_noise_std, cameras
 
 
 class WaymoClient:
@@ -484,7 +485,7 @@ if __name__ == "__main__":
     ##############################################################################################
     ## Load configuration
     ##############################################################################################
-    position_noise_std, orientation_noise_std, cameras = load_config()
+    save_results, position_noise_std, orientation_noise_std, cameras = load_config()
 
     ##############################################################################################
     ## Initialize main client node
@@ -532,35 +533,39 @@ if __name__ == "__main__":
         rospy.loginfo(f"CLIENT Scene: {scene_name} processing: {scene_path}")
         frame_n = 0  # Scene frames counter
 
-        ## Create a folder to save the results with today datetime
-        today_date = datetime.now().strftime("%Y%m%d%H%M")
-        results_folder = os.path.join(src_dir, f"results/{scene_name}/{today_date}")
-        if not os.path.exists(results_folder):
-            os.makedirs(results_folder)
-        else:
-            rospy.logwarn(f"Folder'{results_folder}' already exists.")
-        # Initialize CSV file and write header at the beginning of each scene
-        csv_file_path = os.path.join(results_folder, f'poses_{scene_name}.csv')
-        with open(csv_file_path, 'w', newline='') as csvfile:
-            csv_writer = csv.writer(csvfile)
-            
-            # Write header once at the beginning
-            header = [
-                'frame', 'real_x', 'real_y', 'real_z', 'real_roll', 'real_pitch', 'real_yaw',
-                'odometry_x', 'odometry_y', 'odometry_z', 'odometry_roll', 'odometry_pitch', 'odometry_yaw',
-                'corrected_x', 'corrected_y', 'corrected_z', 'corrected_roll', 'corrected_pitch', 'corrected_yaw'
-            ]
-            csv_writer.writerow(header)
+        if save_results == 1:
+            ##############################################################################################
+            ## Save results
+            ##############################################################################################
+            ## Create a folder to save the results with today datetime
+            today_date = datetime.now().strftime("%Y%m%d%H%M")
+            results_folder = os.path.join(src_dir, f"results/{scene_name}/{today_date}")
+            if not os.path.exists(results_folder):
+                os.makedirs(results_folder)
+            else:
+                rospy.logwarn(f"Folder'{results_folder}' already exists.")
+            # Initialize CSV file and write header at the beginning of each scene
+            csv_file_path = os.path.join(results_folder, f'poses_{scene_name}.csv')
+            with open(csv_file_path, 'w', newline='') as csvfile:
+                csv_writer = csv.writer(csvfile)
+                
+                # Write header once at the beginning
+                header = [
+                    'frame', 'real_x', 'real_y', 'real_z', 'real_roll', 'real_pitch', 'real_yaw',
+                    'odometry_x', 'odometry_y', 'odometry_z', 'odometry_roll', 'odometry_pitch', 'odometry_yaw',
+                    'corrected_x', 'corrected_y', 'corrected_z', 'corrected_roll', 'corrected_pitch', 'corrected_yaw'
+                ]
+                csv_writer.writerow(header)
 
-        #TODO: REMOVE > Save detected landmarks for debugging porpuses
-        landmark_csv_file_path = os.path.join(results_folder, f'landmarks_{scene_name}.csv')
-        with open(landmark_csv_file_path, 'w', newline='') as csvfile:
-            csv_writer = csv.writer(csvfile)
-            # Write header once at the beginning
-            header = [
-                'frame', 'Landmark_X', 'Landmark_Y', 'Landmark_Z', 'Landmark_Roll', 'Landmark_Pitch', 'Landmark_Yaw'
-            ]
-            csv_writer.writerow(header)
+            #TODO: REMOVE > Save detected landmarks for debugging porpuses
+            landmark_csv_file_path = os.path.join(results_folder, f'landmarks_{scene_name}.csv')
+            with open(landmark_csv_file_path, 'w', newline='') as csvfile:
+                csv_writer = csv.writer(csvfile)
+                # Write header once at the beginning
+                header = [
+                    'frame', 'Landmark_X', 'Landmark_Y', 'Landmark_Z', 'Landmark_Roll', 'Landmark_Pitch', 'Landmark_Yaw'
+                ]
+                csv_writer.writerow(header)
 
         # Reset odometry cumulative error every scene
         #TODO Simulated odometry >> REMOVE IN CASE REAL DATA IS AVAILABLE
@@ -719,6 +724,12 @@ if __name__ == "__main__":
             # DEBUG -> Publish vehicle path
             vehicle_corrected_path = np.array(wc.corrected_path)
             publish_path("corrected_vehicle_path", vehicle_corrected_path, header)
+
+            ##################################################
+            ## Save results to CSV
+            ##################################################
+            if save_results == 0:
+                continue
 
             # Append pose (Referenced to the map Frame) data for the current frame to CSV
             rel_pose = wc.relative_cummulative_pose

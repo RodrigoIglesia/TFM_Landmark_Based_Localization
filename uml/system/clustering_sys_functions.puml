@@ -1,0 +1,30 @@
+@startuml
+skinparam rectangle {
+    BackgroundColor<<external>> LightBlue
+    BackgroundColor<<internal>> LightGreen
+    Padding 20
+    MinWidth 300
+}
+
+rectangle "Waymo Open Dataset Database" <<external>> {
+    [WaymoPointCloud]
+}
+
+rectangle "Point Cloud Processing Module" <<internal>> {
+    rectangle "Crop" as [crop]
+    rectangle "Downsampling" as [downsampling]
+    rectangle "Ground Extraction" as [groundExtraction]
+    rectangle "Clustering" as [clustering]
+}
+
+rectangle "Data Association Module" <<internal>> {
+    [ReceiveProcessedPointCloud]
+}
+
+[WaymoPointCloud] --> [crop] : produces
+[crop] --> [downsampling] : cropped pointcloud
+[downsampling] --> [groundExtraction] : downsampled pointcloud
+[groundExtraction] --> [clustering] : ground extracted pointcloud
+[clustering] --> [ReceiveProcessedPointCloud] : clustered pointcloud
+
+@enduml

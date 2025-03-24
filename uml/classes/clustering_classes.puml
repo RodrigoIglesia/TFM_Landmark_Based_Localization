@@ -1,0 +1,56 @@
+@startuml
+
+class Config {
+    +float low_lim_x
+    +float low_lim_y
+    +float low_lim_z
+    +float up_lim_x
+    +float up_lim_y
+    +float up_lim_z
+    +int minPointsVoxel
+    +float KSearchGround
+    +bool OptimizeCoefficientsGround
+    +float NormalDistanceWeightGround
+    +float MaxIterationsGround
+    +float DistanceThresholdGround
+    +float clusterTolerance
+    +bool do_cropping
+    +bool do_downsampling
+    +float leafSize
+    +int clusterMinSize
+    +int clusterMaxSize
+}
+
+class PointCloudProcessor {
+    --Constructor--
+    +PointCloudProcessor(string configFilePath)
+    --Método principal--
+    +bool processPointCloudService(Request, Response)
+    --Métodos privados--
+    -void readConfig(string filename)
+    -pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloudCrop(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud)
+    -pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloudDownsample(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud)
+    -pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloudExtractGround(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud)
+    -pcl::PointCloud<pcl::PointXYZRGB>::Ptr euclideanClustering(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud)
+    -void generatePointcloudMsg(shared_ptr<pcl::PointCloud<pcl::PointXYZ>> &cloud, sensor_msgs::PointCloud2 &cloudMsg)
+
+    --Atributos--
+    ..Frame ID denota el sistema de referencia empleado..
+    -string frame_id_
+    ..Publicadores para depuración..
+    -ros::Publisher input_pub_
+    -ros::Publisher crop_pub_
+    -ros::Publisher downsample_pub_
+    -ros::Publisher ground_extract_pub_
+    -ros::Publisher clustering_pub_
+}
+
+class ros::Publisher {
+    +void publish(sensor_msgs::PointCloud2)
+}
+
+
+PointCloudProcessor --> Config : "uses"
+PointCloudProcessor --> ros::Publisher : "has"
+
+@enduml

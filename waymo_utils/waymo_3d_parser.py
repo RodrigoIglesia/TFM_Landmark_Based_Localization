@@ -308,13 +308,12 @@ if __name__ == "__main__":
     src_dir = os.path.abspath(os.path.join(current_script_directory, ".."))
     sys.path.append(src_dir)
 
-    scene_path = os.path.join(src_dir, "dataset/final_tests_scene/individual_files_training_segment-10023947602400723454_1120_000_1140_000_with_camera_labels.tfrecord")
+    scene_path = os.path.join(src_dir, "dataset/final_tests_scene/individual_files_validation_segment-10289507859301986274_4200_000_4220_000_with_camera_labels.tfrecord")
 
     for frame_index, frame in enumerate(load_frame(scene_path)):
         (range_images, camera_projections, segmentation_labels, range_image_top_pose) = frame_utils.parse_range_image_and_camera_projection(frame)
-        if not(segmentation_labels):
-            continue
-
+        # if not(segmentation_labels):
+        #     continue
         frame.lasers.sort(key=lambda laser: laser.name)
         show_semseg_label_image(range_images[open_dataset.LaserName.TOP][0])
         plt.show()

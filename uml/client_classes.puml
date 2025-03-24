@@ -1,0 +1,55 @@
+@startuml
+!define PointCloud2 sensor_msgs.msg.PointCloud2
+!define Image sensor_msgs.msg.Image
+!define CameraProj waymo_parser.msg.CameraProj
+!define clustering_srv pointcloud_clustering.srv.clustering_srv
+!define clustering_srvRequest pointcloud_clustering.srv.clustering_srvRequest
+!define landmark_detection_srv pointcloud_clustering.srv.landmark_detection_srv
+!define landmark_detection_srvRequest pointcloud_clustering.srv.landmark_detection_srvRequest
+
+class WaymoClient {
+    +cams_order
+    +pointcloud : np.array
+    +cluster_labels : np.array
+    +image : np.array
+    +image_height : int
+    +image_width : int
+    +intrinsic_matrix : np.array
+    +extrinsic_matrix : np.array
+    +extrinsic_matrix_inv : np.array
+    +pointcloud_processor : PointCloudProcessor
+    +camera_processor : CameraProcessor
+    +WaymoClient(cams_order)
+    +cart2hom(pts_3d) : np.array
+    +process_pointcloud(frame)
+    +process_image(frame)
+}
+
+class PointCloudProcessor {
+    +pointcloud_msg : PointCloud2
+    +PointCloudProcessor()
+    +init_pointcloud_msg() : PointCloud2
+    +get_pointcloud(frame) : tuple
+    +_range_image_to_pcd(frame, range_images, camera_projections, range_image_top_pose, ri_index=0) : tuple
+    +pointcloud_to_ros(points)
+    +respmsg_to_pointcloud(msg)
+}
+
+class CameraProcessor {
+    +camera_msg : Image
+    +intrinsic_matrix : np.array
+    +extrinsic_matrix : np.array
+    +extrinsic_matrix_inv : np.array
+    +CameraProcessor()
+    +init_camera_msg() : Image
+    +init_camera_params(frame)
+    +get_camera_image(frame) : list
+    +camera_to_ros(image)
+}
+
+WaymoClient --> PointCloudProcessor
+WaymoClient --> CameraProcessor
+PointCloudProcessor --|> WaymoClient
+CameraProcessor --|> WaymoClient
+
+@enduml

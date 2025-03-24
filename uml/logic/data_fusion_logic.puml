@@ -1,0 +1,40 @@
+@startuml
+
+start
+partition "Data Fusion - para cada Frame" #APPLICATION {
+    partition "Recepción de datos de pose incremental" #BUSINESS {
+        :Retrieve odometry input from request;
+        :Transform odometry to incremental EKF format;
+    }
+
+    if (Observations received?) then (Yes)
+        partition "Recepción de datos de observaciones" #BUSINESS {
+            :Transform observations to Roll-Pitch-Yaw format;
+            :Initialize B matrix and thresholds;
+        }
+        partition "Predicción de la Pose y Matriz de covarianza" #BUSINESS {
+            :Predict pose using odometry increment;
+            :Update covariance matrix;
+        }
+        if (Observations not empty?) then (Yes)
+            partition "Matching y actualización de la Pose" #BUSINESS {
+                repeat
+                    :For each observation, compute Mahalanobis distance to map elements;
+                    if (Match found within threshold?) then (Yes)
+                        :Accumulate matched observation data;
+                        :Update Kalman pose and covariance;
+                    else (No - pass)
+                    endif
+                repeat while (More observations);
+            }
+        else (No - pass)
+        endif
+    else (No - pass)
+    endif
+
+    :Clear input data;
+    :Return corrected position;
+}
+stop
+
+@enduml

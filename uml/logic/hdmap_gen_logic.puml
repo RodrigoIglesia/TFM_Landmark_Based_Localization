@@ -1,0 +1,45 @@
+@startuml
+start
+partition "Iterar por las escenas" #APPLICATION {
+    while (Hay escenas en tfrecord_list?) is (Sí)
+        :Obtener el Feature Map del primer frame;
+        if (¿Se encontró Feature Map?) then (Sí)
+            partition "Obtener nube de puntos etiquetada" #BUSINESS {
+                :Inicializar arrays para pointclouds y labels;
+                while (Hay frames en la escena?) is (Sí)
+                    :Leer el pointcloud y labels de 3D;
+                    if (¿Hay labels de segmentación?) then (Sí)
+                        :Filtrar y proyectar pointclouds con labels de señales;
+                        :Guardar pointcloud en un vector por cada Frame;
+                    endif
+                endwhile
+                :Concatenar los vectores de pointclouds de todos los Frames de la escena;
+                :Aplicar clustering a los pointclouds;
+                :Dividir pointcloud en clases (clustered point cloud);
+            }
+            
+            partition "Enriquecer Feature Map" #BUSINESS {
+                while (Hay clusters en clustered pointcloud?) is (Sí)
+                    :Calcular el centroide del cluster;
+                    :Proyectar el centroide al suelo;
+                    :Generar mensaje StopSign y agregar al Feature Map;
+                endwhile
+                :Guardar el nuevo Feature Map como JSON;
+            }
+
+            partition "Generar nuevo archivo tfrecord" #BUSINESS {
+                while (Hay frames en la escena?) is (Sí)
+                    if (¿Es el primer frame?) then (Sí)
+                        :Reemplazar Feature Map por el nuevo;
+                    endif
+                    :Serializar cada frame y escribir en el nuevo archivo tfrecord;
+                endwhile
+                :Guardar el archivo tfrecord generado;
+            }
+        else (No)
+            :Saltar a la siguiente escena;
+        endif
+    endwhile
+}
+stop
+@enduml

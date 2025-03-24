@@ -1,0 +1,43 @@
+@startuml
+database WaymoOpenDataset as WOD
+participant WaymoClient as WC
+participant PointCloudClustering as Clustering
+participant LandmarkDetection as Detection
+participant DataFusion as Fusion
+
+loop For Each Frame
+    WC -> WOD: extract_vehicle_pose
+    WOD --> WC: vehicle_global_pose [Waymo: Vehicle Pose Transform]
+    activate WC
+    WC -> WC: process_odometry [ROS: Vehicke PoseStamped]
+    deactivate WC
+
+    WC -> WOD: extract_lidar_data
+    WOD --> WC: lidar_data [Waymo: RangeImage]
+    activate WC
+    WC -> Clustering: process_pointcloud() [ROS: PointCloud2]
+    deactivate WC
+    activate Clustering
+    Clustering --> WC: Clustered PointCloud Data [ROS: PointCloud2]
+    deactivate Clustering
+
+    WC -> WOD: extract_camera_data
+    WOD --> WC: camera_data [Waymo: CameraImage, Waymo: CameraCalibration Transform]
+    activate WC
+    WC -> Detection: process_image [ROS: Image]
+    deactivate WC
+    activate Detection
+    Detection --> WC: Processed Image Data [ROS: Segmentation Image]
+    deactivate Detection
+
+    activate WC
+    WC -> WC: data_association [ROS: Landmarks PoseArray]
+    deactivate WC
+
+    WC -> Fusion: process_EKF [ROS: Landmarks PoseArray, ROS: Vehicle PoseStamped]
+    activate Fusion
+    Fusion --> WC: Corrected Pose Data [ROS: PoseStamped]
+    deactivate Fusion
+end
+
+@enduml

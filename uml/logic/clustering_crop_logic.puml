@@ -1,0 +1,16 @@
+@startuml
+title Lógica Interna de pointcloudCrop
+
+start
+:Recorrer cada punto en inputCloud;
+while (punto actual existe?) is (sí)
+    :Obtener coordenadas (x, y, z);
+    if (punto fuera de límites) then (sí)
+        :Agregar punto a cropCloud;
+    endif
+:Incrementar índice de punto;
+endwhile (no más puntos)
+:Actualizar propiedades de cropCloud 
+(ancho, alto, es denso);
+stop
+@enduml

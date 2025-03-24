@@ -1,18 +1,18 @@
 <launch>
   <!-- Definir un argumento para la escena -->
-  <arg name="scene_name" default="individual_files_training_segment-10023947602400723454_1120_000_1140_000_with_camera_labels" />
+  <arg name="scene_name" default="individual_files_validation_segment-10289507859301986274_4200_000_4220_000_with_camera_labels" />
 
-  <node type="rviz" name="rviz" pkg="rviz" args="-d /home/rodrigo/catkin_ws/src/TFM_Landmark_Based_Localization/ekf_debug.rviz" />
+  <node type="rviz" name="rviz" pkg="rviz" args="-d /home/rodrigo/catkin_ws/src/TFM_Landmark_Based_Localization/landmark_localization.rviz" />
   
   <node pkg="pointcloud_clustering" type="waymo_client.py" name="waymo_client" output="screen" args="_log:=debug"/>
     <param name="client_config_file_path" value="$(find pointcloud_clustering)/config/client_config.conf"/>
     <param name="scene" value="/home/rodrigo/catkin_ws/src/TFM_Landmark_Based_Localization/dataset/final_tests_scene/$(arg scene_name).tfrecord"/>
     <param name="map_pointcloud" value="/home/rodrigo/catkin_ws/src/TFM_Landmark_Based_Localization/dataset/pointclouds/pointcloud_concatenated$(arg scene_name).csv"/>
   
-  <node pkg="pointcloud_clustering" type="clustering" name="clustering"/>
+  <node pkg="pointcloud_clustering" type="clustering" name="clustering" output="screen" args="_log:=debug"/>
     <param name="config_file_path" value="$(find pointcloud_clustering)/config/clustering_config.conf"/>
 
-  <node pkg="pointcloud_clustering" type="landmark_detection.py" name="landmark_detection"/>
+  <node pkg="pointcloud_clustering" type="landmark_detection.py" name="landmark_detection" output="screen" args="_log:=debug"/>
 
   <node pkg="pointcloud_clustering" type="data_fusion" name="data_fusion" output="screen" args="_log:=debug"/>
     <param name="data_fusion_config_file_path" value="$(find pointcloud_clustering)/config/data_fusion_config.conf"/>

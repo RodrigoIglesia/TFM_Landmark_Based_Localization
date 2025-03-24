@@ -1,0 +1,39 @@
+@startuml
+title Lógica Interna de pointcloudExtractGround
+
+start
+:Inicializar variables y estructuras 
+(cloudNormals, neGround, etc.);
+:Calcular normales de la nube (neGround);
+
+note right
+    - Inicializar objeto NormalEstimation<pcl::PointXYZ, pcl::Normal>
+    - Configurar método de búsqueda con setSearchMethod
+    - Configurar nube de entrada con setInputCloud
+    - Configurar parámetro KSearch con setKSearch
+    - Calcular normales con el método compute y guardar en cloudNormals
+end note
+
+:Configurar y ejecutar segmentación (segGroundN);
+
+note right
+    - Inicializar objeto SACSegmentationFromNormals<pcl::PointXYZ, pcl::Normal>
+    - Configurar optimización de coeficientes con setOptimizeCoefficients
+    - Configurar tipo de modelo con setModelType
+    - Configurar peso de distancia normal con setNormalDistanceWeight
+    - Configurar tipo de método con setMethodType
+    - Configurar iteraciones máximas con setMaxIterations
+    - Configurar umbral de distancia con setDistanceThreshold
+    - Configurar nube de entrada con setInputCloud
+    - Configurar normales de entrada con setInputNormals
+    - Ejecutar segmentación con el método segment y guardar en inliersGround y coefficientsGround
+end note
+
+if (encontrar coeficientes) then (sí)
+    :Calcular dirección y distancia del suelo;
+    :Configurar y aplicar filtro para extraer suelo;
+else (no)
+    :Usar inputCloud sin cambios;
+endif
+stop
+@enduml

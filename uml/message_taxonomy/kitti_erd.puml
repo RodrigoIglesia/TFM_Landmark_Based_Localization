@@ -1,0 +1,64 @@
+@startuml
+entity "KITTIDataset" {
+    * DatasetID : int
+    --
+    + StereoImages
+    + OpticalFlow
+    + VisualOdometry
+    + ObjectAnnotations
+    + Calibration
+}
+
+entity "StereoImages" {
+    * StereoID : int
+    --
+    + LeftImage : Image
+    + RightImage : Image
+    + DisparityMap : File
+    + Resolution : string
+}
+
+entity "OpticalFlow" {
+    * FlowID : int
+    --
+    + FlowMap : File
+    + Resolution : string
+}
+
+entity "VisualOdometry" {
+    * OdometryID : int
+    --
+    + Sequence : string
+    + Length : float
+    + GPSData : File
+    + IMUData : File
+}
+
+entity "3DObjectAnnotations" {
+    * AnnotationID : int
+    --
+    + ObjectClass : string
+    + BoundingBox3D : string
+    + Truncated : boolean
+    + Occluded : boolean
+}
+
+entity "Calibration" {
+    * CalibrationID : int
+    --
+    + CameraMatrix : string
+    + LiDARMatrix : string
+    + GPSMatrix : string
+}
+
+KITTIDataset --o StereoImages : contains
+KITTIDataset --o OpticalFlow : contains
+KITTIDataset --o VisualOdometry : contains
+KITTIDataset --o 3DObjectAnnotations : contains
+KITTIDataset --o Calibration : provides
+
+StereoImages           o-- Calibration : "uses"
+OpticalFlow            o-- Calibration : "uses"
+VisualOdometry         o-- Calibration : "uses"
+3DObjectAnnotations    o-- Calibration : "uses"
+@enduml

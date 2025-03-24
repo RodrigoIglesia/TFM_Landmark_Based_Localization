@@ -1,0 +1,26 @@
+@startuml
+title Lógica de Algoritmos en PointCloudProcessor
+
+start
+:Inicialización de PointCloudProcessor;
+:Leer configuración (readConfig);
+
+:Servicio processPointCloudService;
+:Convertir mensaje ROS a PointCloud (fromROSMsg);
+
+:Crop PointCloud (pointcloudCrop);
+
+if (config_.do_downsampling) then (sí)
+    :Downsample PointCloud (pointcloudDownsample);
+else (no)
+    :Usar PointCloud cropped;
+endif
+
+:Extraer suelo de PointCloud (pointcloudExtractGround);
+
+:Clustering Euclídeo (euclideanClustering);
+
+:Convertir PointCloud a mensaje ROS (toROSMsg);
+
+stop
+@enduml

@@ -1,0 +1,63 @@
+@startuml
+
+class Config {
+    + float x_init
+    + float y_init
+    + float z_init
+    + float roll_init
+    + float pitch_init
+    + float yaw_init
+    + float sigma_odom_x
+    + float sigma_odom_y
+    + float sigma_odom_z
+    + float sigma_odom_roll
+    + float sigma_odom_pitch
+    + float sigma_odom_yaw
+    + float sigma_obs_x
+    + float sigma_obs_y
+    + float sigma_obs_z
+    + float sigma_obs_roll
+    + float sigma_obs_pitch
+    + float sigma_obs_yaw
+    + float mahalanobisDistanceThreshold
+    + float QFactor
+    + float P00_init
+    + float P11_init
+    + float P22_init
+    + float P33_init
+    + float P44_init
+    + float P55_init
+    + float PFactor
+}
+
+class DataFusion {
+    - Config config_
+    - std::string mapFilePath
+    - int mapSize
+    - int frame_n
+    - pointcloud_clustering::positionRPY kalmanPose
+    - Eigen::Matrix6f P
+    - Eigen::Matrix6f Q
+    - Eigen::Matrix6f R
+    - float PFactor
+    - float QFactor
+    - pointcloud_clustering::positionRPY sigma_odom
+    - pointcloud_clustering::positionRPY sigma_obs
+    - std::vector<pointcloud_clustering::positionRPY> map
+    - ros::Publisher observation_pub_
+    - ros::Publisher observation_BL_pub_
+    - ros::Publisher map_element_pub_
+    - ros::Publisher line_marker_pub
+
+    + DataFusion(std::string configFilePath, std::string mapFilePath)
+    + bool dataFusionService(pointcloud_clustering::data_fusion_srv::Request &req, pointcloud_clustering::data_fusion_srv::Response &res)
+    + std::vector<pointcloud_clustering::positionRPY> processPoseArray(geometry_msgs::PoseArray &poseArray)
+    + std::vector<pointcloud_clustering::positionRPY> loadMapFromCSV()
+    + void publishPoseElements(std::vector<pointcloud_clustering::positionRPY> pose_array, ros::Publisher publisher)
+    - void readConfig(std::string &filename)
+}
+
+
+
+DataFusion --> Config : "has"
+@enduml

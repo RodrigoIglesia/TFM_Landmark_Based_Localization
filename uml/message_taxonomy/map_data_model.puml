@@ -1,0 +1,63 @@
+@startuml
+
+entity Map {
+    * id: int64
+}
+
+entity Feature {
+    * id: int64
+    * feature_type: oneof
+}
+
+entity Lane {
+    * speed_limit_mph: double
+    * type: enum (TYPE_UNDEFINED, TYPE_FREEWAY, TYPE_SURFACE_STREET, TYPE_BIKE_LANE)
+    * interpolating: bool
+}
+
+entity RoadLine {
+    * type: enum (TYPE_UNKNOWN, TYPE_BROKEN_SINGLE_WHITE, TYPE_SOLID_SINGLE_WHITE, TYPE_SOLID_DOUBLE_WHITE, ...)
+}
+
+entity RoadEdge {
+    * type: enum (TYPE_UNKNOWN, TYPE_ROAD_EDGE_BOUNDARY, TYPE_ROAD_EDGE_MEDIAN)
+}
+
+entity StopSign {
+    * position: (x: double, y: double, z: double)
+    * lanes: int64[]
+}
+
+entity Crosswalk {
+    * polygon: (x: double, y: double, z: double)[]
+}
+
+entity SpeedBump {
+    * polygon: (x: double, y: double, z: double)[]
+}
+
+entity Driveway {
+    * polygon: (x: double, y: double, z: double)[]
+}
+
+entity DynamicState {
+    * timestamp_seconds: double
+}
+
+entity LaneState {
+    * lane: int64
+    * state: enum (LANE_STATE_UNKNOWN, LANE_STATE_ARROW_STOP, ...)
+    * stop_point: (x: double, y: double, z: double)
+}
+
+Map --> Feature : "contains"
+Feature --> Lane : "can be"
+Feature --> RoadLine : "can be"
+Feature --> RoadEdge : "can be"
+Feature --> StopSign : "can be"
+Feature --> Crosswalk : "can be"
+Feature --> SpeedBump : "can be"
+Feature --> Driveway : "can be"
+
+DynamicState --> LaneState : "contains many"
+@enduml

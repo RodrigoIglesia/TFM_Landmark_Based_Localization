@@ -1,0 +1,46 @@
+@startuml
+skinparam rectangle {
+    BackgroundColor<<external>> LightBlue
+    BackgroundColor<<internal>> LightGreen
+    BackgroundColor<<subprocesses>> LightYellow
+    Padding 20
+    MinWidth 300
+}
+
+rectangle "Waymo Open Dataset Database" <<external>> {
+    [Odometry data]
+    [PointCloud]
+    [Image]
+    [HD Map]
+}
+
+rectangle "Waymo Client Module" <<internal>> {
+    rectangle "PointCloud Processing" as pointCloudProcessing
+    rectangle "Odometry Processing" as odomProcessing
+    rectangle "Data Association Processes" <<subprocesses>> {
+        [ProcessObservations]
+    }
+}
+
+rectangle "Data Fusion Service" <<internal>> {
+    [PredictState]
+    [MatchObservationsToMap]
+    [UpdateStateWithEKF]
+}
+
+[Odometry data] --> odomProcessing : odometry_data
+[PointCloud] --> pointCloudProcessing : pointloud_data
+pointCloudProcessing --> [ProcessObservations] : clustered_pointcloud
+
+[Image] --> [ProcessObservations] : camera_image
+
+[HD Map] --> [MatchObservationsToMap] : map_data
+
+[ProcessObservations] --> [PredictState] : observation_poses
+[odomProcessing] --> [PredictState] : incremental_vehicle_pose
+
+[PredictState] --> [MatchObservationsToMap] : predicted_state
+[MatchObservationsToMap] --> [UpdateStateWithEKF] : matched_data
+[UpdateStateWithEKF] --> "WaymoClient" : global_corrected_vehicle_pose
+
+@enduml

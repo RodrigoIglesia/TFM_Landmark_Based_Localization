@@ -1,0 +1,71 @@
+@startuml
+
+class WaymoClient {
+    - frame : object
+    - cams_order : list
+    - points : np.array
+    - pointcloud : np.array
+    - cluster_labels : np.array
+    - clustered_pointcloud : dict
+    - image : Image
+    - image_height : int
+    - image_width : int
+    - processed_image : Image
+    - relative_pose : list
+    - odometry_pose : list
+    - corrected_pose : list
+    - relative_cummulative_pose : np.array
+    - odometry_cummulative_pose : np.array
+    - odometry_path : list
+    - relative_path : list
+    - corrected_path : list
+    - odometry_pose_msg : positionRPY
+    - landmark_poses_msg_BL : PoseArray
+    - previous_transform_matrix : np.array
+    - transform_matrix : np.array
+
+    + process_odometry(position_noise_std: float, orientation_noise_std: float): void
+    + process_pointcloud(): void
+    + process_image(): void
+    + process_EKF(clusters_poses: dict): void
+}
+
+class PointCloudProcessor {
+    - pointcloud_msg : PointCloud2
+
+    + init_pointcloud_msg(): PointCloud2
+    + get_pointcloud(): np.array
+    + pointcloud_to_ros(points: np.array): void
+    + respmsg_to_pointcloud(msg: PointCloud2): tuple
+}
+
+class CameraProcessor {
+    - camera_msg : Image
+
+    + init_camera_msg(): Image
+    + get_camera_image(): list
+    + camera_to_ros(image: Image): void
+    + respmsg_to_image(msg: Image): Image
+}
+
+class DataAssociationProcessor {
+    - frame : object
+    - image_height : int
+    - image_width : int
+    - clustered_pointcloud_image : dict
+    - clustered_pointcloud_iou : dict
+    - clustered_pointcloud_iou_vehicle_frame : dict
+    - intrinsic_matrix : list
+    - extrinsic_matrix : np.array
+    - extrinsic_matrix_inv : np.array
+
+    + project_pointcloud_on_image(pointcloud: np.array, cluster_labels: np.array): void
+    + filter_association_iou(processed_image: Image, clustered_pointcloud: dict, iou_threshold: float, min_hull_area: int, debug: bool): void
+    + calculate_landmark_pose(): dict
+}
+
+WaymoClient *-- PointCloudProcessor
+WaymoClient *-- CameraProcessor
+WaymoClient *-- DataAssociationProcessor
+
+@enduml

@@ -1,0 +1,61 @@
+@startuml
+
+entity "CameraImage" {
+    + name : CameraName.Name
+    + image : bytes
+    + pose : Transform
+    + velocity : Velocity
+    + pose_timestamp : double
+    + shutter : double
+    + camera_trigger_time : double
+    + camera_readout_done_time : double
+    + camera_segmentation_label : CameraSegmentationLabel
+}
+
+entity "CameraName" {
+    * Name : enum
+        UNKNOWN
+        FRONT
+        FRONT_LEFT
+        FRONT_RIGHT
+        SIDE_LEFT
+        SIDE_RIGHT
+        REAR_LEFT
+        REAR
+        REAR_RIGH
+}
+
+entity "Transform" {
+    * transform : double[]
+}
+
+entity "Velocity" {
+    + v_x : float
+    + v_y : float
+    + v_z : float
+    + w_x : double
+    + w_y : double
+    + w_z : double
+}
+
+entity "CameraSegmentationLabel" {
+    + panoptic_label_divisor : int
+    + panoptic_label : bytes
+    + instance_id_to_global_id_mapping : InstanceIDToGlobalIDMapping[]
+    + sequence_id : string
+    + num_cameras_covered : bytes
+}
+
+entity "InstanceIDToGlobalIDMapping" {
+    + local_instance_id : int
+    + global_instance_id : int
+    + is_tracked : bool
+}
+
+"CameraImage" }-- "CameraName" : has
+"CameraImage" }-- "Transform" : uses
+"CameraImage" }-- "Velocity" : tracks
+"CameraImage" }-- "CameraSegmentationLabel" : contains
+"CameraSegmentationLabel" }-- "InstanceIDToGlobalIDMapping" : includes
+
+@enduml

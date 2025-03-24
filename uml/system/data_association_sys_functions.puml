@@ -1,0 +1,41 @@
+@startuml
+skinparam rectangle {
+    BackgroundColor<<external>> LightBlue
+    BackgroundColor<<internal>> LightGreen
+    BackgroundColor<<subprocesses>> LightYellow
+    Padding 20
+    MinWidth 300
+}
+
+rectangle "Waymo Open Dataset Database" <<external>> {
+    [WaymoPointCloud]
+    [WaymoImage]
+}
+
+rectangle "Waymo Client Module" <<internal>> {
+    rectangle "PointCloud Processing" as pointCloudProcessing
+    rectangle "Landmark Detection" as landmarkDetection
+    rectangle "Convert to ROS Image" as convertToRosImage
+    rectangle "Convert to ROS PointCloud" as convertToRosPointCloud
+
+    rectangle "Data Association Processes" <<subprocesses>> {
+        [ProjectPointCloudOnImage]
+        [CalculateIoU]
+        [AlignPosesToGlobalFrame]
+    }
+}
+
+[WaymoPointCloud] --> convertToRosPointCloud : produces
+convertToRosPointCloud --> pointCloudProcessing : pointcloud_msg
+
+[WaymoImage] --> convertToRosImage : produces
+convertToRosImage --> landmarkDetection : camera_msg
+
+pointCloudProcessing --> [ProjectPointCloudOnImage] : clustered_pointcloud
+landmarkDetection --> [ProjectPointCloudOnImage] : processed_image
+
+[ProjectPointCloudOnImage] --> [CalculateIoU] : projection data
+[CalculateIoU] --> [AlignPosesToGlobalFrame] : matched clusters
+[AlignPosesToGlobalFrame] --> "DataFusion" : global_pose_data
+
+@enduml

@@ -137,22 +137,25 @@ def image_overlay(image, segmented_image):
     return overlay
 
 def process_image_service(req, model, feature_extractor):
-    rospy.logdebug("Image received for processing")
+    rospy.loginfo(" LANDMARK DETECTION Image received for processing")
     bridge = CvBridge()
     image = bridge.imgmsg_to_cv2(req.image, desired_encoding="bgr8")
 
     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     # DEBUG publishing -> imagen de entrada
     publish_image_to_topic(topic='/landmark_detection_input', image=image_rgb, header=req.image.header)
+    rospy.loginfo(" LANDMARK DETECTION Image preprocessed for inference")
 
     # Prediction phase
     labels = predict(model, feature_extractor, image_rgb, 'cpu')
+    rospy.loginfo(" LANDMARK DETECTION Prediction obtained")
     seg_map = draw_segmentation_map(labels.cpu(), cityscapes_palette)
     # DEBUG publishing -> mapa de segmentación
     publish_image_to_topic(topic='/landmark_detection_seg_map', image=seg_map, header=req.image.header)
 
     # Overlay results on the original image
     outputs = image_overlay(image_rgb, seg_map)
+    rospy.loginfo(" LANDMARK DETECTION Image output completed")
     # DEBUG publishing -> imagen con superposición
     publish_image_to_topic(topic='/landmark_detection_output', image=outputs, header=req.image.header)
 
@@ -164,7 +167,7 @@ def process_image_service(req, model, feature_extractor):
 
 if __name__ == "__main__":
     rospy.init_node('landmark_detection', anonymous=True)
-    rospy.logdebug("Landmark detection server initialized correctly")
+    rospy.loginfo(" LANDMARK DETECTION Landmark detection server initialized correctly")
 
     # Load segformer model
     model_name = "nvidia/segformer-b5-finetuned-cityscapes-1024-1024"
@@ -174,6 +177,6 @@ if __name__ == "__main__":
 
     # Create ROS service
     service = rospy.Service('landmark_detection', landmark_detection_srv,  lambda req: process_image_service(req, model, feature_extractor))
-    rospy.logdebug("Service 'landmark_detection' is ready")
+    rospy.loginfo(" LANDMARK DETECTION Service 'landmark_detection' is ready")
 
     rospy.spin()

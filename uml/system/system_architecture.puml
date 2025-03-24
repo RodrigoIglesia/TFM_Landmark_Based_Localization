@@ -1,0 +1,91 @@
+@startuml
+skinparam linetype ortho
+skinparam rectangle {
+    BackgroundColor<<external>> LightBlue
+    BackgroundColor<<internal>> LightGreen
+    BackgroundColor<<system>> White
+    BackgroundColor<<subprocesses>> LightYellow
+    Padding 20
+    MinWidth 300
+}
+
+'--- External Dataset at the Top ---
+rectangle "Waymo Open Dataset Database" <<external>> {
+    [Waymo Point Cloud]
+    [Waymo Image]
+    [Odometry Data]
+    [HD Map]
+}
+
+'--- Landmark Detection System ---
+rectangle "Landmark Localization" <<system>> {
+    together {
+        rectangle "Waymo Client Module" <<internal>> {
+            together {
+                [Odometry Processing]
+                [Pointcloud Processing Start]
+                [Landmark Detection Start]
+            }
+            together {
+                [Receive Clustered Point Cloud]
+                [Receive Processed Image]
+            }
+
+            rectangle "Data Association Module" <<subprocesses>> {
+                [Project Point Cloud On Image]
+                [Calculate IoU]
+                [Align Poses To Global Frame]
+            }
+            [Publish Corrected Vehicle Pose]
+        }
+        rectangle "Data Fusion Module" <<internal>> {
+            [Predict State]
+            [Match Observations To Map]
+            [Update State With EKF]
+        }
+    }
+    together {
+        rectangle "Pointcloud Processing Module" <<internal>> {
+            [Convert to ROS Pointcloud]
+            [Pointcloud Processing]
+        }
+
+        rectangle "Image Processing Module" <<internal>> {
+            [Convert to ROS Image]
+            [Landmark Image Detection]
+        }
+    }
+}
+
+
+
+'--- Connections from external to internal modules ---
+[Waymo Point Cloud] --> [Pointcloud Processing Start] : waymo_range_images
+[Waymo Image] --> [Landmark Detection Start] : waymo_camera_images
+[Odometry Data] --> [Odometry Processing] : odometry_data
+[HD Map] --> [Match Observations To Map] : map_data
+
+'--- Pointcloud Processing Flow ---
+[Pointcloud Processing Start] --> [Convert to ROS Pointcloud] : pointcloud
+[Convert to ROS Pointcloud] --> [Pointcloud Processing] : pointcloud_msg
+[Pointcloud Processing] --> [Receive Clustered Point Cloud] : clustered_pointcloud
+
+'--- Image Processing Flow ---
+[Landmark Detection Start] --> [Convert to ROS Image] : image
+[Convert to ROS Image] --> [Landmark Image Detection] : camera_msg
+[Landmark Image Detection] --> [Receive Processed Image] : processed_image
+
+'--- Data Association Flow ---
+[Receive Clustered Point Cloud] --> [Project Point Cloud On Image] : clustered_pointcloud
+[Receive Processed Image] --> [Project Point Cloud On Image] : processed_image
+[Project Point Cloud On Image] --> [Calculate IoU] : projection_data
+[Calculate IoU] --> [Align Poses To Global Frame] : matched_clusters
+
+'--- Data Fusion Flow ---
+[Odometry Processing] --> [Predict State] : global_vehicle_pose
+[Predict State] --> [Match Observations To Map] : incremental_vehicle_pose
+[Align Poses To Global Frame] --> [Match Observations To Map] : global_landmark_poses
+[Match Observations To Map] --> [Update State With EKF] : matched_data
+[Update State With EKF] -l-> [Publish Corrected Vehicle Pose] : global_corrected_vehicle_pose
+
+@enduml

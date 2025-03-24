@@ -1,0 +1,56 @@
+@startuml
+
+entity Frame {
+    * timestamp_micros: int64
+    * map_pose_offset: (x: double, y: double, z: double)
+}
+
+entity Pose {
+    * transform: double[]
+}
+
+entity Image {
+    * name: UNKNOWN
+    * image: bytes
+    * pose_timestamp: double
+    * velocity: (v_x: float, v_y: float, v_z: float, w_x: double, w_y: double, w_z: double)
+    * shutter: double
+    * camera_trigger_time: double
+    * camera_readout_done_time: double
+    * camera_segmentation_label: (panoptic_label_divisor: int32, panoptic_label: bytes, ...)
+}
+
+entity CameraCalibration {
+    * name: UNKNOWN
+    * intrinsic: double[]
+    * extrinsic: { transform: double[] }
+    * width: int32
+    * height: int32
+    * rolling_shutter_direction: UNKNOWN
+}
+
+entity LaserCalibration {
+    * name: UNKNOWN
+    * beam_inclinations: double[]
+    * beam_inclination_min: double
+    * beam_inclination_max: double
+    * extrinsic: { transform: double[] }
+}
+
+entity Laser {
+    * name: UNKNOWN
+    * ri_return1: { range_image_compressed: bytes, ... }
+    * ri_return2: { range_image_compressed: bytes, ... }
+}
+
+' Define relationships with aggregation and composition
+Frame o-- Pose : "has"
+Frame *-- Image : "contains"
+Frame *-- CameraCalibration : "contains"
+Frame *-- LaserCalibration : "contains"
+Frame *-- Laser : "contains"
+Image o-- Pose : "has"
+CameraCalibration *-- Pose : "extrinsic contains"
+LaserCalibration *-- Pose : "extrinsic contains"
+
+@enduml

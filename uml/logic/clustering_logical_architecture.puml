@@ -1,0 +1,109 @@
+@startuml
+start
+partition "Inicialización y Configuración" #APPLICATION {
+    :Inicialización de PointCloudProcessor;
+    :Leer configuración (readConfig);
+    :Servicio processPointCloudService;
+    :Convertir mensaje ROS a PointCloud (fromROSMsg);
+}
+
+partition "Procesamiento de PointCloud" #BUSINESS {
+    :Crop PointCloud (pointcloudCrop);
+
+    if (config_.do_downsampling) then (Sí)
+        :Downsample PointCloud (pointcloudDownsample);
+    else (No)
+        :Usar PointCloud cropped;
+    endif
+
+    :Extraer suelo de PointCloud (pointcloudExtractGround);
+    :Clustering Euclídeo (euclideanClustering);
+}
+
+partition "Conversión y Salida" #APPLICATION {
+    :Convertir PointCloud a mensaje ROS (toROSMsg);
+}
+stop
+
+partition "Crop PointCloud" #BUSINESS {
+    start
+    :Recorrer cada punto en inputCloud;
+    while (punto actual existe?) is (Sí)
+        :Obtener coordenadas (x, y, z);
+        if (punto fuera de límites) then (Sí)
+            :Agregar punto a cropCloud;
+        endif
+        :Incrementar índice de punto;
+    endwhile (No)
+    :Actualizar propiedades de cropCloud 
+    (ancho, alto, es denso);
+    stop
+}
+
+partition "Downsample PointCloud" #BUSINESS {
+    start
+    :Inicializar VoxelGrid;
+    :Configurar nube de entrada y parámetros 
+    (leafSize, minPointsVoxel);
+    :Aplicar filtro;
+    :Guardar resultado en dsCloud;
+
+    note right
+        - Crear instancia de VoxelGrid<pcl::PointXYZ>
+        - Configurar la nube de entrada con setInputCloud
+        - Configurar tamaño de hoja con setLeafSize
+        - Configurar número mínimo de puntos por voxel con setMinimumPointsNumberPerVoxel
+        - Aplicar filtro con el método filter y guardar en dsCloud
+    end note
+    stop
+}
+
+partition "Extraer Suelo de PointCloud" #BUSINESS {
+    start
+    :Inicializar variables y estructuras 
+    (cloudNormals, neGround, etc.);
+    :Calcular normales de la nube (neGround);
+
+    note right
+        - Inicializar objeto NormalEstimation<pcl::PointXYZ, pcl::Normal>
+        - Configurar método de búsqueda con setSearchMethod
+        - Configurar nube de entrada con setInputCloud
+        - Configurar parámetro KSearch con setKSearch
+        - Calcular normales con el método compute y guardar en cloudNormals
+    end note
+
+    :Configurar y ejecutar segmentación (segGroundN);
+
+    note right
+        - Inicializar objeto SACSegmentationFromNormals<pcl::PointXYZ, pcl::Normal>
+        - Configurar optimización de coeficientes con setOptimizeCoefficients
+        - Configurar tipo de modelo con setModelType
+        - Configurar peso de distancia normal con setNormalDistanceWeight
+        - Configurar tipo de método con setMethodType
+        - Configurar iteraciones máximas con setMaxIterations
+        - Configurar umbral de distancia con setDistanceThreshold
+        - Configurar nube de entrada con setInputCloud
+        - Configurar normales de entrada con setInputNormals
+        - Ejecutar segmentación con el método segment y guardar en inliersGround y coefficientsGround
+    end note
+
+    if (encontrar coeficientes) then (Sí)
+        :Calcular dirección y distancia del suelo;
+        :Configurar y aplicar filtro para extraer suelo;
+    else (No)
+        :Usar inputCloud sin cambios;
+    endif
+    stop
+}
+
+partition "Clustering Euclídeo" #BUSINESS {
+    start
+    :Inicializar KdTree y configurar nube de entrada;
+    :Configurar parámetros de clustering 
+    (clusterTolerance, minClusterSize, maxClusterSize);
+    :Ejecutar clustering y guardar índices de clústeres;
+    :Asignar color aleatorio a cada clúster 
+    y agregar a clusteredCloud;
+    stop
+}
+@enduml

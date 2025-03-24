@@ -83,6 +83,7 @@ class WaymoClient:
         self.image_width = None
         self.processed_image = None # Returned segmentation mask by the landmark detection service
         # Positioning
+        self.match_index = None
         self.relative_pose = []
         self.odometry_pose = []
         self.corrected_pose = []
@@ -117,41 +118,37 @@ class WaymoClient:
 
     def process_odometry(self, position_noise_std, orientation_noise_std):
         """
-        Get incremental pose of the vehicle with constant Gaussian noise.
-        This method, based on the global position of the vehicle, computes the relative pose to the previous frame.
-        The method adds a Gaussian noise to this increment, so that once the system estimates the pose, it has an error related to the odometry.
+        Get incremental pose of the vehicle with progressively increasing Gaussian noise.
         """
-        # Extract the transform matrix for the current frame
+        # Extraer la matriz de transformación para el frame actual
         self.transform_matrix = np.array(self.frame.pose.transform).reshape(4, 4)
 
-        # Initialize the initial frame as the origin if not already done
+        # Si es el primer frame, inicializamos la pose
         if self.previous_transform_matrix is None:
             rospy.logdebug("Initial frame pose")
-            self.relative_pose = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # Explicitly set the first pose
-            self.odometry_pose = np.array(self.relative_pose)  # Initialize the noisy pose
+            self.relative_pose = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+            self.odometry_pose = np.array(self.relative_pose)
         else:
-            # Compute the relative pose to the previous pose
+            # Calcular la pose relativa respecto al frame anterior
             relative_transform = np.linalg.inv(self.previous_transform_matrix) @ self.transform_matrix
             self.relative_pose = tu.get_pose(relative_transform)
 
-            # Add constant Gaussian noise to the relative pose
-            position_noise = [
-                np.random.normal(0, position_noise_std) for _ in range(3)
-            ]
-            orientation_noise = [
-                np.random.normal(0, orientation_noise_std) for _ in range(3)
-            ]
 
+            # Aplicar el ruido acumulado a la pose relativa
             noisy_position = [
-                self.relative_pose[i] + position_noise[i] for i in range(3)
+                self.relative_pose[0] + np.random.normal(0, position_noise_std),  # X
+                self.relative_pose[1] + np.random.normal(0, position_noise_std),  # Y
+                self.relative_pose[2]  # Z (sin ruido)
             ]
             noisy_orientation = [
-                self.relative_pose[i+3] + orientation_noise[i] for i in range(3)
+                self.relative_pose[3],
+                self.relative_pose[4],
+                self.relative_pose[5] + np.random.normal(0, orientation_noise_std)   # Yaw
             ]
 
             self.odometry_pose = noisy_position + noisy_orientation
 
-        # Accumulate the odometry and real pose to get the pose relative to the origin
+        # Acumular la odometría y la pose real
         self.relative_cummulative_pose = tu.comp_poses(self.relative_cummulative_pose, self.relative_pose)
         self.odometry_cummulative_pose = tu.comp_poses(self.odometry_cummulative_pose, self.odometry_pose)
 
@@ -159,10 +156,12 @@ class WaymoClient:
         rospy.loginfo(f"CLIENT Vehicle odometry INCREMENTAL pose: {self.odometry_pose}")
         rospy.loginfo(f"CLIENT Vehicle odometry pose: {self.odometry_cummulative_pose}")
 
-        # Add poses to generate a path
+        # Agregar poses a las rutas
         self.relative_path.append(self.relative_cummulative_pose.tolist())
         self.odometry_path.append(self.odometry_cummulative_pose.tolist())
-        self.previous_transform_matrix = self.transform_matrix  # Update for the next iteration
+
+        # Actualizar la matriz de transformación previa
+        self.previous_transform_matrix = self.transform_matrix
 
 
     def process_pointcloud(self):
@@ -258,7 +257,8 @@ class WaymoClient:
             ekf_response = self.data_fusion_client(ekf_request)
             rospy.logdebug("EKF service call successful")
             
-            # Handle the response to get the corrected pose
+            # Handle the response to get the corrected pose and index of match in the map
+            self.match_index = ekf_response.match_index
             position_rpy = ekf_response.corrected_position
 
             self.corrected_pose = [
@@ -563,7 +563,7 @@ if __name__ == "__main__":
                 csv_writer = csv.writer(csvfile)
                 # Write header once at the beginning
                 header = [
-                    'frame', 'Landmark_X', 'Landmark_Y', 'Landmark_Z', 'Landmark_Roll', 'Landmark_Pitch', 'Landmark_Yaw'
+                    'frame', 'match_index', 'Landmark_X', 'Landmark_Y', 'Landmark_Z', 'Landmark_Roll', 'Landmark_Pitch', 'Landmark_Yaw'
                 ]
                 csv_writer.writerow(header)
 
@@ -692,7 +692,7 @@ if __name__ == "__main__":
 
             # DEBUG - Publish filtered pointcloud only with landmarks
             header = Header()
-            header.frame_id = "base_link"
+            header.frame_id = "map"
             header.stamp = rospy.Time.now()
             publish_labeled_pointcloud_to_topic('filtered_pointcloud', data_association_processor.clustered_pointcloud_iou_vehicle_frame, header)
             
@@ -710,7 +710,6 @@ if __name__ == "__main__":
                 continue
 
             corrected_pose = wc.corrected_pose
-            # wc.previous_transform_matrix = tu.create_homogeneous_matrix(corrected_pose) # Update the previous transform matrix
 
             # DEBUG - Publish corrected EKF pose and path
             text = f"Frame: ({frame_n})\n" \
@@ -748,7 +747,7 @@ if __name__ == "__main__":
                 for label, landmark in data_association_processor.clusters_poses.items():
                     #TODO: Project landmark to map frame
                     landmark = tu.comp_poses(corrected_pose, landmark)
-                    row = [frame_n], landmark[0], landmark[1], landmark[2], landmark[3], landmark[4], landmark[5]
+                    row = [frame_n], [wc.match_index], landmark[0], landmark[1], landmark[2], landmark[3], landmark[4], landmark[5]
                     csv_writer.writerow(row)
                 rospy.logdebug(f"Frame {frame_n} data appended to CSV")
 

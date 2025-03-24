@@ -513,7 +513,13 @@ bool DataFusion::dataFusionService(pointcloud_clustering::data_fusion_srv::Reque
                 H_z_k.block(match_count * B_rows, match_count * 6, B_rows, 6) = H_z_i;
                 R_k.block(match_count * 6, match_count * 6, 6, 6) = R;
 
+                // add matched index to as response
+                res.match_index = best_match;
+
                 ++match_count;
+            }
+            else {
+                res.match_index = -1;
             }
         }
 

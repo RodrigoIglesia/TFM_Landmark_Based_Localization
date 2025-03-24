@@ -1,0 +1,26 @@
+@startuml
+skinparam rectangle {
+    BackgroundColor<<external>> LightBlue
+    BackgroundColor<<internal>> LightGreen
+    Padding 20
+    MinWidth 300
+}
+
+rectangle "Waymo Open Dataset Database" <<external>> {
+    [WaymoImage]
+}
+
+rectangle "Landmark Detection Module" <<internal>> {
+    rectangle "Landmark Detection" as landmarkDetection
+    rectangle "Convert to ROS Image" as convertToRosImage
+}
+
+rectangle "Data Association Module" <<internal>> {
+    [ReceiveProcessedImage]
+}
+
+[WaymoImage] --> landmarkDetection : produces
+landmarkDetection --> convertToRosImage : segmentation mask
+convertToRosImage --> [ReceiveProcessedImage] : processed image
+
+@enduml

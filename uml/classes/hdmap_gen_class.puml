@@ -1,0 +1,37 @@
+@startuml
+
+class WaymoHDMapGenerator {
+  - dataset_path
+  - json_maps_path
+  - point_clouds_path
+  - output_dataset_path
+  - tfrecord_list
+  + main()
+  + load_frame(scene_path)
+  + project_points_on_map(points, frame)
+  + add_sign_to_map(map_features, sign_coords, id)
+  + plot_pointcloud(figure, point_cloud, labels)
+  + plot_cluster_bbox(figure, point_cloud, labels)
+  + plot_pointcloud_on_map(map, point_cloud, labels)
+  + save_protobuf_features(protobuf_message, output)
+  + filter_lidar_data(points, labels, classes)
+  + cluster_pointcloud(point_cloud)
+  + get_cluster_centroid(cluster)
+}
+
+class WaymoParser {
+  + load_frame(scene_path)
+  + parse_range_image_and_camera_projection(frame)
+  + convert_range_image_to_point_cloud(frame, range_images, camera_projections, range_image_top_pose, ri_index)
+  + convert_range_image_to_point_cloud_labels(frame, range_images, segmentation_labels, ri_index)
+  + concatenate_points(filtered_point_labels)
+}
+
+class Waymo3DParser {
+  + filter_lidar_data(points, labels, classes)
+}
+
+WaymoHDMapGenerator -> WaymoParser : uses
+WaymoHDMapGenerator -> Waymo3DParser : uses
+
+@enduml

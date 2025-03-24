@@ -1,0 +1,190 @@
+@startuml
+skinparam classAttributeIconSize 0
+
+' Define the classes with attributes
+class MatrixShape {
+  repeated int32 dims
+}
+
+class MatrixFloat {
+  repeated float data
+  optional MatrixShape shape
+}
+
+class MatrixInt32 {
+  repeated int32 data
+  optional MatrixShape shape
+}
+
+class Transform {
+  repeated double transform
+}
+
+class Velocity {
+  optional float v_x
+  optional float v_y
+  optional float v_z
+  optional double w_x
+  optional double w_y
+  optional double w_z
+}
+
+class CameraCalibration {
+  optional CameraName.Name name
+  repeated double intrinsic
+  optional Transform extrinsic
+  optional int32 width
+  optional int32 height
+  optional RollingShutterReadOutDirection rolling_shutter_direction
+}
+
+class LaserCalibration {
+  optional LaserName.Name name
+  repeated double beam_inclinations
+  optional double beam_inclination_min
+  optional double beam_inclination_max
+  optional Transform extrinsic
+}
+
+class Context {
+  optional string name
+  repeated CameraCalibration camera_calibrations
+  repeated LaserCalibration laser_calibrations
+  optional Stats stats
+}
+
+class RangeImage {
+  optional bytes range_image_compressed
+  optional bytes camera_projection_compressed
+  optional bytes range_image_pose_compressed
+  optional bytes range_image_flow_compressed
+  optional bytes segmentation_label_compressed
+  optional MatrixFloat range_image
+}
+
+class CameraSegmentationLabel {
+  optional int32 panoptic_label_divisor
+  optional bytes panoptic_label
+  repeated InstanceIDToGlobalIDMapping instance_id_to_global_id_mapping
+  optional string sequence_id
+  optional bytes num_cameras_covered
+}
+
+class InstanceIDToGlobalIDMapping {
+  optional int32 local_instance_id
+  optional int32 global_instance_id
+  optional bool is_tracked
+}
+
+class CameraImage {
+  optional CameraName.Name name
+  optional bytes image
+  optional Transform pose
+  optional Velocity velocity
+  optional double pose_timestamp
+  optional double shutter
+  optional double camera_trigger_time
+  optional double camera_readout_done_time
+  optional CameraSegmentationLabel camera_segmentation_label
+}
+
+class CameraLabels {
+  optional CameraName.Name name
+  repeated Label labels
+}
+
+class Laser {
+  optional LaserName.Name name
+  optional RangeImage ri_return1
+  optional RangeImage ri_return2
+}
+
+class Frame {
+  optional Context context
+  optional int64 timestamp_micros
+  optional Transform pose
+  repeated CameraImage images
+  repeated Laser lasers
+  repeated Label laser_labels
+  repeated CameraLabels projected_lidar_labels
+  repeated CameraLabels camera_labels
+  repeated Polygon2dProto no_label_zones
+  repeated MapFeature map_features
+  optional Vector3d map_pose_offset
+}
+
+class Label {
+  optional Box box
+  optional Metadata metadata
+  optional Type type
+  optional string id
+  optional DifficultyLevel detection_difficulty_level
+  optional DifficultyLevel tracking_difficulty_level
+  optional int32 num_lidar_points_in_box
+  optional int32 num_top_lidar_points_in_box
+  oneof keypoints.LaserKeypoints laser_keypoints, keypoints.CameraKeypoints camera_keypoints
+  optional Association association
+  optional string most_visible_camera_name
+  optional Box camera_synced_box
+}
+
+class Box {
+  optional double center_x
+  optional double center_y
+  optional double center_z
+  optional double length
+  optional double width
+  optional double height
+  optional double heading
+}
+
+class Metadata {
+  optional double speed_x
+  optional double speed_y
+  optional double speed_z
+  optional double accel_x
+  optional double accel_y
+  optional double accel_z
+}
+
+class Association {
+  optional string laser_object_id
+}
+
+class Polygon2dProto {
+  repeated double x
+  repeated double y
+  optional string id
+}
+
+' Define relationships
+MatrixFloat --> MatrixShape : shape
+MatrixInt32 --> MatrixShape : shape
+CameraCalibration --> Transform : extrinsic
+LaserCalibration --> Transform : extrinsic
+Context --> CameraCalibration : camera_calibrations
+Context --> LaserCalibration : laser_calibrations
+RangeImage --> MatrixFloat : range_image
+RangeImage --> MatrixInt32 : camera_projection_compressed
+CameraSegmentationLabel --> InstanceIDToGlobalIDMapping : instance_id_to_global_id_mapping
+CameraImage --> Transform : pose
+CameraImage --> Velocity : velocity
+CameraImage --> CameraSegmentationLabel : camera_segmentation_label
+CameraLabels --> Label : labels
+Laser --> RangeImage : ri_return1
+Laser --> RangeImage : ri_return2
+Frame --> Context : context
+Frame --> Transform : pose
+Frame --> CameraImage : images
+Frame --> Laser : lasers
+Frame --> Label : laser_labels
+Frame --> CameraLabels : projected_lidar_labels
+Frame --> CameraLabels : camera_labels
+Frame --> Polygon2dProto : no_label_zones
+Frame --> MapFeature : map_features
+Frame --> Vector3d : map_pose_offset
+Label --> Box : box
+Label --> Metadata : metadata
+Label --> Association : association
+Label --> Box : camera_synced_box
+@enduml

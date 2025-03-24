@@ -1,0 +1,20 @@
+@startuml
+title Lógica Interna de pointcloudDownsample
+
+start
+:Inicializar VoxelGrid;
+:Configurar nube de entrada y parámetros 
+(leafSize, minPointsVoxel);
+:Aplicar filtro;
+:Guardar resultado en dsCloud;
+
+note right
+    - Crear instancia de VoxelGrid<pcl::PointXYZ>
+    - Configurar la nube de entrada con setInputCloud
+    - Configurar tamaño de hoja con setLeafSize
+    - Configurar número mínimo de puntos por voxel con setMinimumPointsNumberPerVoxel
+    - Aplicar filtro con el método filter y guardar en dsCloud
+end note
+
+stop
+@enduml

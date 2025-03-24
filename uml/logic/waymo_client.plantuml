@@ -1,0 +1,67 @@
+@startuml
+title Combined Activity Diagram for waymo_client.py
+
+start
+
+:Initialize ROS node 'waymo_client';
+
+:Initialize WaymoClient object;
+:Wait for server processes 'process_pointcloud' and 'landmark_detection' to be available;
+
+:Loop through Waymo Dataset Frames;
+
+while (Frames available?) is (yes)
+    :Initialize PointCloudProcessor;
+    :Initialize CameraProcessor;
+    
+    :Process PointCloud;
+    :Get point cloud from frame;
+    :Send point cloud to clustering service;
+
+    fork
+        :Lock mutex;
+        :Log 'PointCloud received';
+        :Convert ROS PointCloud2 message to PCL point cloud;
+
+        :Crop point cloud;
+        if (do_downsampling) then (true)
+            :Downsample point cloud;
+        else (false)
+            :Use cropped point cloud;
+        endif
+
+        :Extract ground from point cloud;
+        :Perform Euclidean clustering;
+
+        :Convert clustered point cloud to ROS PointCloud2 message;
+        :Unlock mutex;
+        :Return clustered point cloud in service response;
+    end fork
+
+    :Receive clustered point cloud;
+
+    :Process Image;
+    :Get camera image from frame;
+    :Send image to landmark detection service;
+
+    fork
+        :Log 'Image received for processing';
+        :Convert ROS Image message to OpenCV image;
+        :Run YOLO detection;
+        :Generate segmentation mask;
+
+        :Overlay segmentation mask on the original image;
+        :Convert result back to ROS Image message;
+
+        :Return processed image in service response;
+    end fork
+
+    :Receive processed image;
+    
+    :Project point cloud on image;
+    
+    :Display projected image;
+endwhile
+
+stop
+@enduml

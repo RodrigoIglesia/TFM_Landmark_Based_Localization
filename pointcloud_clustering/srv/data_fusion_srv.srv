@@ -3,3 +3,4 @@ geometry_msgs/PoseArray verticalElements
 geometry_msgs/PoseArray verticalElements_BL
 ---
 pointcloud_clustering/positionRPY corrected_position
+int32 match_index

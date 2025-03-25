@@ -1,7 +1,9 @@
 @startuml
+skinparam linetype ortho
 skinparam rectangle {
     BackgroundColor<<external>> LightBlue
     BackgroundColor<<internal>> LightGreen
+    BackgroundColor<<subprocesses>> LightYellow
     Padding 20
     MinWidth 300
 }
@@ -11,20 +13,24 @@ rectangle "Waymo Open Dataset Database" <<external>> {
 }
 
 rectangle "Point Cloud Processing Module" <<internal>> {
-    rectangle "Crop" as [crop]
-    rectangle "Downsampling" as [downsampling]
-    rectangle "Ground Extraction" as [groundExtraction]
-    rectangle "Clustering" as [clustering]
+    [Convert to ROS Pointcloud]
+    rectangle "Point Cloud Processing" <<subprocesses>> {
+        [crop]
+        [downsampling]
+        [groundExtraction]
+        [clustering]
+    }
 }
 
 rectangle "Data Association Module" <<internal>> {
-    [ReceiveProcessedPointCloud]
+    [Receive Processed PointCloud]
 }
 
-[WaymoPointCloud] --> [crop] : produces
+[WaymoPointCloud] --> [Convert to ROS Pointcloud] : pointcloud
+[Convert to ROS Pointcloud] -right-> [crop] : ROS pointcloud
 [crop] --> [downsampling] : cropped pointcloud
 [downsampling] --> [groundExtraction] : downsampled pointcloud
 [groundExtraction] --> [clustering] : ground extracted pointcloud
-[clustering] --> [ReceiveProcessedPointCloud] : clustered pointcloud
+[clustering] --> [Receive Processed PointCloud] : clustered pointcloud
 
 @enduml

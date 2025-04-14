@@ -1,5 +1,7 @@
 @startuml
-
+skinparam linetype ortho
+skinparam monochrome true
+skinparam classBackgroundColor white
 class WaymoClient {
     - frame : object
     - cams_order : list
@@ -64,8 +66,8 @@ class DataAssociationProcessor {
     + calculate_landmark_pose(): dict
 }
 
-WaymoClient *-- PointCloudProcessor
-WaymoClient *-- CameraProcessor
-WaymoClient *-- DataAssociationProcessor
+WaymoClient --> PointCloudProcessor
+WaymoClient --> CameraProcessor
+WaymoClient --> DataAssociationProcessor
 
 @enduml

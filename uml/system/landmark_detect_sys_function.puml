@@ -11,16 +11,16 @@ rectangle "Waymo Open Dataset Database" <<external>> {
 }
 
 rectangle "Landmark Detection Module" <<internal>> {
-    rectangle "Landmark Detection" as landmarkDetection
-    rectangle "Convert to ROS Image" as convertToRosImage
+    [landmarkDetection]
+    [returnDetectionMask]
 }
 
 rectangle "Data Association Module" <<internal>> {
     [ReceiveProcessedImage]
 }
 
-[WaymoImage] --> landmarkDetection : produces
-landmarkDetection --> convertToRosImage : segmentation mask
-convertToRosImage --> [ReceiveProcessedImage] : processed image
+[WaymoImage] --> [landmarkDetection] : produces
+[landmarkDetection] --> [returnDetectionMask] : segmentation mask
+[returnDetectionMask] --> [ReceiveProcessedImage] : processed image
 
 @enduml

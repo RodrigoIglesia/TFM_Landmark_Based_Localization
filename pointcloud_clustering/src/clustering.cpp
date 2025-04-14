@@ -217,6 +217,7 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr PointCloudProcessor::pointcloudExtractGround
         groundDistance.y = coefficientsGround->values[3] * coefficientsGround->values[1];
         groundDistance.z = coefficientsGround->values[3] * coefficientsGround->values[2];
 
+        //TODO: No se está utilizando el cuaternio de inclinación del plano para nada
         u[0] = (-groundDirection.y) / (sqrt(pow(groundDirection.x, 2) + pow(groundDirection.y, 2)));
         u[1] = (groundDirection.x) / (sqrt(pow(groundDirection.x, 2) + pow(groundDirection.y, 2)));
         u[2] = 0.0;
@@ -224,7 +225,8 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr PointCloudProcessor::pointcloudExtractGround
         theta = acos(groundDirection.z);
 
         tfQuat = {sin(theta / 2) * u[0], sin(theta / 2) * u[1], sin(theta / 2) * u[2], cos(theta / 2)};
-
+        //
+        
         extract.setInputCloud(inputCloud);
         extract.setIndices(inliersGround);
         extract.setNegative(true);

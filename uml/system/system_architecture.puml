@@ -27,7 +27,7 @@ rectangle "Waymo Client Module" <<internal>> {
     rectangle "Data Association Module" <<subprocesses>> {
         [Project Point Cloud On Image]
         [Calculate IoU]
-        [Align Poses To Global Frame]
+        [Get Landmark Poses in Vehicle Frame]
     }
     [Publish Corrected Vehicle Pose]
 }
@@ -60,7 +60,7 @@ rectangle "Data Fusion Module" <<internal>> {
 [Waymo Image] -[hidden]right-> [Odometry Data]
 [Pointcloud Processing Start] -[hidden]down-> [Receive Clustered Point Cloud]
 [Landmark Detection Start] -[hidden]down-> [Receive Processed Image]
-[Align Poses To Global Frame] -[hidden]down-> [Publish Corrected Vehicle Pose]
+[Get Landmark Poses in Vehicle Frame] -[hidden]down-> [Publish Corrected Vehicle Pose]
 
 '--- Connections from external to internal modules ---
 [Waymo Point Cloud] -down-> [Pointcloud Processing Start] : waymo_range_images
@@ -71,7 +71,7 @@ rectangle "Data Fusion Module" <<internal>> {
 ' '--- Pointcloud Processing Flow ---
 [Pointcloud Processing Start] -right-> [Convert to ROS Pointcloud] : pointcloud
 [Convert to ROS Pointcloud] -down-> [Pointcloud Processing] : pointcloud_msg
-[Pointcloud Processing] -left-> [Receive Clustered Point Cloud] : clustered_pointcloud
+[Pointcloud Processing] -left-> [Receive Clustered Point Cloud] : [clustered_pointcloud]
 
 
 ' '--- Image Processing Flow ---
@@ -80,15 +80,15 @@ rectangle "Data Fusion Module" <<internal>> {
 [Landmark Image Detection] -left-> [Receive Processed Image] : processed_image
 
 ' '--- Data Association Flow ---
-[Receive Clustered Point Cloud] -down-> [Project Point Cloud On Image] : clustered_pointcloud
+[Receive Clustered Point Cloud] -down-> [Project Point Cloud On Image] : [clustered_pointcloud]
 [Receive Processed Image] -down-> [Project Point Cloud On Image] : processed_image
 [Project Point Cloud On Image] -down-> [Calculate IoU] : projection_data
-[Calculate IoU] -down-> [Align Poses To Global Frame] : matched_clusters
+[Calculate IoU] -down-> [Get Landmark Poses in Vehicle Frame] : matched_clusters
 
 ' '--- Data Fusion Flow ---
 [Odometry Processing] -down-> [Predict State] : global_vehicle_pose
 [Predict State] -down-> [Match Observations To Map] : incremental_vehicle_pose
-[Align Poses To Global Frame] --> [Match Observations To Map] : global_landmark_poses
+[Get Landmark Poses in Vehicle Frame] --> [Match Observations To Map] : global_landmark_poses
 [Match Observations To Map] -down-> [Update State With EKF] : matched_data
 [Update State With EKF] -down-> [Publish Corrected Vehicle Pose] : global_corrected_vehicle_pose
 

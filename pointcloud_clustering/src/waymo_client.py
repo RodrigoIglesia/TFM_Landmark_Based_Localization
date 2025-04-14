@@ -567,6 +567,16 @@ if __name__ == "__main__":
                 ]
                 csv_writer.writerow(header)
 
+            #TODO: REMOVE > Save detected landmarks BY CLUSTERING PROCESS for debugging porpuses
+            landmark_candidates_csv_file_path = os.path.join(results_folder, f'landmarks_candidates_{scene_name}.csv')
+            with open(landmark_candidates_csv_file_path, 'w', newline='') as csvfile:
+                csv_writer = csv.writer(csvfile)
+                # Write header once at the beginning
+                header = [
+                    'frame', 'match_index', 'Landmark_X', 'Landmark_Y', 'Landmark_Z', 'Landmark_Roll', 'Landmark_Pitch', 'Landmark_Yaw'
+                ]
+                csv_writer.writerow(header)
+
         # Reset odometry cumulative error every scene
         #TODO Simulated odometry >> REMOVE IN CASE REAL DATA IS AVAILABLE
         if wc is not None:
@@ -745,8 +755,20 @@ if __name__ == "__main__":
             with open(landmark_csv_file_path, 'a', newline='') as csvfile:
                 csv_writer = csv.writer(csvfile)
                 for label, landmark in data_association_processor.clusters_poses.items():
-                    #TODO: Project landmark to map frame
-                    landmark = tu.comp_poses(corrected_pose, landmark)
+                    landmark = tu.comp_poses(rel_pose, landmark)
+                    row = [frame_n], [wc.match_index], landmark[0], landmark[1], landmark[2], landmark[3], landmark[4], landmark[5]
+                    csv_writer.writerow(row)
+                rospy.logdebug(f"Frame {frame_n} data appended to CSV")
+
+            # Append clustering candidate landmarks (Referenced to the map Frame) data for the current frame to CSV
+            with open(landmark_candidates_csv_file_path, 'a', newline='') as csvfile:
+                csv_writer = csv.writer(csvfile)
+                for label, landmark_pc in wc.clustered_pointcloud.items():
+                    # Compute the centroid of the landmark
+                    centroid = w3d.get_cluster_centroid(landmark_pc)
+                    roll, pitch, yaw = 0.0, 0.0, 0.0
+                    landmark = [centroid[0], centroid[1], centroid[2], roll, pitch, yaw]
+                    landmark = tu.comp_poses(rel_pose, landmark)
                     row = [frame_n], [wc.match_index], landmark[0], landmark[1], landmark[2], landmark[3], landmark[4], landmark[5]
                     csv_writer.writerow(row)
                 rospy.logdebug(f"Frame {frame_n} data appended to CSV")

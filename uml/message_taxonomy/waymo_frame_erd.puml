@@ -1,0 +1,37 @@
+@startuml
+skinparam linetype ortho
+
+class Extrinsic {
+  transform: List<str>
+}
+class Camera_calibrations {
+  name: UNKNOWN
+  intrinsic: List<str>
+  width: int32
+  height: int32
+  rolling_shutter_direction: UNKNOWN
+}
+class Laser_calibrations {
+  name: UNKNOWN
+  beam_inclinations: List<str>
+  beam_inclination_min: double
+  beam_inclination_max: double
+}
+class Stats {
+  time_of_day: string
+  location: string
+  weather: string
+}
+class Context {
+  name: string
+}
+class Root {
+  timestamp_micros: int64
+}
+Root --> Context
+Context --> Camera_calibrations
+Camera_calibrations --> Extrinsic
+Context --> Laser_calibrations
+Laser_calibrations --> Extrinsic
+Context --> Stats
+@enduml

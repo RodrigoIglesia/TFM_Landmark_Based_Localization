@@ -1,5 +1,10 @@
 @startuml
-entity "KITTIDataset" {
+skinparam linetype ortho
+skinparam monochrome true
+skinparam classBackgroundColor white
+skinparam ranksep 40
+
+entity "KITTIDataset" as Dataset {
     * DatasetID : int
     --
     + StereoImages
@@ -9,7 +14,7 @@ entity "KITTIDataset" {
     + Calibration
 }
 
-entity "StereoImages" {
+entity "StereoImages" as Stereo {
     * StereoID : int
     --
     + LeftImage : Image
@@ -18,14 +23,14 @@ entity "StereoImages" {
     + Resolution : string
 }
 
-entity "OpticalFlow" {
+entity "OpticalFlow" as Flow {
     * FlowID : int
     --
     + FlowMap : File
     + Resolution : string
 }
 
-entity "VisualOdometry" {
+entity "VisualOdometry" as Odometry {
     * OdometryID : int
     --
     + Sequence : string
@@ -34,7 +39,7 @@ entity "VisualOdometry" {
     + IMUData : File
 }
 
-entity "3DObjectAnnotations" {
+entity "3DObjectAnnotations" as Annotations {
     * AnnotationID : int
     --
     + ObjectClass : string
@@ -43,7 +48,7 @@ entity "3DObjectAnnotations" {
     + Occluded : boolean
 }
 
-entity "Calibration" {
+entity "Calibration" as Calib {
     * CalibrationID : int
     --
     + CameraMatrix : string
@@ -51,14 +56,16 @@ entity "Calibration" {
     + GPSMatrix : string
 }
 
-KITTIDataset --o StereoImages : contains
-KITTIDataset --o OpticalFlow : contains
-KITTIDataset --o VisualOdometry : contains
-KITTIDataset --o 3DObjectAnnotations : contains
-KITTIDataset --o Calibration : provides
+' Relaciones de contención
+Dataset --> Stereo
+Dataset --> Flow
+Dataset --> Odometry
+Dataset --> Annotations
+Dataset --> Calib
 
-StereoImages           o-- Calibration : "uses"
-OpticalFlow            o-- Calibration : "uses"
-VisualOdometry         o-- Calibration : "uses"
-3DObjectAnnotations    o-- Calibration : "uses"
+' Relaciones de dependencia (evitando cruces)
+Stereo --> Calib
+Flow --> Calib
+Odometry --> Calib
+Annotations --> Calib
 @enduml

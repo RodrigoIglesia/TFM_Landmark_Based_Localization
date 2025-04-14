@@ -166,7 +166,7 @@ cython_debug/
 /models
 /logs
 /out
-/results
+/results/individual_files*
 *.rviz
 *.tfrecords
 *.csv

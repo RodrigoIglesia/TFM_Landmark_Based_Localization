@@ -1,46 +1,52 @@
 @startuml
+skinparam linetype ortho
 skinparam rectangle {
     BackgroundColor<<external>> LightBlue
     BackgroundColor<<internal>> LightGreen
+    BackgroundColor<<system>> White
     BackgroundColor<<subprocesses>> LightYellow
     Padding 20
     MinWidth 300
 }
 
+'--- External Dataset at the Top ---
 rectangle "Waymo Open Dataset Database" <<external>> {
-    [Odometry data]
-    [PointCloud]
-    [Image]
+    [Odometry Data]
     [HD Map]
 }
 
+'--- Landmark Detection System ---
 rectangle "Waymo Client Module" <<internal>> {
-    rectangle "PointCloud Processing" as pointCloudProcessing
-    rectangle "Odometry Processing" as odomProcessing
-    rectangle "Data Association Processes" <<subprocesses>> {
-        [ProcessObservations]
-    }
+    [Odometry Processing]
+    rectangle "Data Association Module" <<subprocesses>>
+    [Publish Corrected Vehicle Pose]
 }
 
-rectangle "Data Fusion Service" <<internal>> {
-    [PredictState]
-    [MatchObservationsToMap]
-    [UpdateStateWithEKF]
+
+rectangle "Data Fusion Module" <<internal>> {
+    [Predict State]
+    [Match Observations To Map]
+    [Update State With EKF]
 }
 
-[Odometry data] --> odomProcessing : odometry_data
-[PointCloud] --> pointCloudProcessing : pointloud_data
-pointCloudProcessing --> [ProcessObservations] : clustered_pointcloud
+"Waymo Client Module" -[hidden]left-> "Data Fusion Module"
+[Odometry Processing] -[hidden]down-> "Data Association Module"
+[Data Association Module] -[hidden]down-> [Publish Corrected Vehicle Pose]
 
-[Image] --> [ProcessObservations] : camera_image
 
-[HD Map] --> [MatchObservationsToMap] : map_data
+'--- Connections from external to internal modules ---
+[Odometry Data] -down-> [Odometry Processing] : odometry_data
+[HD Map] --> [Match Observations To Map] : map_data
 
-[ProcessObservations] --> [PredictState] : observation_poses
-[odomProcessing] --> [PredictState] : incremental_vehicle_pose
+' '--- Data Fusion Flow ---
+[Odometry Processing] --> [Predict State] : global_vehicle_pose
+[Predict State] --> [Match Observations To Map] : incremental_vehicle_pose
+"Data Association Module" --> [Match Observations To Map] : global_landmark_poses
+[Match Observations To Map] --> [Update State With EKF] : matched_data
+[Update State With EKF] --> [Publish Corrected Vehicle Pose] : global_corrected_vehicle_pose
 
-[PredictState] --> [MatchObservationsToMap] : predicted_state
-[MatchObservationsToMap] --> [UpdateStateWithEKF] : matched_data
-[UpdateStateWithEKF] --> "WaymoClient" : global_corrected_vehicle_pose
-
+legend bottom
+  [Publish Corrected Vehicle Pose] is the final output process,
+  producing the corrected global vehicle pose.
+end legend
 @enduml

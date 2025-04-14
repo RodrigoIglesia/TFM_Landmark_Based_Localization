@@ -1,4 +1,7 @@
 @startuml
+skinparam linetype ortho
+skinparam monochrome true
+skinparam classBackgroundColor white
 
 entity Frame {
     * timestamp_micros: int64
@@ -9,48 +12,46 @@ entity Pose {
     * transform: double[]
 }
 
-entity Image {
-    * name: UNKNOWN
+entity CameraImage {
+    * name: string
     * image: bytes
     * pose_timestamp: double
-    * velocity: (v_x: float, v_y: float, v_z: float, w_x: double, w_y: double, w_z: double)
+    * velocity
     * shutter: double
     * camera_trigger_time: double
     * camera_readout_done_time: double
-    * camera_segmentation_label: (panoptic_label_divisor: int32, panoptic_label: bytes, ...)
+    * camera_segmentation_label
 }
 
 entity CameraCalibration {
-    * name: UNKNOWN
+    * name: CameraName.Name
     * intrinsic: double[]
     * extrinsic: { transform: double[] }
     * width: int32
     * height: int32
-    * rolling_shutter_direction: UNKNOWN
+    * rolling_shutter_direction: RollingShutterDirection
 }
 
 entity LaserCalibration {
-    * name: UNKNOWN
+    * name: LaserName.Name
     * beam_inclinations: double[]
     * beam_inclination_min: double
     * beam_inclination_max: double
     * extrinsic: { transform: double[] }
 }
 
-entity Laser {
-    * name: UNKNOWN
-    * ri_return1: { range_image_compressed: bytes, ... }
-    * ri_return2: { range_image_compressed: bytes, ... }
+entity Context {
+    * name: string
+    * Stats: message
 }
 
-' Define relationships with aggregation and composition
-Frame o-- Pose : "has"
-Frame *-- Image : "contains"
-Frame *-- CameraCalibration : "contains"
-Frame *-- LaserCalibration : "contains"
-Frame *-- Laser : "contains"
-Image o-- Pose : "has"
-CameraCalibration *-- Pose : "extrinsic contains"
-LaserCalibration *-- Pose : "extrinsic contains"
 
+Frame --> "0..1" Pose
+Frame --> "0..1" Context
+Frame --> "0..*" CameraImage
+CameraImage --> "0..1" Pose
+Context --> "0..*" CameraCalibration
+Context --> "0..*" LaserCalibration
+CameraCalibration --> "0..1" Pose
+LaserCalibration --> "0..1" Pose
 @enduml

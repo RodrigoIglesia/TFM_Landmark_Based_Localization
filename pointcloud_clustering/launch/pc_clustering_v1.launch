@@ -1,6 +1,6 @@
 <launch>
   <!-- Definir un argumento para la escena -->
-  <arg name="scene_name" default="individual_files_validation_segment-10289507859301986274_4200_000_4220_000_with_camera_labels" />
+  <arg name="scene_name" default="individual_files_validation_segment-10335539493577748957_1372_870_1392_870_with_camera_labels" />
 
   <!-- <node type="rviz" name="rviz" pkg="rviz" args="-d /home/rodrigo/catkin_ws/src/TFM_Landmark_Based_Localization/landmark_localization.rviz" /> -->
   

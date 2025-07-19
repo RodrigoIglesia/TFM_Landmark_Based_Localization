@@ -42,4 +42,4 @@ Edit parameters in `config/clustering_config.conf` and `config/data_fusion_confi
 - Boost (program_options)
 - sensor_msgs, geometry_msgs, visualization_msgs
 
-See the main [WayLoc README](../../README.md) for full
+See the main [WaymoLoc README](../README.md) for full

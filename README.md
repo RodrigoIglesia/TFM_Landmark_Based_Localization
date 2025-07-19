@@ -23,7 +23,7 @@ Each component is developed as an independent ROS package and follows a modular,
 ```
 WaymoLoc/
 ├── hd_map_gen/ # HD map generation script
-├── pointcloud_clustering/ # Main module for clustering and localization
+├── pointcloud_clustering/ # Main module for landmark detection and localization
 │ ├── config/ # Configuration files
 │ ├── include/ # C++ header files
 │ ├── launch/ # ROS launch files
@@ -76,9 +76,15 @@ WaymoLoc/
 
 - Launch the full localization pipeline:
   ```bash
-  roslaunch launch/wayloc_full.launch
+  roslaunch launch/waymoloc_full.launch
   ```
 - Run individual modules for testing and development.
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/55a763a3-1a5c-4e70-9922-40c5e77a0854" alt="Tests_correction_scene" width="600"/>
+  <img src="https://github.com/user-attachments/assets/7e2d1c5f-e8ae-4b33-a419-743dad1489a2" alt="EKF_mal_ajustado" width="600"/>
+</p>
+
+
 
 ---
 

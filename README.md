@@ -76,7 +76,7 @@ WaymoLoc/
 
 - Launch the full localization pipeline:
   ```bash
-  roslaunch launch/waymoloc_full.launch
+  roslaunch waymoloc_full.launch
   ```
 - Run individual modules for testing and development.
 <p align="center">

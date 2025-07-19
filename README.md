@@ -1,6 +1,6 @@
-# WayLoc: Modular Vehicle Localization System Using ROS and Waymo Dataset
+# WaymoLoc: Modular Vehicle Localization System Using ROS and Waymo Open Dataset
 
-**WayLoc** is a modular localization system for autonomous vehicles, developed using **ROS**, **Python**, and **C++**. It integrates multiple perception (LiDAR and High-Resolution cameras) and data fusion modules leveraging the **Waymo Open Dataset** to estimate the vehicle's position in complex urban environments.
+**WaymoLoc** is a modular localization system for autonomous vehicles, developed using **ROS**, **Python**, and **C++**. It integrates multiple perception (LiDAR and High-Resolution cameras) and data fusion modules leveraging the **Waymo Open Dataset** to estimate the vehicle's position in complex urban environments.
 
 ---
 
@@ -84,13 +84,6 @@ WaymoLoc/
   <img src="https://github.com/user-attachments/assets/7e2d1c5f-e8ae-4b33-a419-743dad1489a2" alt="EKF_mal_ajustado" width="600"/>
 </p>
 
-
-
----
-
-## 📖 Documentation
-
-See the [docs/](docs/) directory for detailed module descriptions, usage examples, and API references.
 
 ---
 

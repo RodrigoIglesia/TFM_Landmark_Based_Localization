@@ -61,30 +61,8 @@ For each Waymo scene:
 
 ## 🚀 Running the Script
 
-```bash
-python map_pointcloud_concatenated.py
-ataset data.
+```bash python map_pointcloud_concatenated.py```
 
-## Objective
 
-The goal of this module is to automate the creation of accurate HD maps, which are essential for precise vehicle localization and navigation in autonomous driving applications.
+<img width="1600" height="1200" alt="hd_map (1)" src="https://github.com/user-attachments/assets/e1522cbd-4840-41f4-a7f8-d72f98359db8" />
 
-## Usage
-
-1. Clone the repository and navigate to the module directory:
-    ```bash
-    git clone <repo_url>
-    cd WaymoLoc/hd_map_gen
-    ```
-
-2. Install dependencies:
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-3. Run the map generation script:
-    ```bash
-    python generate_hd_map.py --input <waymo_data_path> --output <map_output_path>
-    ```
-
-Refer to the script's help (`-h`) for additional options.

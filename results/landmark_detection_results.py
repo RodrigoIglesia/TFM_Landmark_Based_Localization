@@ -127,7 +127,7 @@ def evaluate_split(model, loader, split_name, feature_extractor, device):
         print(f"{k}: {v}")
 
 ## Load segformer model for evaluation
-model_name = "nvidia/segformer-b0-finetuned-cityscapes-1024-1024"
+model_name = "nvidia/segformer-b5-finetuned-cityscapes-1024-1024"
 model = SegformerForSemanticSegmentation.from_pretrained(model_name)
 feature_extractor = SegformerFeatureExtractor.from_pretrained(model_name)
 
@@ -137,55 +137,55 @@ dataset_dir = os.path.join(src_dir, "dataset/segmentation/waymo_landmark_segment
 train_loader = load_coco_split(dataset_dir, "train", feature_extractor)
 val_loader = load_coco_split(dataset_dir, "valid", feature_extractor)
 
-evaluate_split(model, train_loader, "train", feature_extractor, 'cpu')
-evaluate_split(model, val_loader, "valid", feature_extractor, 'cpu')
+# evaluate_split(model, train_loader, "train", feature_extractor, 'cpu')
+# evaluate_split(model, val_loader, "valid", feature_extractor, 'cpu')
 
-# metric = evaluate.load("mean_iou")
-# for batch in tqdm(train_loader, desc="Evaluating"):
-#     sample = batch[0]
-#     image = sample["image"]
-#     label = sample["labels"].to('cpu')
+metric = evaluate.load("mean_iou")
+for batch in tqdm(train_loader, desc="Evaluating"):
+    sample = batch[0]
+    image = sample["image"]
+    label = sample["labels"].to('cpu')
 
-#     prediction = predict(model, feature_extractor, image, 'cpu')
-#     binary_prediction = torch.isin(prediction, target_classes).long()
-#     predictions=binary_prediction.unsqueeze(0).cpu().numpy()
-#     references=label.unsqueeze(0).numpy()
-#     print(f"predictions shape: {predictions.shape}")
-#     print(f"references shape: {references.shape}")
-#     metric.add_batch(
-#         predictions=predictions,
-#         references=references
-#     )
-#     print(metric.compute(num_labels=2, ignore_index=None))
+    prediction = predict(model, feature_extractor, image, 'cpu')
+    binary_prediction = torch.isin(prediction, target_classes).long()
+    predictions=binary_prediction.unsqueeze(0).cpu().numpy()
+    references=label.unsqueeze(0).numpy()
+    print(f"predictions shape: {predictions.shape}")
+    print(f"references shape: {references.shape}")
+    metric.add_batch(
+        predictions=predictions,
+        references=references
+    )
+    print(metric.compute(num_labels=2, ignore_index=None))
 
-#     metric.add_batch(
-#         predictions=predictions,
-#         references=references
-#     )
+    metric.add_batch(
+        predictions=predictions,
+        references=references
+    )
 
-    # if torch.is_tensor(label):
-    #     label_mask = label.cpu().numpy()
-    # if torch.is_tensor(binary_prediction):
-    #     prediction_mask = binary_prediction.cpu().numpy()
+    if torch.is_tensor(label):
+        label_mask = label.cpu().numpy()
+    if torch.is_tensor(binary_prediction):
+        prediction_mask = binary_prediction.cpu().numpy()
 
-    # # Scale up binary masks for visibility (0 or 255)
-    # label_vis = (label_mask * 255).astype(np.uint8)
-    # prediction_vis = (prediction_mask * 255).astype(np.uint8)
-    # fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+    # Scale up binary masks for visibility (0 or 255)
+    label_vis = (label_mask * 255).astype(np.uint8)
+    prediction_vis = (prediction_mask * 255).astype(np.uint8)
+    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
 
-    # axes[0].imshow(image)
-    # axes[0].set_title("Original Image")
-    # axes[0].axis("off")
+    axes[0].imshow(image)
+    axes[0].set_title("Original Image")
+    axes[0].axis("off")
 
-    # axes[1].imshow(label_vis, cmap='gray')
-    # axes[1].set_title("Ground Truth")
-    # axes[1].axis("off")
+    axes[1].imshow(label_vis, cmap='gray')
+    axes[1].set_title("Ground Truth")
+    axes[1].axis("off")
 
-    # axes[2].imshow(prediction_vis, cmap='gray')
-    # axes[2].set_title("Prediction")
-    # axes[2].axis("off")
+    axes[2].imshow(prediction_vis, cmap='gray')
+    axes[2].set_title("Prediction")
+    axes[2].axis("off")
 
-    # plt.tight_layout()
-    # plt.show()
+    plt.tight_layout()
+    plt.show()
 
 # results = metric.compute(num_labels=NUM_CLASSES)

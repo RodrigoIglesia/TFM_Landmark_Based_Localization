@@ -11,10 +11,10 @@ sys.path.append(src_dir)
 
 
 # Load the files
-scene = "individual_files_training_segment-10023947602400723454_1120_000_1140_000_with_camera_labels"
+scene = "individual_files_validation_segment-10289507859301986274_4200_000_4220_000_with_camera_labels"
 
-landmarks_file = os.path.join(src_dir, "results/" + scene + "/202503011722/landmarks_" + scene +".csv")
-poses_file = os.path.join(src_dir, "results/" + scene + "/202503011722/poses_" + scene + ".csv")
+landmarks_file = os.path.join(src_dir, "results/" + scene + "/202503151829/landmarks_" + scene +".csv")
+poses_file = os.path.join(src_dir, "results/" + scene + "/202503151829/poses_" + scene + ".csv")
 signs_map_file = os.path.join(src_dir, "pointcloud_clustering/map/signs_map_features_" + scene +".csv")
 
 landmarks_data = pd.read_csv(landmarks_file)
@@ -45,18 +45,16 @@ for frame in unique_frames:
     observed_coords = frame_data[['Landmark_X', 'Landmark_Y', 'Landmark_Z', 'Landmark_Roll', 'Landmark_Pitch', 'Landmark_Yaw']].values
 
     observed_x, observed_y = frame_data['Landmark_X'], frame_data['Landmark_Y']
-    ax.scatter(observed_x, observed_y, c='green', alpha=0.6)
+    ax.scatter(observed_x, observed_y, c='green', alpha=0.6, label='Observed Landmarks' if frame == unique_frames[0] else "")
 
-    # Iterate through each match index
-    for i, match in enumerate(map_match):
-        if match > -1:
-            mam_match_coords = map_coords[match]
-            ax.plot(mam_match_coords[0], mam_match_coords[1], 'ro', markersize=8)
-            ax.plot([observed_coords[i, 0], mam_match_coords[0]], [observed_coords[i, 1], mam_match_coords[1]], 'k--', alpha=0.5)
+    # # Iterate through each match index
+    # for i, match in enumerate(map_match):
+    #     if match > -1:
+    #         mam_match_coords = map_coords[match]
+    #         ax.plot(mam_match_coords[0], mam_match_coords[1], 'ro', markersize=8)
+    #         ax.plot([observed_coords[i, 0], mam_match_coords[0]], [observed_coords[i, 1], mam_match_coords[1]], 'k--', alpha=0.5)
 
 
-noise_text = "position_noise_std=0.1, orientation_noise_std=0.0"
-ax.set_title(f'Mahalanobis Distance - {noise_text}')
 ax.set_xlabel('X (m)')
 ax.set_ylabel('Y (m)')
 ax.legend()
